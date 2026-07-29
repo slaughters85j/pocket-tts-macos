@@ -20,6 +20,7 @@ struct ChatView: View {
     @State private var ensembleViewMode: ViewMode = .transcript
     @State private var showsEnsembleSetup = false
     @State private var showsEnsembleCastEditor = false
+    @State private var showsResetConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,6 +93,14 @@ struct ChatView: View {
         } message: {
             Text("Choose how to handle images already sent to the previous Vision model.")
         }
+        .alert("Clear Chat?", isPresented: $showsResetConfirmation) {
+            Button("Clear Chat", role: .destructive) {
+                viewModel.resetTranscript()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every message in the current chat.")
+        }
     }
 
     // MARK: Top bar
@@ -149,6 +158,16 @@ struct ChatView: View {
         .buttonStyle(.plain)
         .disabled(!viewModel.canOpenInMultiTalk)
         .help("Open in Multi-Talk")
+
+        Button(action: { showsResetConfirmation = true }) {
+            Image(systemName: "trash")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.messages.isEmpty || viewModel.hasActiveTurn)
+        .help("Clear chat")
+        .accessibilityIdentifier("chat.clearTranscript")
 
         Button(action: { viewModel.toggleViewMode() }) {
             Image(systemName: viewModel.viewMode == .orb ? "list.bullet" : "circle.fill")

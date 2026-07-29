@@ -2,22 +2,37 @@
 //  MessageBubble.swift
 //  mimika-ai-voice-studio
 //
-//  Per-message chat bubble. User bubbles right-aligned in accent; assistant
-//  bubbles left-aligned in secondary. System messages are not rendered
-//  (system prompts are visible only in Settings).
+//  Per-message chat bubble. User bubbles are right-aligned in Apple blue;
+//  assistant bubbles are left-aligned in the app accent.
 
 import SwiftUI
 
+// MARK: - Message bubble
+
+/// Directional chat bubble for one visible Solo Chat message.
 struct MessageBubble: View {
     let message: ChatMessage
     var onPreviewImage: (ChatImageAttachment) -> Void = { _ in }
 
-    var body: some View {
-        if message.role == .system { EmptyView() } else {
-            HStack(alignment: .top, spacing: 0) {
-                if message.role == .user { Spacer(minLength: 60) }
+    @ScaledMetric(relativeTo: .body) private var bubbleRadius: CGFloat = 20
+    @ScaledMetric(relativeTo: .body) private var tailWidth: CGFloat = 14
+    @ScaledMetric(relativeTo: .body) private var tailDrop: CGFloat = 7
+    @ScaledMetric(relativeTo: .body) private var horizontalPadding: CGFloat = 14
+    @ScaledMetric(relativeTo: .body) private var verticalPadding: CGFloat = 8
 
-                VStack(alignment: message.role == .user ? .trailing : .leading, spacing: Theme.space2) {
+    var body: some View {
+        if message.role == .system {
+            EmptyView()
+        } else {
+            HStack(alignment: .top, spacing: 0) {
+                if message.role == .user {
+                    Spacer(minLength: 60)
+                }
+
+                VStack(
+                    alignment: message.role == .user ? .trailing : .leading,
+                    spacing: Theme.space2
+                ) {
                     if !message.attachments.isEmpty {
                         LazyVGrid(
                             columns: [GridItem(.adaptive(minimum: 112, maximum: 112))],
@@ -32,36 +47,155 @@ struct MessageBubble: View {
                             }
                         }
                     }
-                    if !message.content.isEmpty {
-                        Text(message.content)
+
+                    if !displayedContent.isEmpty {
+                        Text(displayedContent)
                             .font(Theme.fontSM)
-                            .foregroundStyle(textColor)
+                            .foregroundStyle(.white)
                             .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: alignment)
+                            .multilineTextAlignment(.leading)
                     }
                 }
-                    .padding(.horizontal, Theme.space4)
-                    .padding(.vertical, Theme.space3)
-                    .frame(maxWidth: .infinity, alignment: alignment)
-                    .background(bubbleBG)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusLarge))
-                    .frame(maxWidth: 560, alignment: alignment)
+                .padding(.leading, leadingPadding)
+                .padding(.trailing, trailingPadding)
+                .padding(.top, verticalPadding)
+                .padding(.bottom, verticalPadding + tailDrop)
+                .background {
+                    ChatBubbleShape(
+                        side: bubbleSide,
+                        cornerRadius: bubbleRadius,
+                        tailWidth: tailWidth,
+                        tailDrop: tailDrop
+                    )
+                    .fill(bubbleColor)
+                }
+                .frame(maxWidth: 560, alignment: alignment)
 
-                if message.role == .assistant { Spacer(minLength: 60) }
+                if message.role == .assistant {
+                    Spacer(minLength: 60)
+                }
             }
             .accessibilityIdentifier("chat.message.\(message.id.uuidString)")
         }
     }
 
-    private var textColor: Color {
-        message.role == .user ? .white : Theme.textPrimary
+    /// Leading response whitespace is hidden without rewriting transcript history.
+    private var displayedContent: String {
+        String(message.content.drop(while: { $0.isWhitespace }))
     }
 
-    private var bubbleBG: Color {
-        message.role == .user ? Theme.accent : Theme.bgSecondary
+    private var bubbleColor: Color {
+        message.role == .user
+            ? Color(red: 0.0, green: 0.478, blue: 1.0)
+            : Theme.accent
+    }
+
+    private var leadingPadding: CGFloat {
+        horizontalPadding + (message.role == .assistant ? tailWidth : 0)
+    }
+
+    private var trailingPadding: CGFloat {
+        horizontalPadding + (message.role == .user ? tailWidth : 0)
     }
 
     private var alignment: Alignment {
         message.role == .user ? .trailing : .leading
+    }
+
+    private var bubbleSide: ChatBubbleSide {
+        message.role == .user ? .right : .left
+    }
+}
+
+// MARK: - Bubble shape
+
+/// Side where the integrated bubble tail points toward its speaker.
+private nonisolated enum ChatBubbleSide {
+    case left
+    case right
+}
+
+/// One continuous rounded outline with a curved tail in its lower corner.
+private nonisolated struct ChatBubbleShape: Shape {
+    let side: ChatBubbleSide
+    let cornerRadius: CGFloat
+    let tailWidth: CGFloat
+    let tailDrop: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let rightPath = rightFacingPath(in: rect)
+        guard side == .left else { return rightPath }
+
+        let mirror = CGAffineTransform(translationX: rect.width, y: 0)
+            .scaledBy(x: -1, y: 1)
+        return rightPath.applying(mirror)
+    }
+
+    /// Build once for a right-facing bubble; left-facing bubbles mirror it exactly.
+    private func rightFacingPath(in rect: CGRect) -> Path {
+        let bodyWidth = max(0, rect.width - tailWidth)
+        let bodyHeight = max(0, rect.height - tailDrop)
+        let body = CGRect(
+            x: rect.minX,
+            y: rect.minY,
+            width: bodyWidth,
+            height: bodyHeight
+        )
+        let radius = min(
+            cornerRadius,
+            body.width / 2,
+            body.height / 2
+        )
+        let tailRise = min(max(15, radius * 0.95), max(0, body.height - radius))
+        let tailBase = min(10, max(8, radius * 0.55))
+        let tip = CGPoint(x: rect.maxX, y: rect.maxY)
+
+        var path = Path()
+        path.move(to: CGPoint(x: body.minX + radius, y: body.minY))
+
+        path.addLine(to: CGPoint(x: body.maxX - radius, y: body.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: body.maxX, y: body.minY + radius),
+            control: CGPoint(x: body.maxX, y: body.minY)
+        )
+
+        path.addLine(to: CGPoint(x: body.maxX, y: body.maxY - tailRise))
+        path.addCurve(
+            to: tip,
+            control1: CGPoint(
+                x: body.maxX,
+                y: body.maxY - tailRise * 0.1
+            ),
+            control2: CGPoint(
+                x: tip.x - tailWidth * 0.1,
+                y: tip.y - tailDrop * 0.15
+            )
+        )
+        path.addCurve(
+            to: CGPoint(x: body.maxX - tailBase, y: body.maxY),
+            control1: CGPoint(
+                x: tip.x - tailWidth * 0.2,
+                y: tip.y
+            ),
+            control2: CGPoint(
+                x: body.maxX - tailBase * 0.1,
+                y: body.maxY
+            )
+        )
+
+        path.addLine(to: CGPoint(x: body.minX + radius, y: body.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: body.minX, y: body.maxY - radius),
+            control: CGPoint(x: body.minX, y: body.maxY)
+        )
+
+        path.addLine(to: CGPoint(x: body.minX, y: body.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: body.minX + radius, y: body.minY),
+            control: CGPoint(x: body.minX, y: body.minY)
+        )
+
+        path.closeSubpath()
+        return path
     }
 }

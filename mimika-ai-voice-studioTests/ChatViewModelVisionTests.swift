@@ -169,6 +169,25 @@ final class ChatViewModelVisionTests: XCTestCase {
 
     // MARK: - Recovery and reuse
 
+    func test_resetTranscriptClearsMessagesAndPreservesComposer() throws {
+        let (viewModel, _, _) = try makeViewModel()
+        let pendingAttachment = makeAttachment(filename: "unsent.png")
+        viewModel.messages = [
+            ChatMessage(role: .user, content: "sent"),
+            ChatMessage(role: .assistant, content: "reply")
+        ]
+        viewModel.draft = "keep this draft"
+        viewModel.pendingAttachments = [pendingAttachment]
+        viewModel.status = .error("old error")
+
+        viewModel.resetTranscript()
+
+        XCTAssertTrue(viewModel.messages.isEmpty)
+        XCTAssertEqual(viewModel.draft, "keep this draft")
+        XCTAssertEqual(viewModel.pendingAttachments, [pendingAttachment])
+        XCTAssertEqual(viewModel.status, .idle)
+    }
+
     func test_newChatAndStripHistoryPreserveRequiredTextState() async throws {
         let (viewModel, _, _) = try makeViewModel()
         let image = makeAttachment(filename: "history.png")

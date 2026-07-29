@@ -18,6 +18,21 @@ extension ChatViewModel {
         UserDefaults.standard.set(viewMode.rawValue, forKey: "chatViewMode")
     }
 
+    /// Clear sent transcript state while preserving the unsent composer.
+    func resetTranscript() {
+        guard activeTurn == nil else {
+            showToast("Please wait until the model finishes responding.")
+            return
+        }
+
+        messages.removeAll()
+        previewAttachment = nil
+        showsVisionRecovery = false
+        deferredVisionRecovery = false
+        lastAutomaticVisionRecoveryKey = nil
+        status = .idle
+    }
+
     // MARK: Transcript export
 
     /// Present a Markdown save panel for reusable text only.
