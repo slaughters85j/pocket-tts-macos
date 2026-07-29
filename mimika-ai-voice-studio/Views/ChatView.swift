@@ -333,6 +333,7 @@ struct ChatView: View {
                     ForEach(viewModel.messages) { message in
                         MessageBubble(
                             message: message,
+                            isResponding: viewModel.activeTurn?.assistantMessageID == message.id,
                             onPreviewImage: { viewModel.previewAttachment = $0 }
                         )
                         .id(message.id)

@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 struct ChatComposerView: View {
     @Bindable var viewModel: ChatViewModel
     @State private var dropIsTargeted = false
+    @State private var editorHeight: CGFloat = 42
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
@@ -87,17 +88,29 @@ struct ChatComposerView: View {
 
     private var controls: some View {
         HStack(spacing: Theme.space3) {
-            TextField("Send a message…", text: $viewModel.draft, axis: .vertical)
-                .lineLimit(1...4)
-                .textFieldStyle(.plain)
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, Theme.space4)
-                .padding(.vertical, Theme.space3)
-                .themeInputField()
-                .disabled(viewModel.isComposerLocked)
-                .onSubmit { viewModel.send() }
-                .accessibilityIdentifier("chat.composer.field")
+            ZStack(alignment: .topLeading) {
+                if viewModel.draft.isEmpty {
+                    Text("Send a message…")
+                        .font(Theme.fontSM)
+                        .foregroundStyle(Theme.textSecondary)
+                        .padding(.horizontal, Theme.space4 + 4)
+                        .padding(.vertical, Theme.space3)
+                        .allowsHitTesting(false)
+                }
+                MacTextEditor(
+                    text: $viewModel.draft,
+                    isEditable: !viewModel.isComposerLocked,
+                    accessibilityID: "chat.composer.field",
+                    onSubmit: { viewModel.send() },
+                    onContentHeightChange: { contentHeight in
+                        editorHeight = min(max(contentHeight + 4, 42), 84)
+                    }
+                )
+                .padding(.horizontal, Theme.space4 - 4)
+                .padding(.vertical, 2)
+            }
+            .frame(height: editorHeight)
+            .themeInputField()
 
             if viewModel.supportsVision {
                 Button(action: chooseImages) {

@@ -13,6 +13,7 @@ import SwiftUI
 /// Directional chat bubble for one visible Solo Chat message.
 struct MessageBubble: View {
     let message: ChatMessage
+    var isResponding = false
     var onPreviewImage: (ChatImageAttachment) -> Void = { _ in }
 
     @ScaledMetric(relativeTo: .body) private var bubbleRadius: CGFloat = 20
@@ -49,7 +50,11 @@ struct MessageBubble: View {
                         }
                     }
 
-                    if message.role == .assistant, !displayedContent.isEmpty {
+                    if message.role == .assistant,
+                       isResponding,
+                       displayedContent.isEmpty {
+                        AssistantResponseShimmer()
+                    } else if message.role == .assistant, !displayedContent.isEmpty {
                         AssistantMarkdownText(source: displayedContent)
                     } else if !displayedContent.isEmpty {
                         Text(displayedContent)
@@ -107,6 +112,68 @@ struct MessageBubble: View {
 
     private var bubbleSide: ChatBubbleSide {
         message.role == .user ? .right : .left
+    }
+}
+
+// MARK: - Assistant response state
+
+/// Temporary response label with the standard left-to-right shimmer effect.
+private struct AssistantResponseShimmer: View {
+    private let label = "Model responding to user"
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Text(label)
+            .font(Theme.fontSM)
+            .foregroundStyle(Color.white.opacity(reduceMotion ? 0.68 : 0.38))
+            .overlay {
+                if !reduceMotion {
+                    ShimmerHighlight(label: label)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(label)
+    }
+}
+
+/// Animated translucent-to-opaque gradient band masked to the response label.
+private struct ShimmerHighlight: View {
+    let label: String
+
+    @State private var isInitialState = true
+
+    var body: some View {
+        Text(label)
+            .font(Theme.fontSM)
+            .foregroundStyle(Color.white)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .white.opacity(0.35), location: 0.3),
+                        .init(color: .white, location: 0.5),
+                        .init(color: .white.opacity(0.35), location: 0.7),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: isInitialState
+                        ? UnitPoint(x: -0.3, y: 0.5)
+                        : UnitPoint(x: 1, y: 0.5),
+                    endPoint: isInitialState
+                        ? UnitPoint(x: 0, y: 0.5)
+                        : UnitPoint(x: 1.3, y: 0.5)
+                )
+            }
+            .onAppear {
+                withAnimation(
+                    .linear(duration: 1.5)
+                        .delay(0.25)
+                        .repeatForever(autoreverses: false)
+                ) {
+                    isInitialState = false
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 
