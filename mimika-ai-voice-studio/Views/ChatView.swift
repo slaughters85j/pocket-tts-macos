@@ -22,6 +22,7 @@ struct ChatView: View {
     @State private var showsEnsembleCastEditor = false
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
+    @State private var editingMessage: ChatMessage?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,6 +76,19 @@ struct ChatView: View {
             ChatImagePreviewView(
                 attachment: attachment,
                 close: { viewModel.previewAttachment = nil }
+            )
+        }
+        .sheet(item: $editingMessage) { message in
+            ChatMessageEditorSheet(
+                message: message,
+                onCancel: { editingMessage = nil },
+                onSave: { content in
+                    viewModel.updateTranscriptMessage(
+                        id: message.id,
+                        content: content
+                    )
+                    editingMessage = nil
+                }
             )
         }
         .confirmationDialog(
@@ -334,7 +348,10 @@ struct ChatView: View {
                         MessageBubble(
                             message: message,
                             isResponding: viewModel.activeTurn?.assistantMessageID == message.id,
-                            onPreviewImage: { viewModel.previewAttachment = $0 }
+                            canModify: !viewModel.hasActiveTurn,
+                            onPreviewImage: { viewModel.previewAttachment = $0 },
+                            onEdit: { editingMessage = $0 },
+                            onDelete: { viewModel.deleteTranscriptMessage(id: $0) }
                         )
                         .id(message.id)
                     }

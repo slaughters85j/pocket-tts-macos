@@ -114,6 +114,7 @@
 		D53CE66A2FD2FADC0071832E /* DemucsModelVariant.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE59C2FD2FADC0071832E /* DemucsModelVariant.swift */; };
 		D53CE66B2FD2FADC0071832E /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5D32FD2FADC0071832E /* OrbShader.metal */; };
 		D53CE66C2FD2FADC0071832E /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5822FD2FADC0071832E /* MessageBubble.swift */; };
+		A11B9C102FD2FADC0071832E /* ChatMessageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11B9C112FD2FADC0071832E /* ChatMessageActions.swift */; };
 		D53CE66E2FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE6272FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift */; };
 		D53CE66F2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE64A2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift */; };
 		D53CE6702FD2FADC0071832E /* VoiceSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE58D2FD2FADC0071832E /* VoiceSelector.swift */; };
@@ -363,6 +364,7 @@
 		D53CE5802FD2FADC0071832E /* HistoryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryCard.swift; sourceTree = "<group>"; };
 		D53CE5812FD2FADC0071832E /* MacTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTextEditor.swift; sourceTree = "<group>"; };
 		D53CE5822FD2FADC0071832E /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
+		A11B9C112FD2FADC0071832E /* ChatMessageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageActions.swift; sourceTree = "<group>"; };
 		D53CE5832FD2FADC0071832E /* MiniAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniAudioPlayer.swift; sourceTree = "<group>"; };
 		D53CE5842FD2FADC0071832E /* ModalContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModalContainer.swift; sourceTree = "<group>"; };
 		D53CE5852FD2FADC0071832E /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
@@ -623,6 +625,7 @@
 				D53CE5802FD2FADC0071832E /* HistoryCard.swift */,
 				D53CE5812FD2FADC0071832E /* MacTextEditor.swift */,
 				D53CE5822FD2FADC0071832E /* MessageBubble.swift */,
+				A11B9C112FD2FADC0071832E /* ChatMessageActions.swift */,
 				D53CE5832FD2FADC0071832E /* MiniAudioPlayer.swift */,
 				0D0528909C61EB4E7BDC5ED2 /* ModelCapabilityBadges.swift */,
 				D53CE5842FD2FADC0071832E /* ModalContainer.swift */,
@@ -1268,6 +1271,7 @@
 				D53CE66A2FD2FADC0071832E /* DemucsModelVariant.swift in Sources */,
 				D53CE66B2FD2FADC0071832E /* OrbShader.metal in Sources */,
 				D53CE66C2FD2FADC0071832E /* MessageBubble.swift in Sources */,
+				A11B9C102FD2FADC0071832E /* ChatMessageActions.swift in Sources */,
 				D53CE6702FD2FADC0071832E /* VoiceSelector.swift in Sources */,
 				D53CE6712FD2FADC0071832E /* SpeakerIsolatorViewModel+ChangeVoices.swift in Sources */,
 				D53CE6722FD2FADC0071832E /* DemucsModelManagerSheet.swift in Sources */,

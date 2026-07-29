@@ -33,6 +33,29 @@ extension ChatViewModel {
         status = .idle
     }
 
+    /// Update one transcript message while preserving role and attachments.
+    func updateTranscriptMessage(id: UUID, content: String) {
+        guard activeTurn == nil else {
+            showToast("Please wait until the model finishes responding.")
+            return
+        }
+        guard let index = messages.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        messages[index].content = content
+    }
+
+    /// Delete only the selected transcript message.
+    func deleteTranscriptMessage(id: UUID) {
+        guard activeTurn == nil else {
+            showToast("Please wait until the model finishes responding.")
+            return
+        }
+
+        messages.removeAll(where: { $0.id == id })
+    }
+
     // MARK: Transcript export
 
     /// Present a Markdown save panel for reusable text only.

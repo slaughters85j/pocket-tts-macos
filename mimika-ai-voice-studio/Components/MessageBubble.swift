@@ -14,7 +14,12 @@ import SwiftUI
 struct MessageBubble: View {
     let message: ChatMessage
     var isResponding = false
+    var canModify = true
     var onPreviewImage: (ChatImageAttachment) -> Void = { _ in }
+    var onEdit: (ChatMessage) -> Void = { _ in }
+    var onDelete: (UUID) -> Void = { _ in }
+
+    @State private var isHovered = false
 
     @ScaledMetric(relativeTo: .body) private var bubbleRadius: CGFloat = 20
     @ScaledMetric(relativeTo: .body) private var tailWidth: CGFloat = 14
@@ -83,6 +88,23 @@ struct MessageBubble: View {
                     Spacer(minLength: 60)
                 }
             }
+            .padding(.bottom, 29)
+            .overlay(
+                alignment: message.role == .user ? .bottomTrailing : .bottomLeading
+            ) {
+                ChatMessageActionBar(
+                    message: message,
+                    canModify: canModify,
+                    onEdit: { onEdit(message) },
+                    onDelete: { onDelete(message.id) }
+                )
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .accessibilityHidden(!isHovered)
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
             .accessibilityIdentifier("chat.message.\(message.id.uuidString)")
         }
     }

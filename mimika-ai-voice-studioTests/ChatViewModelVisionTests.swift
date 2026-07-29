@@ -188,6 +188,43 @@ final class ChatViewModelVisionTests: XCTestCase {
         XCTAssertEqual(viewModel.status, .idle)
     }
 
+    func test_updateTranscriptMessagePreservesRoleAttachmentsAndLaterMessages() throws {
+        let (viewModel, _, _) = try makeViewModel()
+        let attachment = makeAttachment(filename: "kept.png")
+        let editedID = UUID()
+        let laterMessage = ChatMessage(role: .assistant, content: "unchanged reply")
+        viewModel.messages = [
+            ChatMessage(
+                id: editedID,
+                role: .user,
+                content: "original",
+                attachments: [attachment],
+                deliveryState: .accepted
+            ),
+            laterMessage
+        ]
+
+        viewModel.updateTranscriptMessage(id: editedID, content: "edited")
+
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[0].content, "edited")
+        XCTAssertEqual(viewModel.messages[0].attachments, [attachment])
+        XCTAssertEqual(viewModel.messages[0].deliveryState, .accepted)
+        XCTAssertEqual(viewModel.messages[1], laterMessage)
+    }
+
+    func test_deleteTranscriptMessageRemovesOnlySelectedMessage() throws {
+        let (viewModel, _, _) = try makeViewModel()
+        let first = ChatMessage(role: .user, content: "first")
+        let selected = ChatMessage(role: .assistant, content: "delete me")
+        let last = ChatMessage(role: .user, content: "last")
+        viewModel.messages = [first, selected, last]
+
+        viewModel.deleteTranscriptMessage(id: selected.id)
+
+        XCTAssertEqual(viewModel.messages, [first, last])
+    }
+
     func test_newChatAndStripHistoryPreserveRequiredTextState() async throws {
         let (viewModel, _, _) = try makeViewModel()
         let image = makeAttachment(filename: "history.png")
