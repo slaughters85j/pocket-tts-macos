@@ -83,12 +83,59 @@ extension ChatViewModel {
             let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard message.role != .system, !content.isEmpty else { return nil }
             let tag = message.role == .user ? "{Speaker 1}" : "{Speaker 2}"
-            let cleaned = TextNormalizer.stripStageDirections(
+            let withoutStageDirections = TextNormalizer.stripStageDirections(
                 content,
                 stripBracketedTags: stripBrackets
+            )
+            let cleaned = ChatTranscriptSanitizer.multiTalkText(
+                from: withoutStageDirections
             )
             return cleaned.isEmpty ? nil : "\(tag) \(cleaned)"
         }
         .joined(separator: "\n")
+    }
+}
+
+// MARK: - Multi-Talk sanitization
+
+/// Keeps only speech-safe text and punctuation for spoken chat reuse.
+nonisolated enum ChatTranscriptSanitizer {
+    private static let allowedPunctuation: Set<Character> = [
+        ".", "\"", "'", "“", "”", "‘", "’"
+    ]
+
+    static func multiTalkText(from source: String) -> String {
+        let flattened = ChatMarkdownParser.parse(source)
+            .map { segment in
+                switch segment {
+                case let .prose(content), let .code(_, content):
+                    return content
+                }
+            }
+            .joined(separator: "\n\n")
+
+        let speechSafeText = flattened.reduce(into: "") { result, character in
+            if character.isLetter
+                || character.isNumber
+                || character.isWhitespace
+                || allowedPunctuation.contains(character) {
+                result.append(character)
+            } else {
+                result.append(" ")
+            }
+        }
+
+        return collapseHorizontalWhitespace(in: speechSafeText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func collapseHorizontalWhitespace(in source: String) -> String {
+        source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                    .joined(separator: " ")
+            }
+            .joined(separator: "\n")
     }
 }

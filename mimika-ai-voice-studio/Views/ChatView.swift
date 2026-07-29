@@ -21,6 +21,7 @@ struct ChatView: View {
     @State private var showsEnsembleSetup = false
     @State private var showsEnsembleCastEditor = false
     @State private var showsResetConfirmation = false
+    @State private var isAudioMuted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +46,7 @@ struct ChatView: View {
         }
         .onAppear {
             if subMode == .solo { viewModel.startHealthChecks() }
+            Task { isAudioMuted = await player.isMuted }
         }
         .onDisappear { viewModel.stopSoloChatSession() }
         .onChange(of: subMode) { _, mode in
@@ -128,6 +130,16 @@ struct ChatView: View {
 
             Spacer()
 
+            Button(action: toggleAudioMute) {
+                Image(systemName: isAudioMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help(isAudioMuted ? "Unmute audio" : "Mute audio")
+            .accessibilityLabel(isAudioMuted ? "Unmute audio" : "Mute audio")
+            .accessibilityIdentifier("chat.audioMute")
+
             if subMode == .solo {
                 soloControls
             } else {
@@ -137,6 +149,13 @@ struct ChatView: View {
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space3)
         .background(Theme.bgPrimary)
+    }
+
+    /// Toggles the shared player output used by both Solo and Ensemble.
+    private func toggleAudioMute() {
+        Task {
+            isAudioMuted = await player.toggleMuted()
+        }
     }
 
     @ViewBuilder

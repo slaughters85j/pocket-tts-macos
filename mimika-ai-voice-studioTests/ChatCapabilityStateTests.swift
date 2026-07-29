@@ -213,3 +213,74 @@ private final class CapabilityPlayer: ChatAudioPlaying, @unchecked Sendable {
     func play(stream: AsyncStream<PCMFrame>) async throws {}
     func stop() async {}
 }
+
+// MARK: - Assistant Markdown
+
+final class ChatMarkdownParserTests: XCTestCase {
+    func test_parserSeparatesProseAndFencedCodeWithoutFenceMarkers() {
+        let source = """
+        Intro with **bold** text.
+
+        ```markdown
+        # Generated prompt
+        Keep this literal.
+        ```
+
+        Closing paragraph.
+        """
+
+        XCTAssertEqual(
+            ChatMarkdownParser.parse(source),
+            [
+                .prose("Intro with **bold** text."),
+                .code(
+                    language: "markdown",
+                    content: "# Generated prompt\nKeep this literal."
+                ),
+                .prose("Closing paragraph.")
+            ]
+        )
+    }
+
+    func test_parserTreatsUnclosedStreamingFenceAsCode() {
+        XCTAssertEqual(
+            ChatMarkdownParser.parse("Before\n\n```text\npartial response"),
+            [
+                .prose("Before"),
+                .code(language: "text", content: "partial response")
+            ]
+        )
+    }
+
+    func test_parserLeavesOrdinaryMarkdownAsProse() {
+        XCTAssertEqual(
+            ChatMarkdownParser.parse("- One\n- Two\n\n`inline`"),
+            [.prose("- One\n- Two\n\n`inline`")]
+        )
+    }
+
+    func test_multiTalkSanitizerRemovesFencesEmojiAndMarkdownMarkers() {
+        let source = """
+        Hello 👋 **John**.
+
+        ```markdown
+        *Prompt* with `inline code`.
+        Second line ❤️
+        ```
+        """
+
+        XCTAssertEqual(
+            ChatTranscriptSanitizer.multiTalkText(from: source),
+            "Hello John.\n\nPrompt with inline code.\nSecond line"
+        )
+    }
+
+    func test_multiTalkSanitizerKeepsOnlySpeechSafePunctuation() {
+        let source = #"Path /root\folder; #topic: "Sam's ready." — “It’s done.” [yes] {no} @home + 50%"#
+
+        XCTAssertEqual(
+            ChatTranscriptSanitizer.multiTalkText(from: source),
+            #"Path root folder topic "Sam's ready." “It’s done.” yes no home 50"#
+        )
+    }
+}

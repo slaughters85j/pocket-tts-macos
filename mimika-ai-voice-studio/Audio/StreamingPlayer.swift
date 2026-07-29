@@ -66,6 +66,7 @@ actor StreamingPlayer {
     private var drainContinuation: CheckedContinuation<Void, Error>?
     private var drainCompletedEarly = false
     private(set) var isStopped = false
+    private(set) var isMuted = false
 
     /// Serial queue for blocking AVAudioEngine lifecycle calls (start / stop /
     /// pause / setDeviceID). The queue carries NO fixed QoS, so each work item
@@ -145,6 +146,15 @@ actor StreamingPlayer {
     }
 
     // MARK: - Public controls
+
+    /// Toggles audible output without interrupting synthesis or scheduled playback.
+    /// Returns the new mute state for UI synchronization.
+    @discardableResult
+    func toggleMuted() -> Bool {
+        isMuted.toggle()
+        playerNode.volume = isMuted ? 0 : 1
+        return isMuted
+    }
 
     /// Consume the stream, scheduling each frame on the player node. Returns
     /// once the last scheduled buffer has played all the way through (i.e. the

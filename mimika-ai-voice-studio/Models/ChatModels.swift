@@ -72,6 +72,82 @@ nonisolated struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Chat Markdown
+
+/// Rendered section of one assistant response.
+nonisolated enum ChatMarkdownSegment: Equatable, Sendable {
+    case prose(String)
+    case code(language: String?, content: String)
+}
+
+/// Streaming-safe fenced-code segmentation shared by chat display and reuse.
+nonisolated enum ChatMarkdownParser {
+    static func parse(_ source: String) -> [ChatMarkdownSegment] {
+        let normalized = source.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.split(
+            separator: "\n",
+            omittingEmptySubsequences: false
+        )
+        var segments: [ChatMarkdownSegment] = []
+        var proseLines: [String] = []
+        var codeLines: [String] = []
+        var codeLanguage: String?
+        var isInsideCodeFence = false
+
+        func flushProse() {
+            let prose = proseLines
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .newlines)
+            if !prose.isEmpty {
+                segments.append(.prose(prose))
+            }
+            proseLines.removeAll(keepingCapacity: true)
+        }
+
+        func flushCode() {
+            let code = codeLines
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .newlines)
+            segments.append(.code(language: codeLanguage, content: code))
+            codeLines.removeAll(keepingCapacity: true)
+            codeLanguage = nil
+        }
+
+        for lineSubstring in lines {
+            let line = String(lineSubstring)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.hasPrefix("```") {
+                if isInsideCodeFence {
+                    flushCode()
+                    isInsideCodeFence = false
+                } else {
+                    flushProse()
+                    let language = String(trimmed.dropFirst(3))
+                        .trimmingCharacters(in: .whitespaces)
+                    codeLanguage = language.isEmpty ? nil : language
+                    isInsideCodeFence = true
+                }
+                continue
+            }
+
+            if isInsideCodeFence {
+                codeLines.append(line)
+            } else {
+                proseLines.append(line)
+            }
+        }
+
+        if isInsideCodeFence {
+            flushCode()
+        } else {
+            flushProse()
+        }
+
+        return segments
+    }
+}
+
 // MARK: - ViewMode
 
 enum ViewMode: String, Sendable {
