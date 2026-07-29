@@ -171,7 +171,13 @@ final class LLMStubURLProtocol: URLProtocol {
     nonisolated(unsafe) private static var queue: [Canned] = []
     nonisolated(unsafe) private static var lastBody: Data?
     nonisolated(unsafe) private static var lastHeaders: [String: String]?
+    nonisolated(unsafe) private static var lastURL: URL?
+    nonisolated(unsafe) private static var usesStagedResponse = false
+    nonisolated(unsafe) private static var stagedPathFragment: String?
+    nonisolated(unsafe) private static var remainingStagedRequests = 0
+    nonisolated(unsafe) private static var pendingProtocol: LLMStubURLProtocol?
     nonisolated(unsafe) private(set) static var requestCount = 0
+    nonisolated(unsafe) private(set) static var cancellationObserved = false
     private static let lock = NSLock()
 
     static func reset() {
@@ -180,7 +186,13 @@ final class LLMStubURLProtocol: URLProtocol {
         queue.removeAll()
         lastBody = nil
         lastHeaders = nil
+        lastURL = nil
+        usesStagedResponse = false
+        stagedPathFragment = nil
+        remainingStagedRequests = 0
+        pendingProtocol = nil
         requestCount = 0
+        cancellationObserved = false
     }
 
     static func setResponse(_ data: Data, statusCode: Int = 200) {
@@ -205,13 +217,72 @@ final class LLMStubURLProtocol: URLProtocol {
         return lastHeaders
     }
 
+    static func capturedURL() -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        return lastURL
+    }
+
+    /// Hold a request after capture so tests control headers, chunks, and completion.
+    static func beginStagedResponse(pathContains pathFragment: String? = nil) {
+        lock.lock(); defer { lock.unlock() }
+        usesStagedResponse = true
+        stagedPathFragment = pathFragment
+        remainingStagedRequests = 1
+    }
+
+    /// Release the HTTP response. A 2xx response is the chat acceptance boundary.
+    static func releaseHeaders(statusCode: Int = 200) {
+        lock.lock()
+        let target = pendingProtocol
+        lock.unlock()
+        target?.deliverHeaders(statusCode: statusCode)
+    }
+
+    /// Emit one body fragment after staged headers have been released.
+    static func emit(_ data: Data) {
+        lock.lock()
+        let target = pendingProtocol
+        lock.unlock()
+        guard let target else { return }
+        target.client?.urlProtocol(target, didLoad: data)
+    }
+
+    /// Finish or fail a staged response.
+    static func finish(error: Error? = nil) {
+        lock.lock()
+        let target = pendingProtocol
+        pendingProtocol = nil
+        lock.unlock()
+        guard let target else { return }
+        if let error {
+            target.client?.urlProtocol(target, didFailWithError: error)
+        } else {
+            target.client?.urlProtocolDidFinishLoading(target)
+        }
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         captureBody()
         Self.setHeaders(request.allHTTPHeaderFields)
+        Self.setURL(request.url)
         Self.bumpRequestCount()
+
+        Self.lock.lock()
+        let pathMatches = Self.stagedPathFragment.map {
+            request.url?.path.contains($0) == true
+        } ?? true
+        let isStaged = Self.usesStagedResponse
+            && Self.remainingStagedRequests > 0
+            && pathMatches
+        if isStaged {
+            Self.remainingStagedRequests -= 1
+            Self.pendingProtocol = self
+        }
+        Self.lock.unlock()
+        if isStaged { return }
 
         let response = Self.read()
         guard let response else {
@@ -229,7 +300,24 @@ final class LLMStubURLProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.lock.lock()
+        Self.cancellationObserved = true
+        if Self.pendingProtocol === self {
+            Self.pendingProtocol = nil
+        }
+        Self.lock.unlock()
+    }
+
+    private func deliverHeaders(statusCode: Int) {
+        let http = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "text/event-stream"]
+        )!
+        client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
+    }
 
     private static func read() -> Canned? {
         lock.lock(); defer { lock.unlock() }
@@ -245,6 +333,11 @@ final class LLMStubURLProtocol: URLProtocol {
     private static func setHeaders(_ headers: [String: String]?) {
         lock.lock(); defer { lock.unlock() }
         lastHeaders = headers
+    }
+
+    private static func setURL(_ url: URL?) {
+        lock.lock(); defer { lock.unlock() }
+        lastURL = url
     }
 
     private func captureBody() {

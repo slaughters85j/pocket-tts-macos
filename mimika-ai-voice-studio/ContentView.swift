@@ -158,11 +158,18 @@ struct ContentView: View {
                     modelContext,
                     fallbackBaseURL: appState.chatSettings.baseURL
                 ),
-                onSave: { newSettings in
-                    SettingsStore.save(newSettings)
-                    chatVM?.settings = newSettings
-                    LoginItem.setEnabled(newSettings.launchAtLogin)
-                    Task { await chatVM?.checkConnection() }
+                onSave: { newSettings, endpointBaseURL in
+                    do {
+                        try appState.applyChatConfiguration(
+                            newSettings,
+                            endpointBaseURL: endpointBaseURL
+                        )
+                        chatVM?.settings = appState.chatSettings
+                        LoginItem.setEnabled(newSettings.launchAtLogin)
+                        Task { await chatVM?.checkConnection() }
+                    } catch {
+                        appState.toastMessage = "Could not save the LLM endpoint: \(error)"
+                    }
                 }
             )
         }

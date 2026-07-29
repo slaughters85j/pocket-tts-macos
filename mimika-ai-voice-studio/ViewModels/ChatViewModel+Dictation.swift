@@ -81,7 +81,7 @@ extension ChatViewModel {
 
     var canSendDraft: Bool {
         if case .connected = connectionState {
-            return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return hasComposerContent
         }
         return false
     }

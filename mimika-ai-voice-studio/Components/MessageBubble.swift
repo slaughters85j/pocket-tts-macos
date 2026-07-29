@@ -10,16 +10,36 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
+    var onPreviewImage: (ChatImageAttachment) -> Void = { _ in }
 
     var body: some View {
         if message.role == .system { EmptyView() } else {
             HStack(alignment: .top, spacing: 0) {
                 if message.role == .user { Spacer(minLength: 60) }
 
-                Text(message.content)
-                    .font(Theme.fontSM)
-                    .foregroundStyle(textColor)
-                    .textSelection(.enabled)
+                VStack(alignment: message.role == .user ? .trailing : .leading, spacing: Theme.space2) {
+                    if !message.attachments.isEmpty {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 112, maximum: 112))],
+                            spacing: Theme.space2
+                        ) {
+                            ForEach(message.attachments) { attachment in
+                                ChatAttachmentThumbnail(
+                                    attachment: attachment,
+                                    deliveryState: message.deliveryState,
+                                    preview: { onPreviewImage(attachment) }
+                                )
+                            }
+                        }
+                    }
+                    if !message.content.isEmpty {
+                        Text(message.content)
+                            .font(Theme.fontSM)
+                            .foregroundStyle(textColor)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: alignment)
+                    }
+                }
                     .padding(.horizontal, Theme.space4)
                     .padding(.vertical, Theme.space3)
                     .frame(maxWidth: .infinity, alignment: alignment)

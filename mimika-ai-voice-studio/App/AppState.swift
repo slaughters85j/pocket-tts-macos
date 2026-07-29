@@ -172,6 +172,34 @@ final class AppState {
             .baseURL
     }
 
+    /// Atomically apply the persisted endpoint and model/settings snapshot.
+    func applyChatConfiguration(_ newSettings: ChatSettings, endpointBaseURL: String) throws {
+        let normalizedEndpoint = ChatModelSelection.normalizeEndpoint(endpointBaseURL)
+        if let context = modelContext {
+            let endpoint = AppDataStore.loadOrSeedEndpoint(
+                context,
+                fallbackBaseURL: chatSettings.baseURL
+            )
+            let previousEndpoint = endpoint.baseURL
+            endpoint.baseURL = normalizedEndpoint
+            endpoint.updatedAt = .now
+            do {
+                try context.save()
+            } catch {
+                endpoint.baseURL = previousEndpoint
+                throw error
+            }
+        }
+        chatSettings = newSettings
+        chatSettings.baseURL = normalizedEndpoint
+        SettingsStore.save(chatSettings)
+    }
+
+    /// Current endpoint/model pair used by Solo Chat.
+    var currentChatModelSelection: ChatModelSelection {
+        ChatModelSelection(endpoint: currentEndpointBaseURL, model: chatSettings.model)
+    }
+
     /// One-shot loading state for the shared engine. UI surfaces this on first
     /// launch so the user knows something is happening during cold start.
     ///
