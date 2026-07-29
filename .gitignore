@@ -78,3 +78,4 @@ mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/
 .env.local
 
 /tools
+.gstack/
