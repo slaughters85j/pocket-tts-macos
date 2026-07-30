@@ -31,7 +31,7 @@ struct AppSettingsView: View {
     /// Cancel can discard edits, matching the rest of the Done/Cancel
     /// UX. Done writes back to `endpoint.baseURL`.
     let endpoint: LocalLLMEndpoint
-    let onSave: (ChatSettings) -> Void
+    let onSave: (ChatSettings, String) -> Void
 
     @State private var workingCopy: ChatSettings
     @State private var workingBaseURL: String
@@ -47,7 +47,7 @@ struct AppSettingsView: View {
         settings: Binding<ChatSettings>,
         chunkBudget: Binding<Int>,
         endpoint: LocalLLMEndpoint,
-        onSave: @escaping (ChatSettings) -> Void
+        onSave: @escaping (ChatSettings, String) -> Void
     ) {
         self._isPresented = isPresented
         self._settings = settings
@@ -69,6 +69,10 @@ struct AppSettingsView: View {
         ModalContainer(title: "App Settings", onClose: cancel) {
             VStack(alignment: .leading, spacing: Theme.space4) {
                 lmStudioSection
+                CapabilityOverrideSettingsSection(
+                    settings: $workingCopy,
+                    endpoint: workingBaseURL
+                )
                 Divider().background(Theme.borderColor)
                 personaWriterSection
                 Divider().background(Theme.borderColor)
@@ -369,15 +373,7 @@ struct AppSettingsView: View {
     }
 
     private func saveAndClose() {
-        // baseURL lives in SwiftData now — write the working snapshot
-        // back to the endpoint row. SwiftData's autosave persists.
-        if endpoint.baseURL != workingBaseURL {
-            endpoint.baseURL = workingBaseURL
-            endpoint.updatedAt = .now
-        }
-        // Remaining fields (model, etc.) still live in ChatSettings.
-        settings = workingCopy
-        onSave(workingCopy)
+        onSave(workingCopy, workingBaseURL)
         // Persona-writer provider config (UserDefaults) + API key (Keychain).
         PersonaProviderStore.save(personaConfig)
         PersonaProviderStore.setAnthropicAPIKey(anthropicKey)

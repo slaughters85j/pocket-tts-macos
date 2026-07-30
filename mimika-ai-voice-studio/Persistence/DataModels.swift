@@ -140,6 +140,12 @@ final class SystemPrompt {
     /// the kind of cross-row uniqueness constraint that would let us
     /// declare this as a hard invariant.
     var isActive: Bool
+    /// Solo Chat sampling values owned by this prompt's stable UUID.
+    var temperature: Double = 0.7
+    var topP: Double = 0.7
+    var topK: Int = 30
+    var repeatPenalty: Double = 1.1
+    var maxTokens: Int?
     var createdAt: Date
     var updatedAt: Date
 
@@ -149,6 +155,7 @@ final class SystemPrompt {
         scope: PromptScope,
         content: String,
         isActive: Bool,
+        inferenceSettings: ChatInferenceSettings = .default,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -157,11 +164,36 @@ final class SystemPrompt {
         self.scopeRaw = scope.rawValue
         self.content = content
         self.isActive = isActive
+        self.temperature = inferenceSettings.temperature
+        self.topP = inferenceSettings.topP
+        self.topK = inferenceSettings.topK
+        self.repeatPenalty = inferenceSettings.repeatPenalty
+        self.maxTokens = inferenceSettings.maxTokens
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     var scope: PromptScope {
         PromptScope(rawValue: scopeRaw) ?? .chat
+    }
+
+    /// Typed sampling values used by Solo Chat and its settings sheet.
+    var inferenceSettings: ChatInferenceSettings {
+        get {
+            ChatInferenceSettings(
+                temperature: temperature,
+                topP: topP,
+                topK: topK,
+                repeatPenalty: repeatPenalty,
+                maxTokens: maxTokens
+            )
+        }
+        set {
+            temperature = newValue.temperature
+            topP = newValue.topP
+            topK = newValue.topK
+            repeatPenalty = newValue.repeatPenalty
+            maxTokens = newValue.maxTokens
+        }
     }
 }

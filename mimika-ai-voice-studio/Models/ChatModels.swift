@@ -8,7 +8,7 @@ import Foundation
 
 // MARK: - Role
 
-enum Role: String, Codable, Sendable {
+nonisolated enum Role: String, Codable, Sendable {
     case user
     case assistant
     case system
@@ -16,20 +16,135 @@ enum Role: String, Codable, Sendable {
 
 // MARK: - ChatMessage
 
-struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
+nonisolated struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var role: Role
     var content: String
+    /// Session-only image attachments. Custom Codable intentionally omits
+    /// these bytes so no existing persistence/export path can write them.
+    var attachments: [ChatImageAttachment]
+    /// HTTP acceptance state for user turns containing attachments.
+    var deliveryState: ChatDeliveryState?
     /// Sentences already piped to the TTS pipeline. Used by the ChatViewModel
     /// to track how far auto-speak has advanced on a growing assistant message
     /// so it doesn't re-synthesize earlier sentences if the model retries.
     var spokenSentences: Int
 
-    init(id: UUID = UUID(), role: Role, content: String = "", spokenSentences: Int = 0) {
+    init(
+        id: UUID = UUID(),
+        role: Role,
+        content: String = "",
+        attachments: [ChatImageAttachment] = [],
+        deliveryState: ChatDeliveryState? = nil,
+        spokenSentences: Int = 0
+    ) {
         self.id = id
         self.role = role
         self.content = content
+        self.attachments = attachments
+        self.deliveryState = deliveryState
         self.spokenSentences = spokenSentences
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case role
+        case content
+        case spokenSentences
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        role = try container.decode(Role.self, forKey: .role)
+        content = try container.decode(String.self, forKey: .content)
+        spokenSentences = try container.decodeIfPresent(Int.self, forKey: .spokenSentences) ?? 0
+        attachments = []
+        deliveryState = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(role, forKey: .role)
+        try container.encode(content, forKey: .content)
+        try container.encode(spokenSentences, forKey: .spokenSentences)
+    }
+}
+
+// MARK: - Chat Markdown
+
+/// Rendered section of one assistant response.
+nonisolated enum ChatMarkdownSegment: Equatable, Sendable {
+    case prose(String)
+    case code(language: String?, content: String)
+}
+
+/// Streaming-safe fenced-code segmentation shared by chat display and reuse.
+nonisolated enum ChatMarkdownParser {
+    static func parse(_ source: String) -> [ChatMarkdownSegment] {
+        let normalized = source.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.split(
+            separator: "\n",
+            omittingEmptySubsequences: false
+        )
+        var segments: [ChatMarkdownSegment] = []
+        var proseLines: [String] = []
+        var codeLines: [String] = []
+        var codeLanguage: String?
+        var isInsideCodeFence = false
+
+        func flushProse() {
+            let prose = proseLines
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .newlines)
+            if !prose.isEmpty {
+                segments.append(.prose(prose))
+            }
+            proseLines.removeAll(keepingCapacity: true)
+        }
+
+        func flushCode() {
+            let code = codeLines
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .newlines)
+            segments.append(.code(language: codeLanguage, content: code))
+            codeLines.removeAll(keepingCapacity: true)
+            codeLanguage = nil
+        }
+
+        for lineSubstring in lines {
+            let line = String(lineSubstring)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.hasPrefix("```") {
+                if isInsideCodeFence {
+                    flushCode()
+                    isInsideCodeFence = false
+                } else {
+                    flushProse()
+                    let language = String(trimmed.dropFirst(3))
+                        .trimmingCharacters(in: .whitespaces)
+                    codeLanguage = language.isEmpty ? nil : language
+                    isInsideCodeFence = true
+                }
+                continue
+            }
+
+            if isInsideCodeFence {
+                codeLines.append(line)
+            } else {
+                proseLines.append(line)
+            }
+        }
+
+        if isInsideCodeFence {
+            flushCode()
+        } else {
+            flushProse()
+        }
+
+        return segments
     }
 }
 
@@ -64,6 +179,25 @@ nonisolated struct FishGenParams: Codable, Equatable, Sendable {
     static let `default` = FishGenParams()
 }
 
+// MARK: - Chat inference settings
+
+/// Per-system-prompt sampling values captured with each Solo Chat request.
+nonisolated struct ChatInferenceSettings: Equatable, Sendable {
+    var temperature: Double
+    var topP: Double
+    var topK: Int
+    var repeatPenalty: Double
+    var maxTokens: Int? = nil
+
+    static let `default` = ChatInferenceSettings(
+        temperature: 0.7,
+        topP: 0.7,
+        topK: 30,
+        repeatPenalty: 1.1,
+        maxTokens: nil
+    )
+}
+
 // MARK: - ChatSettings
 
 nonisolated struct ChatSettings: Codable, Equatable, Sendable {
@@ -82,6 +216,8 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
     var readAloudVoiceID: String
     /// Keep mimika available in the menu bar at login (SMAppService).
     var launchAtLogin: Bool
+    /// Force-supported model capabilities, keyed by normalized endpoint/model.
+    var capabilityOverrides: [String: Int]
 
     static let `default` = ChatSettings(
         baseURL: "http://localhost:1234",
@@ -94,7 +230,8 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
         fishParams: .default,
         readAloudEnabled: false,
         readAloudVoiceID: "cosette",
-        launchAtLogin: false
+        launchAtLogin: false,
+        capabilityOverrides: [:]
     )
 
     static let defaultSingleVoicePrompt = """
@@ -171,5 +308,6 @@ extension ChatSettings {
         self.readAloudEnabled = try c.decodeIfPresent(Bool.self, forKey: .readAloudEnabled) ?? d.readAloudEnabled
         self.readAloudVoiceID = try c.decodeIfPresent(String.self, forKey: .readAloudVoiceID) ?? d.readAloudVoiceID
         self.launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
+        self.capabilityOverrides = try c.decodeIfPresent([String: Int].self, forKey: .capabilityOverrides) ?? d.capabilityOverrides
     }
 }

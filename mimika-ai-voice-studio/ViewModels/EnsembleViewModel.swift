@@ -96,6 +96,7 @@ final class EnsembleViewModel {
     let appState: AppState
     private let session: URLSession
     private let runner: SpokenTurnRunner
+    private let personaReasoningEffort: @MainActor () -> String?
 
     // MARK: - Loop bookkeeping
     private var loopTask: Task<Void, Never>?
@@ -123,11 +124,18 @@ final class EnsembleViewModel {
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
     // MARK: - Init
-    init(engine: any TTSEngineProtocol, player: StreamingPlayer, appState: AppState, session: URLSession = .shared) {
+    init(
+        engine: any TTSEngineProtocol,
+        player: StreamingPlayer,
+        appState: AppState,
+        session: URLSession = .shared,
+        personaReasoningEffort: @escaping @MainActor () -> String? = { nil }
+    ) {
         self.engine = engine
         self.player = player
         self.appState = appState
         self.session = session
+        self.personaReasoningEffort = personaReasoningEffort
         self.runner = SpokenTurnRunner(
             engine: engine,
             player: player,
@@ -631,7 +639,8 @@ final class EnsembleViewModel {
             maxTokens: maxResponseTokens,
             topP: preset.topP,
             topK: preset.topK,
-            repeatPenalty: repeatPenalty
+            repeatPenalty: repeatPenalty,
+            reasoningEffort: personaReasoningEffort()
         )
 
         let turnID = UUID()

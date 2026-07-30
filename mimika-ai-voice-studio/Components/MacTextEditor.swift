@@ -50,9 +50,18 @@ struct MacTextEditor: NSViewRepresentable {
     /// A SwiftUI `.accessibilityIdentifier` on the representable lands on a
     /// wrapper element, not the NSTextView, so it isn't reachable that way.
     var accessibilityID: String? = nil
+    /// Optional Return-key action. Shift+Return always remains a newline.
+    var onSubmit: (() -> Void)?
+    /// Optional callback with the editor's laid-out content height.
+    var onContentHeightChange: ((CGFloat) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, bridge: bridge)
+        Coordinator(
+            text: $text,
+            bridge: bridge,
+            onSubmit: onSubmit,
+            onContentHeightChange: onContentHeightChange
+        )
     }
 
     /// The one editor font — applied at creation AND re-applied after every
@@ -71,6 +80,8 @@ struct MacTextEditor: NSViewRepresentable {
         tv.insertionPointColor = NSColor(Theme.accent)
         tv.drawsBackground = false
         scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
         tv.textContainerInset = NSSize(width: 4, height: 6)
 
         // Expose the editor to UI tests as an addressable text view.
@@ -116,6 +127,7 @@ struct MacTextEditor: NSViewRepresentable {
             tv.font = Self.editorFont
         }
         context.coordinator.applyTagHighlights()
+        context.coordinator.scheduleContentHeightReport()
         return scroll
     }
 
@@ -136,10 +148,13 @@ struct MacTextEditor: NSViewRepresentable {
         }
         // Re-wire the bridge in case the view recreated the bridge instance.
         bridge?.coordinator = context.coordinator
+        context.coordinator.onSubmit = onSubmit
+        context.coordinator.onContentHeightChange = onContentHeightChange
         // Push the latest tag-color map to the coordinator (palette may
         // have toggled on/off, or speaker names may have changed).
         context.coordinator.tagColors = tagColors
         context.coordinator.applyTagHighlights()
+        context.coordinator.scheduleContentHeightReport()
     }
 
     // MARK: - Coordinator
@@ -149,6 +164,8 @@ struct MacTextEditor: NSViewRepresentable {
         @Binding var text: String
         weak var textView: NSTextView?
         weak var bridge: TextEditorBridge?
+        var onSubmit: (() -> Void)?
+        var onContentHeightChange: ((CGFloat) -> Void)?
         /// Snapshot of the latest tag-color map. Driven by the
         /// representable's `tagColors` prop via updateNSView.
         var tagColors: [String: NSColor]?
@@ -167,8 +184,17 @@ struct MacTextEditor: NSViewRepresentable {
         var needsHighlight = true
         private var lastHighlightedColors: [String: NSColor]?
 
-        init(text: Binding<String>, bridge: TextEditorBridge?) {
+        private var lastReportedContentHeight: CGFloat?
+
+        init(
+            text: Binding<String>,
+            bridge: TextEditorBridge?,
+            onSubmit: (() -> Void)?,
+            onContentHeightChange: ((CGFloat) -> Void)?
+        ) {
             self._text = text
+            self.onSubmit = onSubmit
+            self.onContentHeightChange = onContentHeightChange
             super.init()
             self.bridge = bridge
             bridge?.coordinator = self
@@ -180,6 +206,52 @@ struct MacTextEditor: NSViewRepresentable {
             if text != tv.string { text = tv.string }
             needsHighlight = true
             applyTagHighlights()
+            scheduleContentHeightReport()
+        }
+
+        func textView(
+            _ textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            guard
+                commandSelector == #selector(NSResponder.insertNewline(_:)),
+                let onSubmit
+            else {
+                return false
+            }
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                return false
+            }
+            onSubmit()
+            return true
+        }
+
+        /// Reports height after TextKit has completed the current layout pass.
+        func scheduleContentHeightReport() {
+            guard onContentHeightChange != nil else { return }
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.reportContentHeight()
+            }
+        }
+
+        private func reportContentHeight() {
+            guard
+                let textView,
+                let textContainer = textView.textContainer,
+                let layoutManager = textView.layoutManager,
+                let onContentHeightChange
+            else {
+                return
+            }
+            layoutManager.ensureLayout(for: textContainer)
+            let contentHeight = ceil(
+                layoutManager.usedRect(for: textContainer).height
+                    + (textView.textContainerInset.height * 2)
+            )
+            guard lastReportedContentHeight != contentHeight else { return }
+            lastReportedContentHeight = contentHeight
+            onContentHeightChange(contentHeight)
         }
 
         // MARK: - Tag highlights

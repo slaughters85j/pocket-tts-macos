@@ -45,6 +45,8 @@ final class SpokenTurnRunner {
         var topP: Double? = nil
         var topK: Int? = nil
         var repeatPenalty: Double? = nil
+        /// Persona-response reasoning only; internal Ensemble calls bypass this.
+        var reasoningEffort: String? = nil
     }
 
     struct Result: Sendable {
@@ -111,7 +113,8 @@ final class SpokenTurnRunner {
                 maxTokens: request.maxTokens,
                 topP: request.topP,
                 topK: request.topK,
-                repeatPenalty: request.repeatPenalty
+                repeatPenalty: request.repeatPenalty,
+                reasoningEffort: request.reasoningEffort
             )
             do {
                 for try await delta in stream {

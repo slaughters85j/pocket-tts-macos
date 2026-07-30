@@ -25,6 +25,9 @@ actor LocalLLMClient {
         case invalidURL(String)
         case httpError(status: Int, body: String?)
         case decodeFailed(String)
+        case modelMetadataUnavailable(String)
+        case visionUnavailable(String)
+        case imagePayloadTooLarge
         case cancelled
 
         var description: String {
@@ -32,6 +35,9 @@ actor LocalLLMClient {
             case let .invalidURL(s): return "invalid LLM endpoint URL: \(s)"
             case let .httpError(s, body): return "LLM endpoint HTTP \(s)\(body.map { ": \($0)" } ?? "")"
             case let .decodeFailed(s): return "failed to decode response: \(s)"
+            case let .modelMetadataUnavailable(model): return "capability metadata unavailable for \(model)"
+            case let .visionUnavailable(model): return "\(model) no longer supports Vision"
+            case .imagePayloadTooLarge: return "image history exceeds the 64 MiB request limit"
             case .cancelled: return "request cancelled"
             }
         }
@@ -78,6 +84,53 @@ actor LocalLLMClient {
         }
     }
 
+    /// GET /api/v1/models — authoritative LM Studio capabilities for one model.
+    func modelCapabilities(for model: String) async throws -> ModelCapabilities {
+        try await modelMetadata(for: model).capabilities
+    }
+
+    /// GET /api/v1/models — capabilities plus public reasoning controls.
+    func modelMetadata(for model: String) async throws -> ModelCapabilityMetadata {
+        let url = baseURL.appendingPathComponent("api/v1/models")
+        var request = URLRequest(url: url, timeoutInterval: 5)
+        request.httpMethod = "GET"
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClientError.httpError(status: -1, body: nil)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ClientError.httpError(
+                status: http.statusCode,
+                body: String(data: data, encoding: .utf8)
+            )
+        }
+        do {
+            let decoded = try JSONDecoder().decode(LMStudioModelsResponse.self, from: data)
+            guard
+                let entry = decoded.models.first(where: {
+                    $0.key == model || $0.loadedInstances.contains { $0.id == model }
+                }),
+                let metadata = entry.capabilities
+            else {
+                throw ClientError.modelMetadataUnavailable(model)
+            }
+            var result: ModelCapabilities = []
+            if metadata.vision { result.insert(.vision) }
+            if metadata.trainedForToolUse { result.insert(.tools) }
+            if metadata.reasoning?.indicatesSupport == true {
+                result.insert(.reasoning)
+            }
+            return ModelCapabilityMetadata(
+                capabilities: result,
+                reasoning: metadata.reasoning?.configuration
+            )
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodeFailed("\(error)")
+        }
+    }
+
     // MARK: - Chat streaming
 
     /// POST /v1/chat/completions with `stream: true`. Returns an async stream
@@ -94,9 +147,56 @@ actor LocalLLMClient {
         topP: Double? = nil,
         topK: Int? = nil,
         repeatPenalty: Double? = nil,
+        reasoningEffort: String? = nil,
         includeReasoning: Bool = false
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                do {
+                    let events = self.streamChatEvents(
+                        messages: messages,
+                        model: model,
+                        systemPrompt: systemPrompt,
+                        temperature: temperature,
+                        stop: stop,
+                        maxTokens: maxTokens,
+                        topP: topP,
+                        topK: topK,
+                        repeatPenalty: repeatPenalty,
+                        reasoningEffort: reasoningEffort,
+                        includeReasoning: includeReasoning
+                    )
+                    for try await event in events {
+                        if case let .delta(text) = event {
+                            continuation.yield(text)
+                        }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: ClientError.cancelled)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Streaming chat events for Solo Chat, including validated HTTP acceptance.
+    nonisolated func streamChatEvents(
+        messages: [ChatMessage],
+        model: String,
+        systemPrompt: String = "",
+        temperature: Double? = nil,
+        stop: [String]? = nil,
+        maxTokens: Int? = nil,
+        topP: Double? = nil,
+        topK: Int? = nil,
+        repeatPenalty: Double? = nil,
+        reasoningEffort: String? = nil,
+        includeReasoning: Bool = false
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream<ChatStreamEvent, Error> { continuation in
             let task = Task {
                 do {
                     try await self.runStreamChat(
@@ -109,6 +209,7 @@ actor LocalLLMClient {
                         topP: topP,
                         topK: topK,
                         repeatPenalty: repeatPenalty,
+                        reasoningEffort: reasoningEffort,
                         includeReasoning: includeReasoning,
                         continuation: continuation
                     )
@@ -133,8 +234,9 @@ actor LocalLLMClient {
         topP: Double?,
         topK: Int?,
         repeatPenalty: Double?,
+        reasoningEffort: String?,
         includeReasoning: Bool,
-        continuation: AsyncThrowingStream<String, Error>.Continuation
+        continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
     ) async throws {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
         var req = URLRequest(url: url)
@@ -142,15 +244,31 @@ actor LocalLLMClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
+        let encodedImageBytes = messages
+            .flatMap(\.attachments)
+            .reduce(0) { $0 + $1.encodedURLByteCount }
+        guard encodedImageBytes <= ChatImageLimits.maxEncodedRequestBytes else {
+            throw ClientError.imagePayloadTooLarge
+        }
+
         var apiMessages: [APIMessage] = []
         if !systemPrompt.isEmpty {
-            apiMessages.append(APIMessage(role: "system", content: systemPrompt))
+            apiMessages.append(APIMessage(role: "system", content: .text(systemPrompt)))
         }
-        apiMessages.append(contentsOf: messages.map {
-            APIMessage(role: $0.role.rawValue, content: $0.content)
-        })
+        apiMessages.append(contentsOf: messages.map(APIMessage.init))
 
-        let body = ChatRequest(model: model, messages: apiMessages, stream: true, temperature: temperature, stop: stop, max_tokens: maxTokens, top_p: topP, top_k: topK, repeat_penalty: repeatPenalty)
+        let body = ChatRequest(
+            model: model,
+            messages: apiMessages,
+            stream: true,
+            temperature: temperature,
+            stop: stop,
+            max_tokens: maxTokens,
+            top_p: topP,
+            top_k: topK,
+            repeat_penalty: repeatPenalty,
+            reasoning_effort: reasoningEffort
+        )
         req.httpBody = try JSONEncoder().encode(body)
 
         let (bytes, response) = try await session.bytes(for: req)
@@ -163,6 +281,7 @@ actor LocalLLMClient {
             for try await b in bytes { collected.append(b) }
             throw ClientError.httpError(status: http.statusCode, body: String(data: collected, encoding: .utf8))
         }
+        continuation.yield(.accepted(statusCode: http.statusCode))
 
         // Reasoning models (gpt-oss via LM Studio, DeepSeek-R1, …) stream their
         // chain-of-thought in a SEPARATE channel and may leave `content` empty
@@ -188,7 +307,7 @@ actor LocalLLMClient {
                 let chunk = delta.choices.first?.delta
                 if let content = chunk?.content, !content.isEmpty {
                     yieldedContent = true
-                    continuation.yield(content)
+                    continuation.yield(.delta(content))
                 } else if includeReasoning, let r = chunk?.reasoning ?? chunk?.reasoning_content, !r.isEmpty {
                     reasoningFallback += r
                 }
@@ -202,7 +321,7 @@ actor LocalLLMClient {
         // Only when the model produced NO content do we surface the buffered
         // reasoning — so a model that answered normally never leaks its thoughts.
         if includeReasoning, !yieldedContent, !reasoningFallback.isEmpty {
-            continuation.yield(reasoningFallback)
+            continuation.yield(.delta(reasoningFallback))
         }
     }
 
@@ -229,11 +348,9 @@ actor LocalLLMClient {
 
         var apiMessages: [APIMessage] = []
         if !systemPrompt.isEmpty {
-            apiMessages.append(APIMessage(role: "system", content: systemPrompt))
+            apiMessages.append(APIMessage(role: "system", content: .text(systemPrompt)))
         }
-        apiMessages.append(contentsOf: messages.map {
-            APIMessage(role: $0.role.rawValue, content: $0.content)
-        })
+        apiMessages.append(contentsOf: messages.map(APIMessage.init))
 
         let rf: ResponseFormatDTO? = (responseFormat == .jsonObject)
             ? ResponseFormatDTO(type: "json_object")
@@ -259,72 +376,6 @@ actor LocalLLMClient {
             return decoded.choices.first?.message.content ?? ""
         } catch {
             throw ClientError.decodeFailed("\(error)")
-        }
-    }
-}
-
-// MARK: - API DTOs (nonisolated for use from the actor's executor)
-
-// `temperature` / `response_format` are Optional so Swift's synthesized
-// Codable omits them from the JSON when nil (encodeIfPresent) — keeping the
-// streaming request byte-identical to the pre-Ensemble shape.
-private nonisolated struct ChatRequest: Codable {
-    let model: String
-    let messages: [APIMessage]
-    let stream: Bool
-    var temperature: Double? = nil
-    var response_format: ResponseFormatDTO? = nil
-    var stop: [String]? = nil
-    var max_tokens: Int? = nil
-    // top_k + repeat_penalty are llama.cpp / LM Studio extensions (not OpenAI
-    // standard); omitted when nil so strict endpoints are unaffected.
-    var top_p: Double? = nil
-    var top_k: Int? = nil
-    var repeat_penalty: Double? = nil
-}
-
-private nonisolated struct ResponseFormatDTO: Codable {
-    let type: String
-}
-
-private nonisolated struct APIMessage: Codable {
-    let role: String
-    let content: String
-}
-
-private nonisolated struct ChatStreamChunk: Codable {
-    let choices: [Choice]
-    struct Choice: Codable {
-        let delta: Delta
-        struct Delta: Codable {
-            let content: String?
-            // Reasoning models stream chain-of-thought in a separate channel:
-            // gpt-oss via LM Studio (0.3.23+) uses `reasoning`; DeepSeek-R1 and
-            // some servers use `reasoning_content`. Decoded so the persona-writer
-            // can recover an answer the model left ONLY in this channel (see
-            // `includeReasoning`). Both Optional → absent for non-reasoning models.
-            let reasoning: String?
-            let reasoning_content: String?
-        }
-    }
-}
-
-private nonisolated struct ModelsResponse: Codable {
-    let data: [Entry]
-    struct Entry: Codable {
-        let id: String
-    }
-}
-
-// Non-streaming completion response: `choices[0].message.content`. Content is
-// Optional so a server that returns a null/absent content (e.g. a tool-call
-// turn) decodes to "" rather than throwing.
-private nonisolated struct ChatCompletionResponse: Codable {
-    let choices: [Choice]
-    struct Choice: Codable {
-        let message: Message
-        struct Message: Codable {
-            let content: String?
         }
     }
 }

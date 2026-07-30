@@ -13,6 +13,8 @@ import SwiftData
 import SwiftUI
 
 struct ChatSettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+
     @Binding var isPresented: Bool
     @Binding var settings: ChatSettings
     let voices: [BundledVoice]
@@ -20,6 +22,7 @@ struct ChatSettingsView: View {
 
     @State private var workingCopy: ChatSettings
     @State private var showsPromptManager = false
+    @State private var inferencePrompt: SystemPrompt?
 
     init(
         isPresented: Binding<Bool>,
@@ -47,6 +50,15 @@ struct ChatSettingsView: View {
         }
         .sheet(isPresented: $showsPromptManager) {
             PromptManagerSheet(isPresented: $showsPromptManager, scope: .chat)
+        }
+        .sheet(item: $inferencePrompt) { prompt in
+            ChatInferenceSettingsSheet(prompt: prompt) { inferenceSettings in
+                AppDataStore.updateInferenceSettings(
+                    modelContext,
+                    prompt: prompt,
+                    settings: inferenceSettings
+                )
+            }
         }
     }
 
@@ -111,7 +123,11 @@ struct ChatSettingsView: View {
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            ActivePromptPicker(scope: .chat, showsManager: $showsPromptManager)
+            ActivePromptPicker(
+                scope: .chat,
+                showsManager: $showsPromptManager,
+                onEditInferenceSettings: { inferencePrompt = $0 }
+            )
         }
     }
 
@@ -151,5 +167,177 @@ struct ChatSettingsView: View {
         settings = workingCopy
         onSave(workingCopy)
         isPresented = false
+    }
+}
+
+// MARK: - Inference settings sheet
+
+/// Edits a working copy and persists it only when the user chooses Done.
+private struct ChatInferenceSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let prompt: SystemPrompt
+    let onSave: (ChatInferenceSettings) -> Void
+
+    @State private var workingCopy: ChatInferenceSettings
+
+    init(
+        prompt: SystemPrompt,
+        onSave: @escaping (ChatInferenceSettings) -> Void
+    ) {
+        self.prompt = prompt
+        self.onSave = onSave
+        self._workingCopy = State(initialValue: prompt.inferenceSettings)
+    }
+
+    var body: some View {
+        ModalContainer(title: "Inference Settings", onClose: dismiss.callAsFunction) {
+            VStack(alignment: .leading, spacing: Theme.space4) {
+                parameterSlider(
+                    label: "Temperature",
+                    value: $workingCopy.temperature,
+                    range: 0.1...1.5,
+                    step: 0.05,
+                    description: "Lower = consistent, predictable. Higher = expressive, varied. Default 0.7."
+                )
+
+                parameterSlider(
+                    label: "Top P",
+                    value: $workingCopy.topP,
+                    range: 0.1...1.0,
+                    step: 0.05,
+                    description: "Nucleus sampling threshold. Lower = more focused. Higher = broader vocab. Default 0.7."
+                )
+
+                integerSlider(
+                    label: "Top K",
+                    value: $workingCopy.topK,
+                    range: 1...100,
+                    description: "Token candidates per step. Lower = deterministic. Higher = creative. Default 30."
+                )
+
+                parameterSlider(
+                    label: "Repeat Penalty",
+                    value: $workingCopy.repeatPenalty,
+                    range: 0.0...2.0,
+                    step: 0.05,
+                    description: "Discourages repeated tokens. Higher = less repetition. Default 1.1."
+                )
+
+                HStack(alignment: .top, spacing: Theme.space4) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Max Tokens")
+                            .font(Theme.fontXS)
+                            .foregroundStyle(Theme.textSecondary)
+                        Text("Maximum reply length. Leave empty for no limit.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    Spacer()
+                    TextField(
+                        "No limit",
+                        value: maxTokensBinding,
+                        format: .number.grouping(.never)
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 110)
+                    .accessibilityIdentifier("chatInferenceSettings.maxTokens")
+                }
+
+                Divider().background(Theme.borderColor)
+                actions
+            }
+            .frame(maxWidth: 560)
+        }
+        .accessibilityIdentifier("chatInferenceSettings.sheet")
+    }
+
+    /// Empty means omit `max_tokens`; non-positive entries return to empty.
+    private var maxTokensBinding: Binding<Int?> {
+        Binding(
+            get: { workingCopy.maxTokens },
+            set: { value in
+                workingCopy.maxTokens = value.flatMap { $0 > 0 ? $0 : nil }
+            }
+        )
+    }
+
+    /// Floating-point inference parameter with a live monospaced value.
+    private func parameterSlider(
+        label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double,
+        description: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Text(String(format: "%.2f", value.wrappedValue))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            Slider(value: value, in: range, step: step)
+                .tint(Theme.accent)
+            Text(description)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    /// Integer inference parameter bridged to SwiftUI's floating slider.
+    private func integerSlider(
+        label: String,
+        value: Binding<Int>,
+        range: ClosedRange<Int>,
+        description: String
+    ) -> some View {
+        let sliderValue = Binding<Double>(
+            get: { Double(value.wrappedValue) },
+            set: { value.wrappedValue = Int($0) }
+        )
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Text("\(value.wrappedValue)")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            Slider(
+                value: sliderValue,
+                in: Double(range.lowerBound)...Double(range.upperBound),
+                step: 1
+            )
+            .tint(Theme.accent)
+            Text(description)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private var actions: some View {
+        HStack {
+            Spacer()
+            Button("Cancel", action: dismiss.callAsFunction)
+                .buttonStyle(.plain)
+                .font(Theme.fontSM)
+                .foregroundStyle(Theme.textSecondary)
+
+            Button("Done") {
+                onSave(workingCopy)
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.accent)
+            .accessibilityIdentifier("chatInferenceSettings.doneButton")
+        }
     }
 }

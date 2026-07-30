@@ -34,7 +34,11 @@ final class EnsembleLoopTests: XCTestCase {
         LLMStubURLProtocol.reset()
     }
 
-    private func makeVM(pinnedModel: String, connectedModel: String) throws -> EnsembleViewModel {
+    private func makeVM(
+        pinnedModel: String,
+        connectedModel: String,
+        personaReasoningEffort: String? = nil
+    ) throws -> EnsembleViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [LLMStubURLProtocol.self]
         let session = URLSession(configuration: config)
@@ -46,7 +50,8 @@ final class EnsembleLoopTests: XCTestCase {
             engine: StubEngine(),
             player: try StreamingPlayer(),
             appState: appState,
-            session: session
+            session: session,
+            personaReasoningEffort: { personaReasoningEffort }
         )
         vm.connectionState = .connected(model: connectedModel)
         vm.voicedPlayback = false   // exercise the generate path without audio
@@ -316,6 +321,20 @@ final class EnsembleLoopTests: XCTestCase {
         let body = try requestBody()
         XCTAssertEqual(body["model"] as? String, "resolved-model",
                        "empty pinned model should fall back to the connection-probe model")
+    }
+
+    func test_runOneTurn_appliesReasoningEffortToPersonaResponse() async throws {
+        LLMStubURLProtocol.setResponse(sse("Hi."))
+        let vm = try makeVM(
+            pinnedModel: "m",
+            connectedModel: "m",
+            personaReasoningEffort: "high"
+        )
+
+        _ = await vm.runOneTurn(lastSpeaker: nil)
+
+        let body = try requestBody()
+        XCTAssertEqual(body["reasoning_effort"] as? String, "high")
     }
 
     func test_runOneTurn_excludesInFlightPlaceholderFromRequest() async throws {
