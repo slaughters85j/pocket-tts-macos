@@ -176,10 +176,18 @@ final class ChatViewModel {
         )
     }
 
-    /// Resolve the currently active chat system prompt.
-    func currentChatSystemPrompt() -> String {
-        guard let context = appState.modelContext else { return settings.systemPrompt }
-        return AppDataStore.activePrompt(context, scope: .chat)?.content ?? ""
+    /// Resolve the active prompt and its UUID-bound sampling values together.
+    func currentChatPromptConfiguration() -> (
+        systemPrompt: String,
+        inference: ChatInferenceSettings
+    ) {
+        guard
+            let context = appState.modelContext,
+            let prompt = AppDataStore.activePrompt(context, scope: .chat)
+        else {
+            return (settings.systemPrompt, .default)
+        }
+        return (prompt.content, prompt.inferenceSettings)
     }
 
     /// Build per-call synthesis options from live app settings.

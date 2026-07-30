@@ -46,17 +46,10 @@ struct ChatView: View {
             }
         }
         .onAppear {
-            if subMode == .solo { viewModel.startHealthChecks() }
+            viewModel.startHealthChecks()
             Task { isAudioMuted = await player.isMuted }
         }
         .onDisappear { viewModel.stopSoloChatSession() }
-        .onChange(of: subMode) { _, mode in
-            if mode == .solo {
-                viewModel.startHealthChecks()
-            } else {
-                viewModel.stopHealthChecks()
-            }
-        }
         .sheet(isPresented: $showsEnsembleSetup) {
             EnsembleSetupView(
                 viewModel: ensembleViewModel,
@@ -138,10 +131,12 @@ struct ChatView: View {
                     : ensembleViewModel.connectionState
             )
 
-            if subMode == .solo {
-                ModelCapabilityBadges(state: viewModel.capabilityState)
-                ModelReasoningControl(viewModel: viewModel)
-            }
+            ModelCapabilityBadges(state: viewModel.capabilityState)
+            ModelReasoningControl(
+                viewModel: viewModel,
+                isExternallyLocked: subMode == .ensemble
+                    && ensembleViewModel.isRunning
+            )
 
             Spacer()
 

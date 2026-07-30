@@ -558,7 +558,15 @@ struct ContentView: View {
         if ensembleVM == nil {
             // Depends on the protocol-typed active engine (Phase 4 backend-decision):
             // Phase 1 is text-only so the engine is unused until Phase 3 wires synth.
-            ensembleVM = EnsembleViewModel(engine: appState.activeEngine, player: player, appState: appState)
+            let chatViewModel = chatVM
+            ensembleVM = EnsembleViewModel(
+                engine: appState.activeEngine,
+                player: player,
+                appState: appState,
+                personaReasoningEffort: { [weak chatViewModel] in
+                    chatViewModel?.reasoningEffortForRequest
+                }
+            )
         }
         // BundledVoice catalog: discovered by VoiceLoader at engine init; map IDs → BundledVoice.
         let ids = engine.availableVoiceIDs()

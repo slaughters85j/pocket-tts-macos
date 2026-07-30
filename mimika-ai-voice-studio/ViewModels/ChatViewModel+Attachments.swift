@@ -192,7 +192,7 @@ extension ChatViewModel {
         activeTurn = turn
         status = .generating
 
-        let systemPrompt = currentChatSystemPrompt()
+        let promptConfiguration = currentChatPromptConfiguration()
         let requestMessages = messagesForRequest()
         let reasoningEffort = reasoningEffortForRequest
         let (sentenceStream, sentenceContinuation) = AsyncStream<String>.makeStream()
@@ -203,7 +203,8 @@ extension ChatViewModel {
                 turn: turn,
                 messages: requestMessages,
                 model: model,
-                systemPrompt: systemPrompt,
+                systemPrompt: promptConfiguration.systemPrompt,
+                inference: promptConfiguration.inference,
                 reasoningEffort: reasoningEffort,
                 sentenceContinuation: sentenceContinuation
             )
@@ -232,6 +233,7 @@ extension ChatViewModel {
         messages: [ChatMessage],
         model: String,
         systemPrompt: String,
+        inference: ChatInferenceSettings,
         reasoningEffort: String?,
         sentenceContinuation: AsyncStream<String>.Continuation
     ) async {
@@ -246,6 +248,11 @@ extension ChatViewModel {
             messages: messages,
             model: model,
             systemPrompt: systemPrompt,
+            temperature: inference.temperature,
+            maxTokens: inference.maxTokens,
+            topP: inference.topP,
+            topK: inference.topK,
+            repeatPenalty: inference.repeatPenalty,
             reasoningEffort: reasoningEffort
         )
         do {

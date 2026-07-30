@@ -139,6 +139,7 @@ private struct ReasoningCapabilityGlyph: View {
 /// Reasoning toggle or effort picker derived from LM Studio metadata.
 struct ModelReasoningControl: View {
     @Bindable var viewModel: ChatViewModel
+    var isExternallyLocked = false
 
     @State private var showsInfo = false
 
@@ -164,6 +165,7 @@ struct ModelReasoningControl: View {
                     .fixedSize()
                     .disabled(
                         viewModel.hasActiveTurn
+                            || isExternallyLocked
                             || configuration.allowedOptions.count < 2
                     )
                     .accessibilityLabel("Thinking level")
@@ -174,7 +176,11 @@ struct ModelReasoningControl: View {
                         .controlSize(.small)
                         .font(Theme.fontXS)
                         .foregroundStyle(Theme.textSecondary)
-                        .disabled(viewModel.hasActiveTurn || !canToggle)
+                        .disabled(
+                            viewModel.hasActiveTurn
+                                || isExternallyLocked
+                                || !canToggle
+                        )
                         .accessibilityIdentifier("chat.reasoningEnabled")
                 }
 

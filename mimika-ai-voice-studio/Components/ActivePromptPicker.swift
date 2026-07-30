@@ -14,6 +14,7 @@ import SwiftUI
 
 struct ActivePromptPicker: View {
     let scope: PromptScope
+    let onEditInferenceSettings: ((SystemPrompt) -> Void)?
     /// Caller toggles the PromptManagerSheet via this binding. Keeping
     /// presentation state in the parent avoids "sheet inside a sheet"
     /// gotchas on macOS.
@@ -22,8 +23,13 @@ struct ActivePromptPicker: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var prompts: [SystemPrompt]
 
-    init(scope: PromptScope, showsManager: Binding<Bool>) {
+    init(
+        scope: PromptScope,
+        showsManager: Binding<Bool>,
+        onEditInferenceSettings: ((SystemPrompt) -> Void)? = nil
+    ) {
         self.scope = scope
+        self.onEditInferenceSettings = onEditInferenceSettings
         self._showsManager = showsManager
         let raw = scope.rawValue
         self._prompts = Query(
@@ -48,13 +54,34 @@ struct ActivePromptPicker: View {
             .labelsHidden()
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: { showsManager = true }) {
-                Label("Edit prompts…", systemImage: "pencil")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: Theme.space1) {
+                Button(action: { showsManager = true }) {
+                    Label("Edit prompts…", systemImage: "pencil")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+
+                if let onEditInferenceSettings {
+                    Button {
+                        guard let prompt = activePrompt else { return }
+                        onEditInferenceSettings(prompt)
+                    } label: {
+                        Label("Inference Settings", systemImage: "slider.horizontal.3")
+                            .font(Theme.fontXS)
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(activePrompt == nil)
+                    .accessibilityIdentifier("prompt.inferenceSettings")
+                }
             }
-            .buttonStyle(.plain)
         }
+    }
+
+    /// Currently selected prompt, resolved by its persisted active flag.
+    private var activePrompt: SystemPrompt? {
+        prompts.first(where: \.isActive) ?? prompts.first
     }
 
     /// Picker selection bound to the active prompt's UUID. Writing

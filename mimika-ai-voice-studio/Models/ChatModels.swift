@@ -179,6 +179,25 @@ nonisolated struct FishGenParams: Codable, Equatable, Sendable {
     static let `default` = FishGenParams()
 }
 
+// MARK: - Chat inference settings
+
+/// Per-system-prompt sampling values captured with each Solo Chat request.
+nonisolated struct ChatInferenceSettings: Equatable, Sendable {
+    var temperature: Double
+    var topP: Double
+    var topK: Int
+    var repeatPenalty: Double
+    var maxTokens: Int? = nil
+
+    static let `default` = ChatInferenceSettings(
+        temperature: 0.7,
+        topP: 0.7,
+        topK: 30,
+        repeatPenalty: 1.1,
+        maxTokens: nil
+    )
+}
+
 // MARK: - ChatSettings
 
 nonisolated struct ChatSettings: Codable, Equatable, Sendable {

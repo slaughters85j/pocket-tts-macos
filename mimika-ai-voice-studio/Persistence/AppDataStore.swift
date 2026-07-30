@@ -123,8 +123,20 @@ enum AppDataStore {
     /// Create a new (inactive) prompt in `scope`. Caller can `setActive`
     /// it afterward if that's the intent.
     @discardableResult
-    static func create(_ ctx: ModelContext, scope: PromptScope, name: String, content: String) -> SystemPrompt {
-        let p = SystemPrompt(name: name, scope: scope, content: content, isActive: false)
+    static func create(
+        _ ctx: ModelContext,
+        scope: PromptScope,
+        name: String,
+        content: String,
+        inferenceSettings: ChatInferenceSettings = .default
+    ) -> SystemPrompt {
+        let p = SystemPrompt(
+            name: name,
+            scope: scope,
+            content: content,
+            isActive: false,
+            inferenceSettings: inferenceSettings
+        )
         ctx.insert(p)
         try? ctx.save()
         return p
@@ -134,13 +146,30 @@ enum AppDataStore {
     /// The duplicate is created inactive.
     @discardableResult
     static func duplicate(_ ctx: ModelContext, prompt: SystemPrompt) -> SystemPrompt {
-        create(ctx, scope: prompt.scope, name: prompt.name + " (copy)", content: prompt.content)
+        create(
+            ctx,
+            scope: prompt.scope,
+            name: prompt.name + " (copy)",
+            content: prompt.content,
+            inferenceSettings: prompt.inferenceSettings
+        )
     }
 
     /// Update name + content on an existing prompt. Triggers `updatedAt`.
     static func update(_ ctx: ModelContext, prompt: SystemPrompt, name: String, content: String) {
         prompt.name = name
         prompt.content = content
+        prompt.updatedAt = .now
+        try? ctx.save()
+    }
+
+    /// Persist Solo Chat sampling values on the selected prompt ID.
+    static func updateInferenceSettings(
+        _ ctx: ModelContext,
+        prompt: SystemPrompt,
+        settings: ChatInferenceSettings
+    ) {
+        prompt.inferenceSettings = settings
         prompt.updatedAt = .now
         try? ctx.save()
     }

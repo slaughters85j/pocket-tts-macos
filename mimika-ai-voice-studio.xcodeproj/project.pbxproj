@@ -20,6 +20,7 @@
 		790A018FA49817318A61DA03 /* CapabilityOverrideSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B614731AE3D0AB74BE85AFEB /* CapabilityOverrideSettingsSection.swift */; };
 		B6447070E8E0318AC7D3DE73 /* LocalLLMDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA874DDA391DDE24AEE0FD25 /* LocalLLMDTOs.swift */; };
 		791033D19C5F70A0424A954F /* SoloChatNetworkingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DA4BEE403B952E900BB5F0 /* SoloChatNetworkingTests.swift */; };
+		A71F6C0D8B3E42F19D5A7601 /* ChatInferenceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82A7D1E9C4F5302AE6B8712 /* ChatInferenceSettingsTests.swift */; };
 		58DA354FC5AB673F9BC3BFF2 /* ChatImageAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F8A6E0ED724284D82C590B /* ChatImageAttachmentTests.swift */; };
 		F8AAC63F8157FC2C87B8079D /* ChatViewModelVisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A020629B5428DC442C55DB7 /* ChatViewModelVisionTests.swift */; };
 		B919F748BD9777BA9AE70ACF /* ChatCapabilityStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014EA7A3DEBBBBE9F2E731B9 /* ChatCapabilityStateTests.swift */; };
@@ -296,6 +297,7 @@
 		B614731AE3D0AB74BE85AFEB /* CapabilityOverrideSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapabilityOverrideSettingsSection.swift; sourceTree = "<group>"; };
 		AA874DDA391DDE24AEE0FD25 /* LocalLLMDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLLMDTOs.swift; sourceTree = "<group>"; };
 		14DA4BEE403B952E900BB5F0 /* SoloChatNetworkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoloChatNetworkingTests.swift; sourceTree = "<group>"; };
+		B82A7D1E9C4F5302AE6B8712 /* ChatInferenceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInferenceSettingsTests.swift; sourceTree = "<group>"; };
 		F4F8A6E0ED724284D82C590B /* ChatImageAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatImageAttachmentTests.swift; sourceTree = "<group>"; };
 		9A020629B5428DC442C55DB7 /* ChatViewModelVisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModelVisionTests.swift; sourceTree = "<group>"; };
 		014EA7A3DEBBBBE9F2E731B9 /* ChatCapabilityStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCapabilityStateTests.swift; sourceTree = "<group>"; };
@@ -1038,6 +1040,7 @@
 				D53CE6442FD2FADC0071832E /* WSOLATimeCompressorTests.swift */,
 				9140AC48D1DDEDF29BA38333 /* LocalLLMClientTests.swift */,
 				14DA4BEE403B952E900BB5F0 /* SoloChatNetworkingTests.swift */,
+				B82A7D1E9C4F5302AE6B8712 /* ChatInferenceSettingsTests.swift */,
 				F4F8A6E0ED724284D82C590B /* ChatImageAttachmentTests.swift */,
 				CA87992F5DB2E50EB7E0CCE4 /* ChatImageImportViewModelTests.swift */,
 				9A020629B5428DC442C55DB7 /* ChatViewModelVisionTests.swift */,
@@ -1469,6 +1472,7 @@
 				D53CE6F52FD2FADC0071832E /* SentencePieceChunkerTests.swift in Sources */,
 				FFD73B22C32033F66E873DA6 /* LocalLLMClientTests.swift in Sources */,
 				791033D19C5F70A0424A954F /* SoloChatNetworkingTests.swift in Sources */,
+				A71F6C0D8B3E42F19D5A7601 /* ChatInferenceSettingsTests.swift in Sources */,
 				58DA354FC5AB673F9BC3BFF2 /* ChatImageAttachmentTests.swift in Sources */,
 				E833DE99F6C8163FD3F22F31 /* ChatImageImportViewModelTests.swift in Sources */,
 				F8AAC63F8157FC2C87B8079D /* ChatViewModelVisionTests.swift in Sources */,
