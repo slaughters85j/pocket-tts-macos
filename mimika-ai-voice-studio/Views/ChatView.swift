@@ -140,6 +140,7 @@ struct ChatView: View {
 
             if subMode == .solo {
                 ModelCapabilityBadges(state: viewModel.capabilityState)
+                ModelReasoningControl(viewModel: viewModel)
             }
 
             Spacer()

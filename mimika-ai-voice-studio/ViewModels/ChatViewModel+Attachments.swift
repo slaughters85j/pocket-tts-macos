@@ -194,6 +194,7 @@ extension ChatViewModel {
 
         let systemPrompt = currentChatSystemPrompt()
         let requestMessages = messagesForRequest()
+        let reasoningEffort = reasoningEffortForRequest
         let (sentenceStream, sentenceContinuation) = AsyncStream<String>.makeStream()
 
         turn.llmTask = Task { [weak self] in
@@ -203,6 +204,7 @@ extension ChatViewModel {
                 messages: requestMessages,
                 model: model,
                 systemPrompt: systemPrompt,
+                reasoningEffort: reasoningEffort,
                 sentenceContinuation: sentenceContinuation
             )
         }
@@ -230,6 +232,7 @@ extension ChatViewModel {
         messages: [ChatMessage],
         model: String,
         systemPrompt: String,
+        reasoningEffort: String?,
         sentenceContinuation: AsyncStream<String>.Continuation
     ) async {
         defer {
@@ -242,7 +245,8 @@ extension ChatViewModel {
         let stream = makeClient().streamChatEvents(
             messages: messages,
             model: model,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            reasoningEffort: reasoningEffort
         )
         do {
             for try await event in stream {

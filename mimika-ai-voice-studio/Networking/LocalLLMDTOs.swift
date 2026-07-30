@@ -21,6 +21,7 @@ nonisolated struct ChatRequest: Encodable {
     var top_p: Double? = nil
     var top_k: Int? = nil
     var repeat_penalty: Double? = nil
+    var reasoning_effort: String? = nil
 }
 
 nonisolated struct ResponseFormatDTO: Encodable {
@@ -186,14 +187,36 @@ nonisolated struct LMStudioModelsResponse: Decodable {
 
         /// LM Studio reports support through at least one usable option.
         var indicatesSupport: Bool {
-            let unsupported = Set(["", "off", "none", "disabled", "false"])
-            if allowedOptions?.contains(where: {
-                !unsupported.contains($0.lowercased())
-            }) == true {
-                return true
+            configuration != nil
+        }
+
+        /// Typed control surface preserving LM Studio's option order.
+        var configuration: ModelReasoningConfiguration? {
+            var options = (allowedOptions ?? []).compactMap {
+                ModelReasoningOption(rawValue: $0.lowercased())
             }
-            guard let defaultValue else { return false }
-            return !unsupported.contains(defaultValue.lowercased())
+            let defaultOption = defaultValue.flatMap {
+                ModelReasoningOption(rawValue: $0.lowercased())
+            }
+
+            if options.isEmpty, let defaultOption {
+                options = [defaultOption]
+            }
+            guard options.contains(where: { $0 != .off }) else {
+                return nil
+            }
+
+            let uniqueOptions = options.reduce(into: [ModelReasoningOption]()) {
+                if !$0.contains($1) {
+                    $0.append($1)
+                }
+            }
+            return ModelReasoningConfiguration(
+                allowedOptions: uniqueOptions,
+                defaultOption: defaultOption.flatMap {
+                    uniqueOptions.contains($0) ? $0 : nil
+                } ?? uniqueOptions[0]
+            )
         }
     }
 }

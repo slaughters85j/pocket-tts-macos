@@ -33,6 +33,57 @@ nonisolated struct ModelCapabilities: OptionSet, Codable, Equatable, Hashable, S
     }
 }
 
+// MARK: - Reasoning configuration
+
+/// Public reasoning settings LM Studio exposes for one model.
+nonisolated enum ModelReasoningOption: String, Codable, CaseIterable, Sendable {
+    case off
+    case on
+    case low
+    case medium
+    case high
+
+    /// User-facing control label.
+    var displayName: String {
+        rawValue.capitalized
+    }
+
+    /// OpenAI-compatible Chat Completions value recognized by LM Studio.
+    var apiReasoningEffort: String {
+        switch self {
+        case .off:
+            return "none"
+        case .on:
+            return "medium"
+        case .low, .medium, .high:
+            return rawValue
+        }
+    }
+}
+
+/// Authoritative reasoning options and default reported by LM Studio.
+nonisolated struct ModelReasoningConfiguration: Equatable, Sendable {
+    let allowedOptions: [ModelReasoningOption]
+    let defaultOption: ModelReasoningOption
+
+    /// True when the model offers graded effort instead of only on/off.
+    var usesEffortLevels: Bool {
+        allowedOptions.contains { [.low, .medium, .high].contains($0) }
+    }
+
+    /// Safe fallback for a force-supported reasoning override.
+    static let binaryFallback = ModelReasoningConfiguration(
+        allowedOptions: [.off, .on],
+        defaultOption: .on
+    )
+}
+
+/// Capability response plus optional reasoning control metadata.
+nonisolated struct ModelCapabilityMetadata: Equatable, Sendable {
+    let capabilities: ModelCapabilities
+    let reasoning: ModelReasoningConfiguration?
+}
+
 /// Freshness of the last authoritative metadata response.
 nonisolated enum CapabilityFreshness: Equatable, Sendable {
     case current

@@ -60,6 +60,33 @@ final class SoloChatNetworkingTests: XCTestCase {
         XCTAssertFalse(capabilities.contains(.reasoning))
     }
 
+    func test_modelMetadata_preservesReasoningOptionsAndDefault() async throws {
+        LLMStubURLProtocol.setResponse(
+            Data(
+                """
+                {"models":[{"key":"m","capabilities":{
+                    "vision":false,
+                    "trained_for_tool_use":false,
+                    "reasoning":{
+                        "allowed_options":["off","low","medium","high"],
+                        "default":"medium"
+                    }
+                }}]}
+                """.utf8
+            )
+        )
+
+        let metadata = try await makeClient().modelMetadata(for: "m")
+
+        XCTAssertEqual(metadata.capabilities, [.reasoning])
+        XCTAssertEqual(
+            metadata.reasoning?.allowedOptions,
+            [.off, .low, .medium, .high]
+        )
+        XCTAssertEqual(metadata.reasoning?.defaultOption, .medium)
+        XCTAssertEqual(metadata.reasoning?.usesEffortLevels, true)
+    }
+
     // MARK: - Multimodal encoding
 
     func test_streamChat_encodesMixedContentAndPreservesTextOnlyShape() async throws {
@@ -86,6 +113,22 @@ final class SoloChatNetworkingTests: XCTestCase {
         XCTAssertEqual(imageURL["url"] as? String, attachment.dataURL)
         XCTAssertEqual(messages[1]["content"] as? String, "seen")
         XCTAssertEqual(messages[2]["content"] as? String, "plain")
+    }
+
+    func test_streamChat_encodesSelectedReasoningEffort() async throws {
+        LLMStubURLProtocol.setResponse(sse("ok"))
+
+        for try await _ in makeClient().streamChat(
+            messages: [ChatMessage(role: .user, content: "think")],
+            model: "m",
+            reasoningEffort: "high"
+        ) {}
+
+        let body = try XCTUnwrap(LLMStubURLProtocol.capturedBody())
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        XCTAssertEqual(json["reasoning_effort"] as? String, "high")
     }
 
     func test_streamChatEvents_emitsAcceptanceBeforeDeltas() async throws {

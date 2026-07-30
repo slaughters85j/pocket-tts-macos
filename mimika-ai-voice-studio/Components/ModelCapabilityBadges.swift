@@ -133,3 +133,111 @@ private struct ReasoningCapabilityGlyph: View {
         .accessibilityHidden(true)
     }
 }
+
+// MARK: - Reasoning control
+
+/// Reasoning toggle or effort picker derived from LM Studio metadata.
+struct ModelReasoningControl: View {
+    @Bindable var viewModel: ChatViewModel
+
+    @State private var showsInfo = false
+
+    var body: some View {
+        if viewModel.supportsReasoning,
+           let configuration = viewModel.reasoningConfiguration,
+           viewModel.reasoningSelection != nil {
+            HStack(spacing: Theme.space2) {
+                if configuration.usesEffortLevels {
+                    Text("Thinking")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textSecondary)
+
+                    Picker("", selection: selectionBinding) {
+                        ForEach(
+                            configuration.allowedOptions,
+                            id: \.rawValue
+                        ) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(
+                        viewModel.hasActiveTurn
+                            || configuration.allowedOptions.count < 2
+                    )
+                    .accessibilityLabel("Thinking level")
+                    .accessibilityIdentifier("chat.reasoningLevel")
+                } else {
+                    Toggle("Enable Thinking", isOn: enabledBinding)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textSecondary)
+                        .disabled(viewModel.hasActiveTurn || !canToggle)
+                        .accessibilityIdentifier("chat.reasoningEnabled")
+                }
+
+                Button {
+                    showsInfo.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("About thinking")
+                .accessibilityLabel("About thinking")
+                .accessibilityIdentifier("chat.reasoningInfo")
+                .popover(isPresented: $showsInfo, arrowEdge: .bottom) {
+                    Text(
+                        configuration.usesEffortLevels
+                            ? "Controls how much the model will think when replying"
+                            : "Controls whether the model will think before replying"
+                    )
+                        .font(Theme.fontSM)
+                        .padding(Theme.space4)
+                }
+            }
+        }
+    }
+
+    /// Binding for models exposing Low/Medium/High effort levels.
+    private var selectionBinding: Binding<ModelReasoningOption> {
+        Binding(
+            get: {
+                viewModel.reasoningSelection
+                    ?? viewModel.reasoningConfiguration?.defaultOption
+                    ?? .medium
+            },
+            set: { viewModel.setReasoningSelection($0) }
+        )
+    }
+
+    /// Binding for models exposing only on/off reasoning.
+    private var enabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.reasoningSelection != .off },
+            set: { enabled in
+                viewModel.setReasoningSelection(enabled ? enabledOption : .off)
+            }
+        )
+    }
+
+    /// LM Studio's explicit enabled option or its reported default.
+    private var enabledOption: ModelReasoningOption {
+        let configuration = viewModel.reasoningConfiguration
+        if configuration?.allowedOptions.contains(.on) == true {
+            return .on
+        }
+        return configuration?.defaultOption ?? .on
+    }
+
+    /// On-only models remain visible but cannot send an unsupported off value.
+    private var canToggle: Bool {
+        guard let options = viewModel.reasoningConfiguration?.allowedOptions else {
+            return false
+        }
+        return options.contains(.off) && options.contains(enabledOption)
+    }
+}

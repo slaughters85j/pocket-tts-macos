@@ -86,6 +86,11 @@ actor LocalLLMClient {
 
     /// GET /api/v1/models — authoritative LM Studio capabilities for one model.
     func modelCapabilities(for model: String) async throws -> ModelCapabilities {
+        try await modelMetadata(for: model).capabilities
+    }
+
+    /// GET /api/v1/models — capabilities plus public reasoning controls.
+    func modelMetadata(for model: String) async throws -> ModelCapabilityMetadata {
         let url = baseURL.appendingPathComponent("api/v1/models")
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = "GET"
@@ -115,7 +120,10 @@ actor LocalLLMClient {
             if metadata.reasoning?.indicatesSupport == true {
                 result.insert(.reasoning)
             }
-            return result
+            return ModelCapabilityMetadata(
+                capabilities: result,
+                reasoning: metadata.reasoning?.configuration
+            )
         } catch let error as ClientError {
             throw error
         } catch {
@@ -139,6 +147,7 @@ actor LocalLLMClient {
         topP: Double? = nil,
         topK: Int? = nil,
         repeatPenalty: Double? = nil,
+        reasoningEffort: String? = nil,
         includeReasoning: Bool = false
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream<String, Error> { continuation in
@@ -154,6 +163,7 @@ actor LocalLLMClient {
                         topP: topP,
                         topK: topK,
                         repeatPenalty: repeatPenalty,
+                        reasoningEffort: reasoningEffort,
                         includeReasoning: includeReasoning
                     )
                     for try await event in events {
@@ -183,6 +193,7 @@ actor LocalLLMClient {
         topP: Double? = nil,
         topK: Int? = nil,
         repeatPenalty: Double? = nil,
+        reasoningEffort: String? = nil,
         includeReasoning: Bool = false
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream<ChatStreamEvent, Error> { continuation in
@@ -198,6 +209,7 @@ actor LocalLLMClient {
                         topP: topP,
                         topK: topK,
                         repeatPenalty: repeatPenalty,
+                        reasoningEffort: reasoningEffort,
                         includeReasoning: includeReasoning,
                         continuation: continuation
                     )
@@ -222,6 +234,7 @@ actor LocalLLMClient {
         topP: Double?,
         topK: Int?,
         repeatPenalty: Double?,
+        reasoningEffort: String?,
         includeReasoning: Bool,
         continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
     ) async throws {
@@ -244,7 +257,18 @@ actor LocalLLMClient {
         }
         apiMessages.append(contentsOf: messages.map(APIMessage.init))
 
-        let body = ChatRequest(model: model, messages: apiMessages, stream: true, temperature: temperature, stop: stop, max_tokens: maxTokens, top_p: topP, top_k: topK, repeat_penalty: repeatPenalty)
+        let body = ChatRequest(
+            model: model,
+            messages: apiMessages,
+            stream: true,
+            temperature: temperature,
+            stop: stop,
+            max_tokens: maxTokens,
+            top_p: topP,
+            top_k: topK,
+            repeat_penalty: repeatPenalty,
+            reasoning_effort: reasoningEffort
+        )
         req.httpBody = try JSONEncoder().encode(body)
 
         let (bytes, response) = try await session.bytes(for: req)

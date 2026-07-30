@@ -42,6 +42,8 @@ final class ChatViewModel {
     var connectionState: ConnectionState = .checking
     var capabilityState: ModelCapabilityState = .unknown
     var capabilitySelection: ChatModelSelection?
+    var reasoningConfiguration: ModelReasoningConfiguration?
+    var reasoningSelection: ModelReasoningOption?
     var showsVisionRecovery = false
     var status: ChatStatus = .idle
     var dictation: DictationStatus = .idle
@@ -62,11 +64,15 @@ final class ChatViewModel {
 
     var activeTurn: ActiveChatTurn?
     @ObservationIgnored var healthCheckTask: Task<Void, Never>?
-    @ObservationIgnored var capabilityProbeTask: Task<ModelCapabilities, Error>?
+    @ObservationIgnored var capabilityProbeTask: Task<ModelCapabilityMetadata, Error>?
     @ObservationIgnored var toastTask: Task<Void, Never>?
     var connectionRequestID = UUID()
     var capabilityRequestID = UUID()
     var lastKnownCapabilities: [String: ModelCapabilities] = [:]
+    var lastKnownReasoningConfigurations: [
+        String: ModelReasoningConfiguration
+    ] = [:]
+    var reasoningSelections: [String: ModelReasoningOption] = [:]
     var previousVisionSelection: ChatModelSelection?
     var deferredVisionRecovery = false
     var lastAutomaticVisionRecoveryKey: String?
@@ -112,6 +118,17 @@ final class ChatViewModel {
     /// Effective Vision support, including a force-supported override.
     var supportsVision: Bool {
         capabilityState.effective.contains(.vision)
+    }
+
+    /// Effective Reasoning support, including force-supported override.
+    var supportsReasoning: Bool {
+        capabilityState.effective.contains(.reasoning)
+    }
+
+    /// Captured OpenAI-compatible reasoning value for the next request.
+    var reasoningEffortForRequest: String? {
+        guard supportsReasoning else { return nil }
+        return reasoningSelection?.apiReasoningEffort
     }
 
     /// Composer input is locked only until the HTTP response is accepted.

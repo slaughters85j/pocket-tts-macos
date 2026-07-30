@@ -143,6 +143,46 @@ final class ChatCapabilityStateTests: XCTestCase {
         )
     }
 
+    func test_reasoningSelectionUsesMetadataAndLocksDuringActiveTurn() async throws {
+        let (viewModel, appState) = try makeViewModel()
+        enqueueModels(["m"])
+        LLMStubURLProtocol.enqueue(
+            Data(
+                """
+                {"models":[{"key":"m","capabilities":{
+                    "vision":false,
+                    "trained_for_tool_use":false,
+                    "reasoning":{
+                        "allowed_options":["low","medium","high"],
+                        "default":"medium"
+                    }
+                }}]}
+                """.utf8
+            )
+        )
+
+        await viewModel.checkConnection()
+
+        XCTAssertEqual(viewModel.reasoningSelection, .medium)
+        viewModel.setReasoningSelection(.high)
+        XCTAssertEqual(viewModel.reasoningSelection, .high)
+        XCTAssertEqual(viewModel.reasoningEffortForRequest, "high")
+
+        viewModel.activeTurn = ActiveChatTurn(
+            userMessageID: UUID(),
+            assistantMessageID: UUID(),
+            originalDraft: "",
+            originalAttachments: []
+        )
+        viewModel.setReasoningSelection(.low)
+
+        XCTAssertEqual(viewModel.reasoningSelection, .high)
+        XCTAssertEqual(
+            appState.toastMessage,
+            "Please wait until the model finishes responding."
+        )
+    }
+
     private func makeViewModel() throws -> (ChatViewModel, AppState) {
         var settings = ChatSettings.default
         settings.model = "m"

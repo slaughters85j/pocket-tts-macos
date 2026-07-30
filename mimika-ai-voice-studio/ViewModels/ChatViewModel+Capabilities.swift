@@ -57,6 +57,7 @@ extension ChatViewModel {
                 forced: settings.forcedCapabilities(for: configuredSelection),
                 freshness: .unknown
             )
+            applyReasoningConfiguration(nil, for: configuredSelection)
             lastAutomaticVisionRecoveryKey = nil
             showsVisionRecovery = false
             deferredVisionRecovery = false
@@ -105,26 +106,34 @@ extension ChatViewModel {
         let requestID = UUID()
         capabilityRequestID = requestID
         let client = makeClient()
-        let task = Task { try await client.modelCapabilities(for: selection.model) }
+        let task = Task { try await client.modelMetadata(for: selection.model) }
         capabilityProbeTask = task
 
         do {
-            let capabilities = try await task.value
+            let metadata = try await task.value
             guard
                 !Task.isCancelled,
                 requestID == capabilityRequestID,
                 capabilitySelection == selection
             else { return }
 
-            lastKnownCapabilities[selection.storageKey] = capabilities
+            lastKnownCapabilities[selection.storageKey] = metadata.capabilities
+            if let reasoning = metadata.reasoning {
+                lastKnownReasoningConfigurations[selection.storageKey] = reasoning
+            } else {
+                lastKnownReasoningConfigurations.removeValue(
+                    forKey: selection.storageKey
+                )
+            }
             applyCapabilityResolution(
                 ModelCapabilityState(
-                    authoritative: capabilities,
+                    authoritative: metadata.capabilities,
                     forced: forced,
                     freshness: .current
                 ),
                 for: selection
             )
+            applyReasoningConfiguration(metadata.reasoning, for: selection)
             capabilityProbeTask = nil
         } catch {
             guard
@@ -141,7 +150,53 @@ extension ChatViewModel {
                 ),
                 for: selection
             )
+            applyReasoningConfiguration(
+                lastKnownReasoningConfigurations[selection.storageKey],
+                for: selection
+            )
             capabilityProbeTask = nil
         }
+    }
+
+    // MARK: Reasoning selection
+
+    /// Resolve one model's reasoning control without guessing from its name.
+    func applyReasoningConfiguration(
+        _ configuration: ModelReasoningConfiguration?,
+        for selection: ChatModelSelection
+    ) {
+        guard capabilitySelection == selection else { return }
+
+        let resolved = configuration
+            ?? (supportsReasoning ? .binaryFallback : nil)
+        reasoningConfiguration = resolved
+
+        guard let resolved else {
+            reasoningSelection = nil
+            return
+        }
+
+        let stored = reasoningSelections[selection.storageKey]
+        let selected = stored.flatMap {
+            resolved.allowedOptions.contains($0) ? $0 : nil
+        } ?? resolved.defaultOption
+        reasoningSelection = selected
+        reasoningSelections[selection.storageKey] = selected
+    }
+
+    /// Change reasoning only while no request owns a captured payload.
+    func setReasoningSelection(_ option: ModelReasoningOption) {
+        guard activeTurn == nil else {
+            showToast("Please wait until the model finishes responding.")
+            return
+        }
+        guard
+            let selection = capabilitySelection,
+            let reasoningConfiguration,
+            reasoningConfiguration.allowedOptions.contains(option)
+        else { return }
+
+        reasoningSelection = option
+        reasoningSelections[selection.storageKey] = option
     }
 }
