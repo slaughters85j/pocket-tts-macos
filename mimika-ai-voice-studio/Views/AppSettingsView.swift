@@ -16,6 +16,7 @@
 //  Chat-scoped fields (voice for chat replies, chat system prompt) live
 //  in ChatSettingsView, reachable only from the Chat tab's own gear icon.
 
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -35,8 +36,12 @@ struct AppSettingsView: View {
 
     @State private var workingCopy: ChatSettings
     @State private var workingBaseURL: String
+    /// Downloaded / catalog models for the picker (may include unloaded).
     @State private var availableModels: [String] = []
+    /// Currently loaded/serving ids (for ✓ markers + connection truth).
+    @State private var loadedModels: [String] = []
     @State private var modelLoadError: String? = nil
+    @State private var isLoadingModel = false
     @State private var probeState: ProbeState = .idle
     @State private var personaConfig = PersonaProviderStore.load()
     @State private var anthropicKey = PersonaProviderStore.anthropicAPIKey()
@@ -91,7 +96,11 @@ struct AppSettingsView: View {
 
     private var lmStudioSection: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
-            Text("Local LLM Endpoint").font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
+            HStack(alignment: .firstTextBaseline, spacing: Theme.space2) {
+                Text("Local LLM Endpoint").font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
+                Spacer(minLength: 0)
+                lmStudioDownloadBadge
+            }
             Text("OpenAI-compatible HTTP API — works with LM Studio, Ollama, llama.cpp server, vLLM, LocalAI, etc. Used by the AI Writer in Single Voice and Multi-Talk, and by Chat for streaming replies.")
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
@@ -111,7 +120,9 @@ struct AppSettingsView: View {
                 Text("Model").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
                 Picker("", selection: $workingCopy.model) {
                     Text("(none yet)").tag("")
-                    ForEach(availableModels, id: \.self) { Text($0).tag($0) }
+                    ForEach(availableModels, id: \.self) { id in
+                        Text(modelPickerLabel(for: id)).tag(id)
+                    }
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
@@ -123,8 +134,37 @@ struct AppSettingsView: View {
                         .font(.system(size: 13))
                 }
                 .buttonStyle(.plain)
-                .help("Refresh model list")
+                .help("Refresh downloaded catalog + loaded status")
                 .accessibilityIdentifier("appSettings.refreshModels")
+            }
+
+            HStack(spacing: Theme.space2) {
+                Button(action: { Task { await loadSelectedModel() } }) {
+                    if isLoadingModel {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Text(isSelectedModelLoaded ? "Loaded" : "Load in LM Studio")
+                            .font(Theme.fontXS)
+                            .foregroundStyle(isSelectedModelLoaded ? Theme.textSecondary : Theme.accent)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(
+                    workingCopy.model.isEmpty
+                        || isLoadingModel
+                        || isSelectedModelLoaded
+                )
+                .help(
+                    isSelectedModelLoaded
+                        ? "This model is already loaded"
+                        : "Unload other models and load the selection in LM Studio"
+                )
+                .accessibilityIdentifier("appSettings.loadModel")
+
+                Text(catalogStatusCaption)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
             }
 
             if let modelLoadError {
@@ -157,6 +197,61 @@ struct AppSettingsView: View {
                 }
             }
         }
+    }
+
+    private var isSelectedModelLoaded: Bool {
+        guard !workingCopy.model.isEmpty else { return false }
+        return loadedModels.contains { idsRoughlyMatch($0, workingCopy.model) }
+    }
+
+    private var catalogStatusCaption: String {
+        let catalog = availableModels.count
+        let loaded = loadedModels.count
+        if catalog == 0 && loaded == 0 { return "" }
+        return "\(catalog) downloaded · \(loaded) loaded"
+    }
+
+    private func modelPickerLabel(for id: String) -> String {
+        loadedModels.contains(where: { idsRoughlyMatch($0, id) }) ? "● \(id)" : id
+    }
+
+    private func idsRoughlyMatch(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        if a.hasSuffix(b) || b.hasSuffix(a) { return true }
+        let ta = a.split(separator: "/").last.map(String.init) ?? a
+        let tb = b.split(separator: "/").last.map(String.init) ?? b
+        return ta == tb
+    }
+
+    /// Badge that deep-links to LM Studio’s macOS arm64 download when the app
+    /// isn’t installed; grayed out when `LM Studio.app` is already on disk.
+    private var lmStudioDownloadBadge: some View {
+        let installed = LMStudioInstall.isInstalled
+        return Button {
+            guard !installed else { return }
+            NSWorkspace.shared.open(LMStudioInstall.downloadURL)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: installed ? "checkmark.circle.fill" : "arrow.down.circle")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(installed ? "LM Studio installed" : "Get LM Studio")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(installed ? Theme.textSecondary : Theme.badgeSingleFG)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(installed ? Theme.bgTertiary.opacity(0.6) : Theme.badgeSingleBG)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(installed)
+        .opacity(installed ? 0.7 : 1)
+        .help(installed
+              ? "LM Studio is installed on this Mac"
+              : "Download LM Studio — free local LLM app (macOS Apple Silicon)")
+        .accessibilityIdentifier("appSettings.lmStudioDownload")
     }
 
     private var personaWriterSection: some View {
@@ -373,11 +468,19 @@ struct AppSettingsView: View {
     }
 
     private func saveAndClose() {
-        onSave(workingCopy, workingBaseURL)
-        // Persona-writer provider config (UserDefaults) + API key (Keychain).
-        PersonaProviderStore.save(personaConfig)
-        PersonaProviderStore.setAnthropicAPIKey(anthropicKey)
-        isPresented = false
+        // Best-effort: ensure the preferred model is loaded before dismissing so
+        // the Connected pill and chat turn don't lag on a catalog-only pick.
+        Task {
+            if !workingCopy.model.isEmpty, !isSelectedModelLoaded {
+                await loadSelectedModel()
+            }
+            await MainActor.run {
+                onSave(workingCopy, workingBaseURL)
+                PersonaProviderStore.save(personaConfig)
+                PersonaProviderStore.setAnthropicAPIKey(anthropicKey)
+                isPresented = false
+            }
+        }
     }
 
     private func loadModels() async {
@@ -388,16 +491,59 @@ struct AppSettingsView: View {
         }
         let client = LocalLLMClient(baseURL: url)
         do {
-            let list = try await client.listModels()
-            availableModels = list
-            // Re-select the loaded model when the saved one isn't served (e.g. the
-            // user swapped the loaded model in LM Studio) — keeps this picker, the
-            // Connected pill, and the live requests all in agreement.
-            if (workingCopy.model.isEmpty || !list.contains(workingCopy.model)), let first = list.first {
-                workingCopy.model = first
+            // Picker = full downloaded catalog; loaded list is separate (truth).
+            async let catalogTask = client.listCatalogModels()
+            async let servingTask = client.listServingModels()
+            let catalog = try await catalogTask
+            let serving = try await servingTask
+            availableModels = catalog
+            loadedModels = serving
+
+            if catalog.isEmpty {
+                modelLoadError = "Server reachable — no models in catalog"
+                return
+            }
+            if serving.isEmpty {
+                modelLoadError = "Server reachable — no model loaded (pick one and Load)"
+            }
+            // Prefer keeping the saved pick if it's still in the catalog.
+            // Only auto-jump to a loaded model when the saved pick is empty/missing.
+            if workingCopy.model.isEmpty || !catalog.contains(where: { idsRoughlyMatch($0, workingCopy.model) }) {
+                if let firstLoaded = serving.first {
+                    workingCopy.model = firstLoaded
+                } else if let first = catalog.first {
+                    workingCopy.model = first
+                }
             }
         } catch {
-            modelLoadError = "Couldn't reach \(workingBaseURL)"
+            modelLoadError = LocalLLMClient.friendlyConnectionError(error)
+        }
+    }
+
+    /// Unload others + load the picker selection in LM Studio (no-op if already loaded).
+    private func loadSelectedModel() async {
+        let model = workingCopy.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return }
+        guard let url = URL(string: workingBaseURL) else {
+            modelLoadError = "Invalid URL"
+            return
+        }
+        isLoadingModel = true
+        modelLoadError = nil
+        defer { isLoadingModel = false }
+        let client = LocalLLMClient(baseURL: url)
+        do {
+            _ = try await client.switchToModel(model)
+            // Refresh loaded set after a successful switch.
+            loadedModels = (try? await client.listServingModels()) ?? loadedModels
+            if !loadedModels.contains(where: { idsRoughlyMatch($0, model) }) {
+                // Some hosts return instance ids different from catalog keys.
+                loadedModels = Array(Set(loadedModels + [model]))
+            }
+            probeState = .ok(model)
+        } catch {
+            modelLoadError = "Couldn't load model — \(LocalLLMClient.friendlyConnectionError(error))"
+            probeState = .fail(LocalLLMClient.friendlyConnectionError(error))
         }
     }
 
@@ -409,14 +555,43 @@ struct AppSettingsView: View {
         }
         let client = LocalLLMClient(baseURL: url)
         do {
-            let list = try await client.listModels()
-            if let first = list.first {
-                probeState = .ok(first)
-            } else {
+            // Refresh both lists while testing.
+            async let catalogTask = client.listCatalogModels()
+            async let servingTask = client.listServingModels()
+            let catalog = try await catalogTask
+            let serving = try await servingTask
+            availableModels = catalog
+            loadedModels = serving
+            if let prefer = serving.first(where: { idsRoughlyMatch($0, workingCopy.model) })
+                ?? serving.first {
+                probeState = .ok(prefer)
+                modelLoadError = nil
+            } else if catalog.isEmpty {
                 probeState = .fail("no models")
+            } else {
+                probeState = .fail("no model loaded")
+                modelLoadError = "Server reachable — no model loaded (pick one and Load)"
             }
         } catch {
-            probeState = .fail("unreachable")
+            probeState = .fail(LocalLLMClient.friendlyConnectionError(error))
         }
+    }
+}
+
+// MARK: - LM Studio install detection
+
+/// Detects a local LM Studio.app and provides the official macOS arm64 download.
+enum LMStudioInstall {
+    /// Official latest macOS Apple Silicon build (redirects to current version).
+    static let downloadURL = URL(string: "https://lmstudio.ai/download/latest/darwin/arm64")!
+
+    /// True when LM Studio.app is present in common install locations.
+    static var isInstalled: Bool {
+        let candidates = [
+            "/Applications/LM Studio.app",
+            "/Applications/AI/LM Studio.app",
+            NSHomeDirectory() + "/Applications/LM Studio.app",
+        ]
+        return candidates.contains { FileManager.default.fileExists(atPath: $0) }
     }
 }

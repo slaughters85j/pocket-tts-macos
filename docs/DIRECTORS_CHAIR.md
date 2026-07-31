@@ -27,8 +27,9 @@ shipping Boot / User turn / Context dump.
 
 1. **Director’s Chair chrome** (glass overlay) — shipped  
 2. **Boot** (2A) — shipped (MVP)  
-3. **Context Compact** (2C) — shipped; Compact icon under Boot + fill %  
-4. **User turn** (2B) — shipped (MVP)  
+3. **Direct** (megaphone) — shipped (MVP)  
+4. **Context Compact** (2C) — shipped; Compact icon under Boot + fill %  
+5. **User turn** (2B) — shipped (MVP)  
 
 ---
 
@@ -51,6 +52,33 @@ shipping Boot / User turn / Context dump.
 4. Notice: “Booted {name}”.
 
 **Not v1:** add-character mid-run; multi-boot queue.
+
+---
+
+## Direct (shipped MVP)
+
+**Intent:** Private, cast-specific director note — steer a tangent, ban a
+phrase, demand a beat — without removing them (unlike Boot) and without a
+generic chaos bomb (unlike Grenade).
+
+**UI (Chair):**
+
+- Orange `megaphone.fill` between Boot and Compact.
+- Tap → picker + free-text instruction + Send (same layout as Boot).
+- Disabled while a direction is already armed; instruction required (non-empty).
+- Only one of Boot / Direct composers open at a time.
+
+**Runtime:**
+
+1. `pendingDirective` forces that speaker **next** (Boot still wins if both armed).
+2. DIRECTOR DIRECTIVE on their system prompt — follow the note; one short line;
+   never mention the director.
+3. Sampling forced to **Strict** (temp / top-p / top-k) for that turn only;
+   transcript badge shows Strict.
+4. Cleared after a successful directed line (retries on empty/fail).
+5. Notice: “Direction armed — {name}”.
+
+**Not v1:** multi-directive queue; sticky multi-turn notes; public table announcement.
 
 ---
 
@@ -80,7 +108,7 @@ shipping Boot / User turn / Context dump.
 **Intent:** Compact model-facing context when small models loop/degrade —
 not LM Studio’s UI clear, same *effect* on next request size.
 
-**UI:** Director’s Chair → **Compact** icon under Boot, with **~N%** fill
+**UI:** Director’s Chair → **Compact** icon under Direct, with **~N%** fill
 (Qwen reference tokenizer vs loaded context length). Color: orange → amber ≥75%
 → red ≥90%. Toast at ≥90%: “Compact recommended”.
 

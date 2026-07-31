@@ -60,14 +60,23 @@ final class EnsembleViewModel {
     /// Director's Chair Boot: force this speaker next with an exit directive,
     /// then remove them from the cast after the turn lands.
     var pendingBoot: PendingBoot?
+    /// Director's Chair Direct: force this speaker next with a custom instruction
+    /// (steer prose, ban a phrase, etc.) at Strict sampling.
+    var pendingDirective: PendingDirective?
     /// Sticky note for remaining speakers after a boot (cleared on next boot or new cast).
     var lastDepartureNote: String?
     /// Speakers removed by Boot — kept for Multi-Talk / History / Markdown export
     /// so their past lines keep their own name + voice instead of collapsing onto
     /// the user tag or Multi-Talk's default stock voice (alba).
     var departedSpeakers: [Persona] = []
-    /// Loaded / max context length for the active model (tokens), when known.
+    /// Effective context ceiling for Compact % (loaded n_ctx when known).
     var modelContextLimitTokens: Int?
+    /// Architecture max from LM Studio (`max_context_length`), when known.
+    /// Shown when higher than the loaded limit so users know to raise n_ctx.
+    var modelArchitectureMaxTokens: Int?
+    /// Optional override for Compact denominator (tokens). `nil` = use server.
+    /// Does not change LM Studio’s actual load — only our fill estimate.
+    var contextLimitOverrideTokens: Int?
     /// Approximate model-facing fill 0…100 using the Qwen reference tokenizer.
     var contextFillPercent: Int?
     /// One-shot “near full” toast guard until Compact brings fill back down.
@@ -229,12 +238,15 @@ final class EnsembleViewModel {
 
     // MARK: - Connection
 
+    /// 1s poll of serving models; UI only updates when state actually changes.
     func startHealthChecks() {
         guard healthCheckTask == nil else { return }
+        // Parse the 19 MB Qwen tokenizer off-main before Compact first opens.
+        QwenTokenEstimator.prewarm()
         healthCheckTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.checkConnection()
-                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 s
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
@@ -242,10 +254,13 @@ final class EnsembleViewModel {
     func checkConnection() async {
         do {
             let client = makeClient()
-            let models = try await client.listModels()
-            availableModels = models
+            // Loaded/serving only — LM Studio catalog entries must not light the pill.
+            let models = try await client.listServingModels()
+            if availableModels != models {
+                availableModels = models
+            }
             guard !models.isEmpty else {
-                connectionState = .disconnected(reason: "no models loaded")
+                setConnectionStateIfChanged(.disconnected(reason: "no model loaded"))
                 return
             }
             // Report the model that will ACTUALLY serve the request: the app-level
@@ -253,16 +268,42 @@ final class EnsembleViewModel {
             // what makes the pill self-heal when the user swaps models in LM Studio.
             let saved = appState.chatSettings.model
             let effective = models.contains(saved) ? saved : (models.first ?? saved)
-            connectionState = .connected(model: effective)
-            // Context length for the Compact fill meter (best effort).
-            if let meta = try? await client.modelMetadata(for: effective),
-               let n = meta.contextLength, n > 0 {
-                modelContextLimitTokens = n
+            let next = ConnectionState.connected(model: effective)
+            let connectionChanged = connectionState != next
+            setConnectionStateIfChanged(next)
+
+            // Context metadata + Compact % only when the serving model changes
+            // (fill also refreshes after turns; no need every poll).
+            guard connectionChanged || modelContextLimitTokens == nil else { return }
+            if let meta = try? await client.modelMetadata(for: effective) {
+                if let n = meta.contextLength, n > 0, modelContextLimitTokens != n {
+                    modelContextLimitTokens = n
+                }
+                if modelArchitectureMaxTokens != meta.architectureMaxContextLength {
+                    modelArchitectureMaxTokens = meta.architectureMaxContextLength
+                }
+                #if DEBUG
+                if connectionChanged {
+                    print(
+                        "[Compact] context meta loaded=\(meta.contextLength.map(String.init) ?? "?") "
+                        + "archMax=\(meta.architectureMaxContextLength.map(String.init) ?? "?") "
+                        + "override=\(contextLimitOverrideTokens.map(String.init) ?? "nil") model=\(effective)"
+                    )
+                }
+                #endif
             }
             refreshContextFillEstimate()
         } catch {
-            connectionState = .disconnected(reason: shortError(error))
+            setConnectionStateIfChanged(
+                .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
+            )
         }
+    }
+
+    /// Avoid redundant `@Observable` publishes on a 1s poll.
+    private func setConnectionStateIfChanged(_ next: ConnectionState) {
+        guard connectionState != next else { return }
+        connectionState = next
     }
 
     // MARK: - Default cast (Phase 1 hardcoded)
@@ -317,6 +358,7 @@ final class EnsembleViewModel {
             )
         }
         pendingBoot = nil
+        pendingDirective = nil
         lastDepartureNote = nil
         departedSpeakers = []
         persistCast(scene: scene, mood: mood, confirmed: confirmed)
@@ -379,6 +421,7 @@ final class EnsembleViewModel {
         orderCursor = 0
         producedThisRun = 0
         pendingBoot = nil
+        pendingDirective = nil
         lastDepartureNote = nil
         departedSpeakers = []
         cast = saved.sortedPersonas.map { p in
@@ -500,7 +543,8 @@ final class EnsembleViewModel {
         loopTask?.cancel()
         runner.cancel()
         cancelDictation()
-        completeInvitedUserTurn(submitted: false)
+        // Deliberate stop — don't imply a timeout with the "in time" notice.
+        completeInvitedUserTurn(submitted: false, noticeOnSkip: false)
         runState = .idle
         currentSpeakerID = nil
     }
@@ -637,7 +681,8 @@ final class EnsembleViewModel {
     }
 
     /// Resume a parked invited-user wait (submit or timeout).
-    func completeInvitedUserTurn(submitted: Bool) {
+    /// - Parameter noticeOnSkip: when false (Stop), skip the timeout-flavored notice.
+    func completeInvitedUserTurn(submitted: Bool, noticeOnSkip: Bool = true) {
         invitedUserTimeoutTask?.cancel()
         invitedUserTimeoutTask = nil
         awaitingInvitedUserTurn = false
@@ -648,7 +693,7 @@ final class EnsembleViewModel {
         guard let cont = invitedUserContinuation else { return }
         invitedUserContinuation = nil
         cont.resume(returning: submitted)
-        if !submitted {
+        if !submitted, noticeOnSkip {
             showNotice("Skipped — no line from you in time")
         }
     }
@@ -777,9 +822,12 @@ final class EnsembleViewModel {
         let pickCast = effectiveCastForTurnOrder()
         let excludeLast = lastSpeaker ?? lastSpeakerIDForPick()
         let nextID: UUID?
-        // Boot forces the target next so the exit line lands immediately.
+        // Boot / Direct force their target next so the instruction lands now.
+        // Boot wins if both are armed (exit is more urgent than a steer).
         if let boot = pendingBoot, cast.contains(where: { $0.id == boot.speakerID }) {
             nextID = boot.speakerID
+        } else if let dir = pendingDirective, cast.contains(where: { $0.id == dir.speakerID }) {
+            nextID = dir.speakerID
         } else if turnOrder == .director {
             nextID = await pickNextViaDirector(lastSpeaker: excludeLast, pickCast: pickCast)
         } else {
@@ -815,15 +863,22 @@ final class EnsembleViewModel {
             guard let boot = pendingBoot, boot.speakerID == persona.id else { return nil }
             return boot.reason
         }()
+        let direction: String? = {
+            guard let dir = pendingDirective, dir.speakerID == persona.id else { return nil }
+            return dir.instruction
+        }()
 
         // Build the request BEFORE appending this turn's placeholder so the
         // persona sees only the context that PRECEDES its own line — not an
         // empty in-flight assistant turn plus a spurious "(continue)".
-        let preset = persona.samplingPreset
+        // Direct forces Strict sampling so the instruction is more likely obeyed.
+        let preset: SamplingPreset = direction != nil ? .strict : persona.samplingPreset
         let request = SpokenTurnRunner.Request(
             messages: messagesForPersona(persona),
             model: resolvedModel,
-            systemPrompt: framedSystemPrompt(persona, grenade: grenade, bootReason: bootReason),
+            systemPrompt: framedSystemPrompt(
+                persona, grenade: grenade, bootReason: bootReason, direction: direction
+            ),
             temperature: preset.temperature,
             voiceID: persona.voiceID,
             options: currentSynthesisOptions(for: persona.voiceID),
@@ -839,7 +894,7 @@ final class EnsembleViewModel {
 
         let turnID = UUID()
         turns.append(EnsembleTurn(id: turnID, speakerID: persona.id, speakerName: persona.name,
-                                  samplingPreset: persona.samplingPreset))
+                                  samplingPreset: preset))
         currentSpeakerID = persona.id
         runState = .generating(speaker: persona.id)
 
@@ -879,6 +934,10 @@ final class EnsembleViewModel {
         // Failed/empty turns keep `pendingBoot` so the next pick retries.
         if bootReason != nil, !lastTurnFailed, !cleaned.isEmpty {
             finalizeBoot(of: persona, reason: bootReason ?? "")
+        }
+        // Direct: one-shot — clear only after a successful directed line.
+        if direction != nil, !lastTurnFailed, !cleaned.isEmpty {
+            pendingDirective = nil
         }
     }
 
@@ -957,7 +1016,8 @@ final class EnsembleViewModel {
     private func framedSystemPrompt(
         _ persona: Persona,
         grenade: Bool = false,
-        bootReason: String? = nil
+        bootReason: String? = nil,
+        direction: String? = nil
     ) -> String {
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
@@ -1010,6 +1070,12 @@ final class EnsembleViewModel {
             context += " BOOT PROTOCOL — MANDATORY FOR THIS LINE ONLY. This is your EXIT from the scene. Enact the director's instruction"
             if !r.isEmpty { context += " (\(r))" }
             context += " in character as a single short spoken line — leave, die, be dismissed, storm out, etc. Do NOT stay and continue the argument; this is your last line. After this you are gone forever."
+        }
+        if let direction {
+            let d = direction.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !d.isEmpty {
+                context += " DIRECTOR DIRECTIVE — MANDATORY FOR THIS LINE ONLY. The human director is giving you a private note. Follow it precisely while staying in character as \(persona.name) and speaking only one short line of dialogue: \(d) Do not mention the director, the note, or these instructions. Do not ignore or half-comply — this steers your next line."
+            }
         }
         if grenade {
             context += grenadeProtocolText(you: you)

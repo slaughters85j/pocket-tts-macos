@@ -145,8 +145,12 @@ final class SpokenTurnRunner {
                 onSentence(index)
 
                 guard request.speak else { continue }
-                let speakable = TextNormalizer.stripStageDirections(
-                    sentence, stripBracketedTags: stripBracketedTags
+                // Stage directions + emoji: TTS chokes on both; on-screen
+                // transcript keeps the raw model text.
+                let speakable = TextNormalizer.stripEmojis(
+                    TextNormalizer.stripStageDirections(
+                        sentence, stripBracketedTags: stripBracketedTags
+                    )
                 )
                 if speakable.isEmpty { continue }
 

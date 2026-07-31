@@ -198,6 +198,28 @@ final class EnsembleLoopTests: XCTestCase {
                        "too few turns")
     }
 
+    func test_issueDirective_armsPendingAndRequiresText() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let ava = Persona(name: "Ava", voiceID: "cosette", systemPrompt: "You are Ava.",
+                          samplingPreset: .spirited)
+        let worf = Persona(name: "Worf", voiceID: "marius", systemPrompt: "You are Worf.")
+        vm.cast = [ava, worf]
+
+        XCTAssertFalse(vm.issueDirective(id: ava.id, instruction: "   "),
+                       "empty instruction is refused")
+        XCTAssertNil(vm.pendingDirective)
+
+        XCTAssertTrue(vm.issueDirective(
+            id: ava.id,
+            instruction: "Stop the emoji bits and get back to the sensor anomaly."
+        ))
+        XCTAssertEqual(vm.pendingDirective?.speakerID, ava.id)
+        XCTAssertTrue(
+            vm.pendingDirective?.instruction.contains("sensor anomaly") == true,
+            vm.pendingDirective?.instruction ?? ""
+        )
+    }
+
     // MARK: - Export (Phase 6)
 
     func test_formatMultiTalkScript_tagsByLabelSkipsEmpty() {
@@ -217,6 +239,25 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(script.contains("{Dana Scully} Show me evidence."))
         XCTAssertFalse(script.contains("{You}"), "the empty user turn is skipped")
         XCTAssertEqual(script.split(separator: "\n").count, 2)
+    }
+
+    func test_formatMultiTalkScript_stripsEmojis() {
+        let a = UUID()
+        let turns = [
+            EnsembleTurn(
+                speakerID: a,
+                speakerName: "Ava",
+                content: "Oh boy, it's getting real wild in here! 😂 Fox, deal me one more round 🔥!"
+            ),
+        ]
+        let script = EnsembleViewModel.formatMultiTalkScript(
+            turns: turns,
+            label: { _ in "Ava" },
+            stripBrackets: true
+        )
+        XCTAssertFalse(script.contains("😂"))
+        XCTAssertFalse(script.contains("🔥"))
+        XCTAssertTrue(script.contains("{Ava} Oh boy, it's getting real wild in here! Fox, deal me one more round!"))
     }
 
     func test_exportLabels_disambiguatesDuplicateNames() throws {

@@ -125,11 +125,13 @@ extension EnsembleViewModel {
     func softDumpContext() -> Bool {
         guard !turns.isEmpty else {
             presentContextDumpToast("Nothing to compact — transcript is empty")
+            print("[Compact] nothing to compact — empty transcript")
             return false
         }
         summaryTask?.cancel()
         summaryTask = nil
 
+        let tokensBefore = estimateModelFacingPromptTokens()
         let keep = max(4, verbatimWindow)
         let before = turns.count
         if turns.count > keep {
@@ -154,6 +156,15 @@ extension EnsembleViewModel {
             "Context compacted — last \(kept) of \(before) turns kept for the models"
         )
         refreshContextFillEstimate()
+
+        let tokensAfter = estimateModelFacingPromptTokens()
+        let freed = max(0, tokensBefore - tokensAfter)
+        let limit = effectiveContextLimitTokens
+        print(
+            "[Compact] tokens freed=\(freed) (before=\(tokensBefore) after=\(tokensAfter)) "
+            + "fill~\(contextFillPercent.map(String.init) ?? "?")% "
+            + "limit=\(limit) turns=\(before)→keep \(kept) summarizedUpTo=\(summarizedUpTo)"
+        )
         return true
     }
 
@@ -163,15 +174,22 @@ extension EnsembleViewModel {
 
     // MARK: - Context fill meter
 
+    /// Denominator for Compact %: override → loaded n_ctx → tokenizer default.
+    var effectiveContextLimitTokens: Int {
+        if let o = contextLimitOverrideTokens, o > 0 { return o }
+        if let n = modelContextLimitTokens, n > 0 { return n }
+        return QwenTokenEstimator.shared.modelMaxLength
+    }
+
     /// Recompute approximate model-facing fill % (Qwen reference tokenizer).
+    ///
+    /// Numerator is prompt tokens only. Response budget is reserved in the
+    /// denominator so we don't double-count `maxResponseTokens`.
     func refreshContextFillEstimate() {
-        let limit = modelContextLimitTokens
-            ?? QwenTokenEstimator.shared.modelMaxLength
+        let limit = effectiveContextLimitTokens
         let usable = max(1_024, limit - maxResponseTokens - 256)
-        let text = modelFacingEstimateText()
-        let promptTokens = QwenTokenEstimator.shared.countTokens(text)
-        let total = promptTokens + maxResponseTokens
-        let pct = min(100, Int((Double(total) / Double(usable) * 100.0).rounded()))
+        let promptTokens = estimateModelFacingPromptTokens()
+        let pct = min(100, Int((Double(promptTokens) / Double(usable) * 100.0).rounded()))
         contextFillPercent = pct
 
         if pct >= 90, !didWarnContextNearFull {
@@ -185,7 +203,16 @@ extension EnsembleViewModel {
         }
     }
 
+    /// Prompt-token estimate for the next model call (no response budget).
+    func estimateModelFacingPromptTokens() -> Int {
+        QwenTokenEstimator.shared.countTokens(modelFacingEstimateText())
+    }
+
     /// Text that approximates the next model request (system-ish + window + summary).
+    ///
+    /// Window length **must** match `messagesForPersona` — previously this only
+    /// used `verbatimWindow`, so Compact (which folds older turns) barely moved
+    /// the meter when the model was still seeing up to `maxContextTurns`.
     func modelFacingEstimateText() -> String {
         var parts: [String] = []
         if !rollingSummary.isEmpty {
@@ -198,8 +225,10 @@ extension EnsembleViewModel {
         if let longest = cast.map(\.systemPrompt).max(by: { $0.count < $1.count }) {
             parts.append(longest)
         }
-        let keep = max(4, verbatimWindow)
-        let recent = Array(turns.suffix(keep))
+        // Same window math as messagesForPersona (unsummarized, capped).
+        let unsummarized = max(verbatimWindow, turns.count - summarizedUpTo)
+        let effectiveWindow = min(unsummarized, max(verbatimWindow, Self.maxContextTurns))
+        let recent = Array(turnsForModel().suffix(max(0, effectiveWindow)))
         for turn in recent where !turn.isSceneBeat {
             parts.append("\(turn.speakerName): \(turn.content)")
         }

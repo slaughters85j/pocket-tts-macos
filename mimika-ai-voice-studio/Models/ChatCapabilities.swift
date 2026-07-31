@@ -82,17 +82,23 @@ nonisolated struct ModelReasoningConfiguration: Equatable, Sendable {
 nonisolated struct ModelCapabilityMetadata: Equatable, Sendable {
     let capabilities: ModelCapabilities
     let reasoning: ModelReasoningConfiguration?
-    /// Loaded / max context length in tokens (LM Studio), when reported.
+    /// Effective context for this session: loaded instance n_ctx when known,
+    /// else architecture max. Used by Compact fill % as the real ceiling.
     let contextLength: Int?
+    /// Model architecture max (`max_context_length`), when LM Studio reports it.
+    /// May be higher than the *loaded* n_ctx (user load setting in LM Studio).
+    let architectureMaxContextLength: Int?
 
     init(
         capabilities: ModelCapabilities,
         reasoning: ModelReasoningConfiguration?,
-        contextLength: Int? = nil
+        contextLength: Int? = nil,
+        architectureMaxContextLength: Int? = nil
     ) {
         self.capabilities = capabilities
         self.reasoning = reasoning
         self.contextLength = contextLength
+        self.architectureMaxContextLength = architectureMaxContextLength
     }
 }
 

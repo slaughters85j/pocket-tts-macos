@@ -88,10 +88,11 @@ extension ChatViewModel {
         )
     }
 
-    /// Markdown export deliberately drops images and image-only turns.
+    /// Markdown export deliberately drops images, image-only turns, and emoji.
     func formatTranscriptMarkdown() -> String {
         messages.compactMap { message -> String? in
-            let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let content = TextNormalizer.stripEmojis(message.content)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard message.role != .system, !content.isEmpty else { return nil }
             let label = message.role == .user ? "**You**" : "**Assistant**"
             return "\(label):\n\(content)"
@@ -106,9 +107,11 @@ extension ChatViewModel {
             let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard message.role != .system, !content.isEmpty else { return nil }
             let tag = message.role == .user ? "{Speaker 1}" : "{Speaker 2}"
-            let withoutStageDirections = TextNormalizer.stripStageDirections(
-                content,
-                stripBracketedTags: stripBrackets
+            let withoutStageDirections = TextNormalizer.stripEmojis(
+                TextNormalizer.stripStageDirections(
+                    content,
+                    stripBracketedTags: stripBrackets
+                )
             )
             let cleaned = ChatTranscriptSanitizer.multiTalkText(
                 from: withoutStageDirections

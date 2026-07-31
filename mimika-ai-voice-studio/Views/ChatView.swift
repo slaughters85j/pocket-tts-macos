@@ -61,7 +61,14 @@ struct ChatView: View {
             viewModel.refreshReasoningForChatSubMode()
             Task { isAudioMuted = await player.isMuted }
         }
-        .onDisappear { viewModel.stopSoloChatSession() }
+        .onDisappear {
+            viewModel.stopSoloChatSession()
+            // Mute is Chat-only chrome. Leaving the tab (→ Single Voice /
+            // Multi-Talk / …) must clear it or the shared player stays silent
+            // with no indicator on the other tabs.
+            isAudioMuted = false
+            Task { await player.setMuted(false) }
+        }
         .sheet(isPresented: $showsEnsembleSetup) {
             EnsembleSetupView(
                 viewModel: ensembleViewModel,

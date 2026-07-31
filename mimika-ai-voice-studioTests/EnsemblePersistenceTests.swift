@@ -173,6 +173,42 @@ final class EnsemblePersistenceTests: XCTestCase {
         )
     }
 
+    func test_importClampsRunKnobsAndCapsCastSize() throws {
+        XCTAssertEqual(CastPackageBuilder.clampMaxTurns(999), 300)
+        XCTAssertEqual(CastPackageBuilder.clampMaxTurns(1), 4)
+        XCTAssertEqual(CastPackageBuilder.clampVerbatimWindow(100), 40)
+        XCTAssertEqual(CastPackageBuilder.clampPaceSeconds(9), 2.5)
+        XCTAssertEqual(RNGMode(rawValue: "shuffleOnce"), .shuffleOnce)
+        XCTAssertEqual(RNGMode(rawValue: "rerollPerTurn"), .rerollPerTurn)
+    }
+
+    func test_qwenPretokens_attachLeadingSpaceToFollowingWord() {
+        let parts = QwenTokenEstimator.shared.pretokensForTesting("Hello world")
+        XCTAssertEqual(parts, ["Hello", " world"], parts.joined(separator: "|"))
+        XCTAssertFalse(parts.contains { $0.allSatisfy(\.isWhitespace) })
+    }
+
+    func test_castPackage_rejectsFutureFormatVersionOnApply() throws {
+        // Decode still works; applyImportedPackage is what rejects.
+        var package = CastPackageBuilder.make(
+            castID: UUID(),
+            castName: "X",
+            scene: "s",
+            mood: "m",
+            userPeerName: "You",
+            personas: [Persona(name: "A", voiceID: "cosette", systemPrompt: "")],
+            turnMode: .director,
+            rngMode: .shuffleOnce,
+            paceSeconds: 0.6,
+            maxTurns: 60,
+            contextWindowTurns: 16,
+            rollingSummaryEnabled: true,
+            voicedPlayback: true
+        )
+        package.formatVersion = 99
+        XCTAssertGreaterThan(package.formatVersion, CastPackage.currentFormatVersion)
+    }
+
     // MARK: - Sessions
 
     func test_appendSession_persistsSpeakersInOrder() throws {

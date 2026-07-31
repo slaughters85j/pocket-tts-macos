@@ -144,20 +144,25 @@ extension EnsembleViewModel {
     func removeCastMember(at index: Int) -> Bool {
         guard cast.indices.contains(index) else { return false }
         guard cast.count > CastPackageBuilder.minCastSize else { return false }
-        let removedID = cast[index].id
+        let removed = cast[index]
+        let removedID = removed.id
         cast.remove(at: index)
         // Drop a removed speaker from the RR shuffle so cursor stays valid.
         shuffledOrder = []
         orderCursor = 0
         if pendingBoot?.speakerID == removedID { pendingBoot = nil }
+        if pendingDirective?.speakerID == removedID { pendingDirective = nil }
         guard let ctx = appState.modelContext, let saved = currentSavedCast(ctx) else { return true }
         let personas = saved.sortedPersonas
-        guard personas.indices.contains(index) else {
-            // Length mismatch — re-sync store from runtime.
+        // Prefer identity-ish match (name + voice) so a reordered store row
+        // can't delete the wrong persona; fall back to full resync.
+        if let storePersona = personas.first(where: {
+            $0.name == removed.name && $0.voiceID == removed.voiceID
+        }) {
+            EnsembleStore.removePersona(ctx, storePersona, from: saved)
+        } else {
             resyncSavedPersonas(ctx, saved: saved)
-            return true
         }
-        EnsembleStore.removePersona(ctx, personas[index], from: saved)
         return true
     }
 
@@ -185,6 +190,26 @@ extension EnsembleViewModel {
         showNotice(trimmed.isEmpty
                    ? "Boot armed — \(name) exits on their next line"
                    : "Boot armed — \(name): \(trimmed)")
+        kickIfParked()
+        return true
+    }
+
+    // MARK: - Direct (Director's Chair)
+
+    /// Arm a one-shot cast-specific direction: that speaker is forced next with
+    /// the instruction injected and Strict sampling so compliance is likelier.
+    /// Unlike Boot they stay in the cast. Instruction must be non-empty.
+    @discardableResult
+    func issueDirective(id: UUID, instruction: String) -> Bool {
+        guard cast.contains(where: { $0.id == id }) else { return false }
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            showNotice("Write a direction first")
+            return false
+        }
+        let name = cast.first(where: { $0.id == id })?.name ?? "Speaker"
+        pendingDirective = PendingDirective(speakerID: id, instruction: trimmed)
+        showNotice("Direction armed — \(name)")
         kickIfParked()
         return true
     }

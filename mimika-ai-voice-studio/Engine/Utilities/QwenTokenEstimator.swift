@@ -4,8 +4,8 @@
 //
 //  Reference tokenizer for Ensemble context fill %. Loads the vendored Qwen3
 //  HuggingFace `tokenizer.json` and counts tokens with ByteLevel BPE.
-//  Exact for Qwen-family models; ballpark for others — used with a 90% toast,
-//  not a hard cut-off.
+//  Close for Qwen-family models (leading-space pretokens + BPE); ballpark for
+//  others — used with a 90% toast, not a hard cut-off.
 //
 
 import Foundation
@@ -29,6 +29,15 @@ final class QwenTokenEstimator: @unchecked Sendable {
 
     private init() {
         buildByteEncoder()
+    }
+
+    /// Kick the 19 MB JSON parse off the main thread (utility QoS).
+    /// Safe to call repeatedly; load is idempotent under the lock.
+    /// Uses GCD (not Task) so callers on @MainActor never need `await`.
+    nonisolated static func prewarm() {
+        DispatchQueue.global(qos: .utility).async {
+            _ = QwenTokenEstimator.shared.countTokens(" ")
+        }
     }
 
     /// Token count for `text`. Falls back to a Qwen-ish char heuristic if the
@@ -101,11 +110,15 @@ final class QwenTokenEstimator: @unchecked Sendable {
         }
         mergeRanks = ranks
 
-        if let cfgURL = Bundle.main.url(
-            forResource: "tokenizer_config",
-            withExtension: "json",
-            subdirectory: "tokenizers/qwen3"
-        ),
+        // Resources may land flat (no subdirectory) when file refs are not folder-synced.
+        let cfgURL =
+            Bundle.main.url(
+                forResource: "tokenizer_config",
+                withExtension: "json",
+                subdirectory: "tokenizers/qwen3"
+            )
+            ?? Bundle.main.url(forResource: "tokenizer_config", withExtension: "json")
+        if let cfgURL,
            let cfgData = try? Data(contentsOf: cfgURL),
            let cfg = try? JSONSerialization.jsonObject(with: cfgData) as? [String: Any] {
             if let maxLen = cfg["model_max_length"] as? Int {
@@ -131,34 +144,44 @@ final class QwenTokenEstimator: @unchecked Sendable {
         return total
     }
 
-    /// Approximate the HF Split regex with a practical Unicode-aware splitter.
+    /// Test surface for pretokens (leading-space attachment).
+    func pretokensForTesting(_ text: String) -> [String] { pretokens(text) }
+
+    /// Approximate Qwen/HF byte-level pretokens: a leading space attaches to the
+    /// following word (`" world"`), not as its own pretoken. Emitting whitespace
+    /// alone overcounted by ~1 token per word.
     private func pretokens(_ text: String) -> [String] {
         var parts: [String] = []
         var current = ""
-        func flush() {
-            if !current.isEmpty {
-                parts.append(current)
-                current = ""
-            }
+        var pendingSpace = ""
+
+        func flushWord() {
+            guard !current.isEmpty else { return }
+            parts.append(pendingSpace + current)
+            pendingSpace = ""
+            current = ""
         }
+
         for ch in text {
             if ch.isWhitespace {
-                flush()
-                if let last = parts.last, last.allSatisfy(\.isWhitespace) {
-                    parts[parts.count - 1] = last + String(ch)
-                } else {
-                    parts.append(String(ch))
+                if !current.isEmpty {
+                    flushWord()
                 }
+                pendingSpace.append(ch)
             } else if ch.isLetter || ch.isNumber {
                 current.append(ch)
             } else {
-                if !current.isEmpty {
-                    flush()
+                // Punctuation / symbols as their own piece; space stays for next word.
+                flushWord()
+                if !pendingSpace.isEmpty {
+                    // Rare: space before punctuation — keep as its own glue piece.
+                    parts.append(pendingSpace)
+                    pendingSpace = ""
                 }
-                current.append(ch)
+                parts.append(String(ch))
             }
         }
-        flush()
+        flushWord()
         return parts.filter { !$0.isEmpty }
     }
 

@@ -10,14 +10,17 @@ extension ChatViewModel {
 
     // MARK: Polling lifecycle
 
-    /// Start one idempotent 30-second health/capability loop.
+    /// Start one idempotent 1-second health/capability loop.
+    /// UI state is only written when connectivity or model actually changes.
     func startHealthChecks() {
         guard healthCheckTask == nil else { return }
+        // Ensemble Compact may open later in the same process; pre-warm once.
+        QwenTokenEstimator.prewarm()
         healthCheckTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.checkConnection()
                 do {
-                    try await Task.sleep(for: .seconds(30))
+                    try await Task.sleep(for: .seconds(1))
                 } catch {
                     break
                 }
@@ -36,6 +39,8 @@ extension ChatViewModel {
     }
 
     /// Publish connectivity first, then probe richer capability metadata.
+    /// Polls every second; skips Observation writes and capability probes when
+    /// the serving model set is unchanged.
     func checkConnection() async {
         let requestID = UUID()
         connectionRequestID = requestID
@@ -68,7 +73,7 @@ extension ChatViewModel {
         )
 
         do {
-            let models = try await client.listModels()
+            let models = try await client.listServingModels()
             guard
                 !Task.isCancelled,
                 requestID == connectionRequestID,
@@ -77,24 +82,43 @@ extension ChatViewModel {
                 settings.model == requestedModel
             else { return }
             guard let loaded = models.first else {
-                connectionState = .disconnected(reason: "no models loaded")
+                setConnectionStateIfChanged(.disconnected(reason: "no model loaded"))
                 return
             }
 
             let effectiveModel = models.contains(settings.model) ? settings.model : loaded
-            connectionState = .connected(model: effectiveModel)
+            let next = ConnectionState.connected(model: effectiveModel)
+            let connectionChanged = connectionState != next
+            setConnectionStateIfChanged(next)
 
             let selection = ChatModelSelection(
                 endpoint: appState.currentEndpointBaseURL,
                 model: effectiveModel
             )
             let forced = settings.forcedCapabilities(for: selection)
-            capabilitySelection = selection
-            await probeCapabilities(for: selection, forced: forced)
+            // Re-probe only when the serving model/endpoint changed, or we
+            // never got a successful capability read for this selection.
+            let needsProbe = connectionChanged
+                || capabilitySelection != selection
+                || capabilityState.freshness == .unknown
+            if capabilitySelection != selection {
+                capabilitySelection = selection
+            }
+            if needsProbe {
+                await probeCapabilities(for: selection, forced: forced)
+            }
         } catch {
             guard !Task.isCancelled, requestID == connectionRequestID else { return }
-            connectionState = .disconnected(reason: shortError(error))
+            setConnectionStateIfChanged(
+                .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
+            )
         }
+    }
+
+    /// Avoid redundant `@Observable` publishes on a 1s poll.
+    private func setConnectionStateIfChanged(_ next: ConnectionState) {
+        guard connectionState != next else { return }
+        connectionState = next
     }
 
     /// Probe authoritative LM Studio metadata with stale-result protection.

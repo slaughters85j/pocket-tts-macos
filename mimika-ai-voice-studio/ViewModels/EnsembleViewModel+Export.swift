@@ -24,12 +24,14 @@ extension EnsembleViewModel {
     var canExport: Bool {
         let strip = appState.chatSettings.activeBackend == .pocketTTS
         return turns.contains {
-            !TextNormalizer.stripStageDirections($0.content, stripBracketedTags: strip)
-                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            !TextNormalizer.stripEmojis(
+                TextNormalizer.stripStageDirections($0.content, stripBracketedTags: strip)
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
-    /// `{Tag} line` per turn, stage directions stripped per the active backend.
+    /// `{Tag} line` per turn, stage directions + emoji stripped per the active backend.
     func formatTranscriptMultiTalk() -> String {
         Self.formatMultiTalkScript(
             turns: turns,
@@ -39,15 +41,18 @@ extension EnsembleViewModel {
     }
 
     /// Pure renderer (static for testing). `label` maps each turn's speakerID to
-    /// its unique tag.
+    /// its unique tag. Emoji are stripped — Multi-Talk revoice uses the same TTS
+    /// path that chokes on them.
     static func formatMultiTalkScript(turns: [EnsembleTurn], label: (UUID?) -> String, stripBrackets: Bool) -> String {
         var lines: [String] = []
         for turn in turns {
             // Scene beats (boot deaths, etc.) stay in the Ensemble transcript
             // for the models; Multi-Talk only wants spoken cast/user lines.
             if turn.isSceneBeat { continue }
-            let cleaned = TextNormalizer.stripStageDirections(turn.content, stripBracketedTags: stripBrackets)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleaned = TextNormalizer.stripEmojis(
+                TextNormalizer.stripStageDirections(turn.content, stripBracketedTags: stripBrackets)
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { continue }
             lines.append("{\(label(turn.speakerID))} \(cleaned)")
         }
@@ -187,9 +192,10 @@ extension EnsembleViewModel {
     }
 
     /// `**Name**:` blocks separated by `---`, with an optional scene/mood header.
-    /// Unlike the Multi-Talk export this does NOT strip stage directions — a
-    /// saved transcript preserves the full output. Names come from exportLabels
-    /// so duplicates stay distinct.
+    /// Stage directions are kept for the record; emoji are stripped (same as
+    /// Multi-Talk — they only add noise in a saved transcript and blow up
+    /// re-synthesis if the file is reused). Names come from exportLabels so
+    /// duplicates stay distinct.
     func formatTranscriptMarkdown() -> String {
         let label = exportLabels().label
         var out = ""
@@ -199,7 +205,8 @@ extension EnsembleViewModel {
         }
         var blocks: [String] = []
         for turn in turns {
-            let content = turn.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let content = TextNormalizer.stripEmojis(turn.content)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !content.isEmpty else { continue }
             if turn.isSceneBeat {
                 blocks.append("**Scene**:\n\(content)")
@@ -278,8 +285,13 @@ extension EnsembleViewModel {
         )
     }
 
-    /// Replace the live cast from a decoded package. Throws if personas empty.
+    /// Replace the live cast from a decoded package. Throws if personas empty
+    /// or `formatVersion` is newer than this app understands.
     func applyImportedPackage(_ package: CastPackage) throws {
+        guard package.formatVersion <= CastPackage.currentFormatVersion else {
+            showNotice("Cast file is from a newer app version (format \(package.formatVersion))")
+            throw CastImportError.unsupportedFormatVersion(package.formatVersion)
+        }
         guard !package.personas.isEmpty else {
             showNotice("Cast file has no speakers")
             throw CastImportError.emptyPersonas
@@ -288,7 +300,10 @@ extension EnsembleViewModel {
         let available = availableVoiceIDs()
         var remapped = 0
         let sorted = package.personas.sorted { $0.sortOrder < $1.sortOrder }
-        let resolved: [(payload: PersonaPayload, voiceID: String)] = sorted.map { p in
+        // Cap at maxCastSize — UI and conductors assume ≤ 8.
+        let capped = Array(sorted.prefix(CastPackageBuilder.maxCastSize))
+        let truncated = sorted.count - capped.count
+        let resolved: [(payload: PersonaPayload, voiceID: String)] = capped.map { p in
             let v = CastPackageBuilder.resolveVoiceID(p.voiceID, available: available)
             if v != p.voiceID { remapped += 1 }
             return (p, v)
@@ -304,12 +319,18 @@ extension EnsembleViewModel {
         if let raw = package.cast.turnModeRaw, let mode = TurnMode(rawValue: raw) {
             turnOrder = mode
         }
-        if let raw = package.cast.rngModeRaw {
-            rngMode = (raw == "rerollPerTurn") ? .rerollPerTurn : .shuffleOnce
+        if let raw = package.cast.rngModeRaw, let mode = RNGMode(rawValue: raw) {
+            rngMode = mode
         }
-        if let pace = package.cast.paceSeconds { paceSeconds = pace }
-        if let max = package.cast.maxTurns { maxTurns = max }
-        if let window = package.cast.contextWindowTurns { verbatimWindow = window }
+        if let pace = package.cast.paceSeconds {
+            paceSeconds = CastPackageBuilder.clampPaceSeconds(pace)
+        }
+        if let max = package.cast.maxTurns {
+            maxTurns = CastPackageBuilder.clampMaxTurns(max)
+        }
+        if let window = package.cast.contextWindowTurns {
+            verbatimWindow = CastPackageBuilder.clampVerbatimWindow(window)
+        }
         if let rolling = package.cast.rollingSummaryEnabled { rollingSummaryEnabled = rolling }
         if let voiced = package.cast.voicedPlayback { voicedPlayback = voiced }
         if let raw = package.cast.scenePlayModeRaw,
@@ -325,8 +346,10 @@ extension EnsembleViewModel {
         orderCursor = 0
         producedThisRun = 0
         pendingBoot = nil
+        pendingDirective = nil
         lastDepartureNote = nil
         departedSpeakers = []
+        didWarnContextNearFull = false
 
         cast = resolved.map { entry in
             let preset = SamplingPreset(rawValue: entry.payload.samplingPresetRaw) ?? .relaxed
@@ -340,12 +363,20 @@ extension EnsembleViewModel {
         }
 
         persistImportedCast(package: package, resolved: resolved)
+        refreshContextFillEstimate()
 
+        var noticeParts: [String] = []
         if remapped > 0 {
-            showNotice("Imported cast; \(remapped) voice(s) remapped to Cosette (missing custom voices).")
-        } else {
+            noticeParts.append("\(remapped) voice(s) remapped to Cosette")
+        }
+        if truncated > 0 {
+            noticeParts.append("kept first \(CastPackageBuilder.maxCastSize) of \(sorted.count) speakers")
+        }
+        if noticeParts.isEmpty {
             let names = cast.map(\.name).joined(separator: ", ")
             showNotice(names.isEmpty ? "Cast imported." : "Cast imported — \(names)")
+        } else {
+            showNotice("Cast imported; " + noticeParts.joined(separator: "; ") + ".")
         }
     }
 
@@ -404,4 +435,5 @@ extension EnsembleViewModel {
 /// Errors from cast JSON import (surfaced as notices; type is for tests).
 enum CastImportError: Error {
     case emptyPersonas
+    case unsupportedFormatVersion(Int)
 }

@@ -44,15 +44,17 @@ final class ScriptGenerator {
         connectionState = .checking
         let client = LocalLLMClient(baseURL: URL(string: baseURL) ?? fallbackURL)
         do {
-            let models = try await client.listModels()
+            let models = try await client.listServingModels()
             if let model = models.first {
-                let prefer = settings.model.isEmpty ? model : settings.model
+                let prefer = (!settings.model.isEmpty && models.contains(settings.model))
+                    ? settings.model
+                    : model
                 connectionState = .connected(model: prefer)
             } else {
-                connectionState = .disconnected(reason: "no models loaded")
+                connectionState = .disconnected(reason: "no model loaded")
             }
         } catch {
-            connectionState = .disconnected(reason: shortError(error))
+            connectionState = .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
         }
     }
 

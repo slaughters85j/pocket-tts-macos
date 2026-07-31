@@ -74,6 +74,22 @@ struct EnsembleSettingsView: View {
                 Stepper("\(viewModel.verbatimWindow) turns", value: $viewModel.verbatimWindow, in: 4...40, step: 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Compact fill denominator — not Solo "Max Tokens" (reply length).
+            // Override only affects the meter; raise n_ctx in LM Studio for real capacity.
+            row("Server context", helpTitle: "Server context", helpBody: serverContextHelp,
+                accessibilityID: "ensemble.settings.help.serverContext") {
+                HStack(spacing: Theme.space2) {
+                    TextField("Auto", value: contextLimitOverrideBinding, format: .number.grouping(.never))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 88)
+                        .accessibilityIdentifier("ensemble.settings.contextLimitOverride")
+                    Text(serverContextCaption)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             toggleRow(
                 title: "Speak turns aloud",
                 isOn: $viewModel.voicedPlayback,
@@ -105,6 +121,43 @@ struct EnsembleSettingsView: View {
             get: { viewModel.includeUserInTurnOrder },
             set: { viewModel.setIncludeUserInTurnOrder($0) }
         )
+    }
+
+    /// Empty field = auto (use LM Studio loaded n_ctx / architecture max).
+    private var contextLimitOverrideBinding: Binding<Int?> {
+        Binding(
+            get: { viewModel.contextLimitOverrideTokens },
+            set: { value in
+                viewModel.contextLimitOverrideTokens = value.flatMap { $0 > 0 ? $0 : nil }
+                viewModel.refreshContextFillEstimate()
+            }
+        )
+    }
+
+    private var serverContextCaption: String {
+        let effective = viewModel.effectiveContextLimitTokens
+        let loaded = viewModel.modelContextLimitTokens
+        let arch = viewModel.modelArchitectureMaxTokens
+        if viewModel.contextLimitOverrideTokens != nil {
+            return "override · using \(Self.formatTokenCount(effective))"
+        }
+        if let loaded, let arch, arch > loaded {
+            return "loaded \(Self.formatTokenCount(loaded)) · model max \(Self.formatTokenCount(arch))"
+        }
+        if let loaded {
+            return "loaded \(Self.formatTokenCount(loaded))"
+        }
+        if let arch {
+            return "model max \(Self.formatTokenCount(arch))"
+        }
+        return "using \(Self.formatTokenCount(effective))"
+    }
+
+    static func formatTokenCount(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 10_000 { return "\(n / 1_000)k" }
+        if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
+        return "\(n)"
     }
 
     // MARK: - Context-aware help bodies
@@ -160,6 +213,14 @@ struct EnsembleSettingsView: View {
 
     private var contextWindowHelp: String {
         "How many recent turns each speaker still sees verbatim. Older material may be folded into the rolling summary when that toggle is on. Larger = more memory and more tokens per turn."
+    }
+
+    private var serverContextHelp: String {
+        "Token ceiling for the Compact fill meter (and for knowing when you're near full). "
+            + "Auto uses LM Studio’s *loaded* context length for this session — not Solo’s Max Tokens "
+            + "(that’s reply length). If loaded is e.g. 8k but the model max is 262k, raise Context Length "
+            + "when loading the model in LM Studio. Optional override only re-scales the meter; it cannot "
+            + "expand the server’s real KV cache."
     }
 
     private var voicedPlaybackHelp: String {
@@ -219,331 +280,7 @@ struct EnsembleSettingsView: View {
     }
 
     /// Near-primary light gray for row labels on the glass chair card.
-    fileprivate static let chairLabelColor = Color(red: 0.92, green: 0.92, blue: 0.94)
-}
-
-// MARK: - Director's Chair
-
-/// Floating glass card over the transcript (ZStack overlay — does not push layout).
-/// Sketch: stem from the toolbar chair, settings left, Boot affordance right.
-struct DirectorsChairPanel: View {
-    @Bindable var viewModel: EnsembleViewModel
-    var onCollapse: () -> Void
-
-    @State private var showsBootComposer = false
-    @State private var bootTargetID: UUID?
-    @State private var bootReason: String = ""
-    @FocusState private var bootReasonFocused: Bool
-
-    private let cardRadius: CGFloat = 20
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Stem — reads as “dropping from” the toolbar chair.
-            Capsule()
-                .fill(Color.white.opacity(0.28))
-                .frame(width: 3, height: 10)
-                .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-
-            VStack(alignment: .leading, spacing: Theme.space3) {
-                HStack(alignment: .top, spacing: Theme.space4) {
-                    VStack(alignment: .leading, spacing: Theme.space2) {
-                        HStack(spacing: Theme.space2) {
-                            Image(systemName: "chair.lounge.fill")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.accent)
-                            Text("Director's Chair")
-                                .font(Theme.fontSMBold)
-                                .foregroundStyle(Theme.textPrimary)
-                            Spacer(minLength: 0)
-                            Button(action: collapseChair) {
-                                Image(systemName: "chevron.up")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(Theme.textSecondary)
-                                    .frame(width: 22, height: 22)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Collapse Director's Chair")
-                            .accessibilityIdentifier("ensemble.directorsChair.collapse")
-                        }
-
-                        EnsembleSettingsView(viewModel: viewModel, showsSectionTitle: false)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // Boot + Reset stacked (sketch: director tools on the right).
-                    VStack(spacing: Theme.space3) {
-                        bootControl
-                        compactContextControl
-                    }
-                }
-
-                // Full-width row under settings so the BOOT card can center.
-                if showsBootComposer {
-                    bootComposer
-                        .frame(maxWidth: 420)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .transition(.opacity)
-                }
-            }
-            .padding(Theme.space4)
-            .frame(maxWidth: showsBootComposer ? 560 : 480, alignment: .leading)
-            .directorsChairGlass(cornerRadius: cardRadius)
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.horizontal, Theme.space6)
-        .padding(.top, 2)
-        .animation(.easeInOut(duration: 0.25), value: showsBootComposer)
-        .onChange(of: viewModel.cast.map(\.id)) { _, ids in
-            if let id = bootTargetID, !ids.contains(id) {
-                bootTargetID = ids.first
-            } else if bootTargetID == nil {
-                bootTargetID = ids.first
-            }
-        }
-        .onAppear {
-            if bootTargetID == nil {
-                bootTargetID = viewModel.cast.first?.id
-            }
-        }
-        .onDisappear {
-            bootReasonFocused = false
-        }
-        .accessibilityIdentifier("ensemble.directorsChair.panel")
-    }
-
-    private var canBoot: Bool {
-        viewModel.cast.count > CastPackageBuilder.minCastSize
-            && viewModel.pendingBoot == nil
-    }
-
-    private var bootControl: some View {
-        Button {
-            if showsBootComposer {
-                collapseBootComposer()
-            } else {
-                if bootTargetID == nil {
-                    bootTargetID = viewModel.cast.first?.id
-                }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showsBootComposer = true
-                }
-            }
-        } label: {
-            VStack(spacing: Theme.space1) {
-                Image(systemName: "figure.kickboxing")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(showsBootComposer ? Theme.accentHover : Theme.accent)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(Theme.accent.opacity(showsBootComposer ? 0.22 : 0.12))
-                            .overlay(Circle().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
-                    )
-                Text("Boot")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(EnsembleSettingsView.chairLabelColor)
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(!canBoot && !showsBootComposer)
-        .opacity(canBoot || showsBootComposer ? 1 : 0.45)
-        .help(canBoot
-              ? "Boot — force a cast member's exit line, then remove them"
-              : (viewModel.pendingBoot != nil
-                 ? "A boot is already armed"
-                 : "Need at least two speakers to boot"))
-        .accessibilityIdentifier("ensemble.directorsChair.boot")
-        .padding(.top, Theme.space4)
-    }
-
-    /// Compact — fold older model context; icon under Boot.
-    private var compactContextControl: some View {
-        Button {
-            _ = viewModel.compactContext()
-        } label: {
-            VStack(spacing: Theme.space1) {
-                Image(systemName: "arrow.down.right.and.arrow.up.left.circle.fill")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(compactIconColor)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(compactIconColor.opacity(viewModel.turns.isEmpty ? 0.06 : 0.14))
-                            .overlay(Circle().strokeBorder(compactIconColor.opacity(0.4), lineWidth: 1))
-                    )
-                Text("Compact")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(EnsembleSettingsView.chairLabelColor)
-                if let pct = viewModel.contextFillPercent {
-                    Text("~\(pct)%")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(compactIconColor)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.turns.isEmpty)
-        .opacity(viewModel.turns.isEmpty ? 0.45 : 1)
-        .help(Self.compactContextHelp)
-        .accessibilityIdentifier("ensemble.directorsChair.compactContext")
-        .onAppear { viewModel.refreshContextFillEstimate() }
-    }
-
-    private var compactIconColor: Color {
-        guard let pct = viewModel.contextFillPercent else { return Theme.accent }
-        if pct >= 90 { return Theme.errorFG }
-        if pct >= 75 { return Theme.warningFG }
-        return Theme.accent
-    }
-
-    fileprivate static let compactContextHelp =
-        "Compact older model context: next calls keep the last Context window turns plus a short brief. Transcript / export stay complete. ~% uses a Qwen reference tokenizer vs the loaded model’s context limit (toast at ~90%)."
-
-    private var bootComposer: some View {
-        VStack(alignment: .center, spacing: Theme.space2) {
-            Text("BOOT")
-                .font(Theme.fontXS)
-                .foregroundStyle(EnsembleSettingsView.chairLabelColor)
-                .frame(maxWidth: .infinity)
-            Text("They speak next with this instruction, then leave the cast. Everyone else is told they're gone.")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-
-            Picker("Speaker", selection: bootTargetBinding) {
-                ForEach(viewModel.cast) { persona in
-                    Text(persona.name).tag(Optional(persona.id))
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 280)
-            .accessibilityIdentifier("ensemble.directorsChair.bootTarget")
-
-            HStack(spacing: Theme.space2) {
-                TextField("Reason — e.g. die heroically, leave the bridge, stop the crude jokes",
-                         text: $bootReason)
-                    .textFieldStyle(.roundedBorder)
-                    .font(Theme.fontSM)
-                    .focused($bootReasonFocused)
-                    .accessibilityIdentifier("ensemble.directorsChair.bootReason")
-
-                Button("Send") {
-                    sendBoot()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-                .disabled(bootTargetID == nil || !canBoot)
-                .accessibilityIdentifier("ensemble.directorsChair.bootSend")
-            }
-        }
-        .padding(Theme.space3)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                .fill(Color.black.opacity(0.22))
-        )
-    }
-
-    private var bootTargetBinding: Binding<UUID?> {
-        Binding(
-            get: { bootTargetID },
-            set: { bootTargetID = $0 }
-        )
-    }
-
-    private func sendBoot() {
-        guard let id = bootTargetID else { return }
-        // Resign field focus before collapsing the composer.
-        bootReasonFocused = false
-        guard viewModel.bootCastMember(id: id, reason: bootReason) else { return }
-        bootReason = ""
-        collapseBootComposer()
-    }
-
-    /// Defocus the reason field first so the field teardown doesn't fight the
-    /// composer hide animation (focus resign → then remove).
-    private func collapseBootComposer() {
-        bootReasonFocused = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(60))
-            withAnimation(.easeInOut(duration: 0.25)) {
-                showsBootComposer = false
-            }
-        }
-    }
-
-    private func collapseChair() {
-        bootReasonFocused = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(60))
-            withAnimation(.easeInOut(duration: 0.5)) {
-                showsBootComposer = false
-            }
-            onCollapse()
-        }
-    }
-}
-
-/// Liquid Glass when the OS supports it; material fallback otherwise.
-private extension View {
-    @ViewBuilder
-    func directorsChairGlass(cornerRadius: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if #available(macOS 26.0, *) {
-            self
-                .background {
-                    shape
-                        .fill(.clear)
-                        .glassEffect(.clear, in: shape)
-                }
-                .overlay {
-                    shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 12)
-        } else {
-            self
-                .background(.ultraThinMaterial, in: shape)
-                .overlay {
-                    shape.strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 12)
-        }
-    }
-}
-
-/// Toolbar affordance that toggles the Director's Chair panel.
-struct DirectorsChairToggleButton: View {
-    @Binding var isOpen: Bool
-
-    /// Warm stone/cream — readable on dark chrome without vanishing as pure black.
-    private static let chairIdle = Color(red: 0.78, green: 0.72, blue: 0.64)
-
-    var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.5)) {
-                isOpen.toggle()
-            }
-        } label: {
-            Image(systemName: "chair.lounge.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isOpen ? Theme.accent : Self.chairIdle)
-                .frame(width: 28, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isOpen ? Theme.accent.opacity(0.16) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .help(isOpen ? "Collapse Director's Chair" : "Director's Chair — run settings over the live transcript")
-        .accessibilityLabel("Director's Chair")
-        .accessibilityValue(isOpen ? "Open" : "Closed")
-        .accessibilityIdentifier("ensemble.directorsChair.toggle")
-    }
+    static let chairLabelColor = Color(red: 0.92, green: 0.92, blue: 0.94)
 }
 
 // MARK: - SettingInfoButton

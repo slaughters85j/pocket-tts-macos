@@ -194,7 +194,7 @@ nonisolated enum AdvanceMode: Sendable {
 
 /// How the scramble dial behaves: re-draw the order every turn (chaos) or
 /// shuffle once at run start (stable-but-scrambled rotation).
-nonisolated enum RNGMode: Sendable {
+nonisolated enum RNGMode: String, CaseIterable, Codable, Sendable {
     case rerollPerTurn
     case shuffleOnce
 }
@@ -211,6 +211,15 @@ nonisolated enum RNGMode: Sendable {
 nonisolated struct PendingBoot: Equatable, Sendable {
     let speakerID: UUID
     let reason: String
+}
+
+// MARK: - PendingDirective
+// Director's Chair: one-shot cast-specific direction (steer / stop phrase / etc.).
+
+/// Armed direction: force this speaker next, inject instruction, Strict sampling.
+nonisolated struct PendingDirective: Equatable, Sendable {
+    let speakerID: UUID
+    let instruction: String
 }
 
 /// Whether Ensemble framing prioritizes free riffing or faithful scene play.
@@ -344,7 +353,7 @@ nonisolated enum CastPackageBuilder {
                 maxTurns: maxTurns,
                 contextWindowTurns: contextWindowTurns,
                 rollingSummaryEnabled: rollingSummaryEnabled,
-                rngModeRaw: rngMode == .shuffleOnce ? "shuffleOnce" : "rerollPerTurn",
+                rngModeRaw: rngMode.rawValue,
                 voicedPlayback: voicedPlayback,
                 scenePlayModeRaw: scenePlayMode.rawValue
             ),
@@ -357,6 +366,24 @@ nonisolated enum CastPackageBuilder {
     static func resolveVoiceID(_ voiceID: String, available: Set<String>) -> String {
         if available.contains(voiceID) { return voiceID }
         return defaultVoiceID
+    }
+
+    // MARK: Import clamps (UI ranges)
+
+    static let maxTurnsRange = 4...300
+    static let verbatimWindowRange = 4...40
+    static let paceSecondsRange = 0.0...2.5
+
+    static func clampMaxTurns(_ value: Int) -> Int {
+        min(maxTurnsRange.upperBound, max(maxTurnsRange.lowerBound, value))
+    }
+
+    static func clampVerbatimWindow(_ value: Int) -> Int {
+        min(verbatimWindowRange.upperBound, max(verbatimWindowRange.lowerBound, value))
+    }
+
+    static func clampPaceSeconds(_ value: Double) -> Double {
+        min(paceSecondsRange.upperBound, max(paceSecondsRange.lowerBound, value))
     }
 
     static func jsonEncoder() -> JSONEncoder {

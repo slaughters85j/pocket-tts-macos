@@ -151,9 +151,16 @@ actor StreamingPlayer {
     /// Returns the new mute state for UI synchronization.
     @discardableResult
     func toggleMuted() -> Bool {
-        isMuted.toggle()
-        playerNode.volume = isMuted ? 0 : 1
+        setMuted(!isMuted)
         return isMuted
+    }
+
+    /// Force mute on/off without interrupting synthesis or scheduled playback.
+    /// Used when leaving Chat so Single Voice / Multi-Talk aren't left silent
+    /// with no mute control on those tabs.
+    func setMuted(_ muted: Bool) {
+        isMuted = muted
+        playerNode.volume = muted ? 0 : 1
     }
 
     /// Consume the stream, scheduling each frame on the player node. Returns
