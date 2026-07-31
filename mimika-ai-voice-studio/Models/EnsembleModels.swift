@@ -191,3 +191,136 @@ nonisolated enum ChatSubMode: String, CaseIterable, Sendable {
     case solo
     case ensemble
 }
+
+// MARK: - CastPackage (portable cast export/import)
+// JSON file format for sharing or backing up a cast. Source UUIDs are
+// informational — import always mints new store/runtime IDs so re-importing
+// the same file never collides with `@Attribute(.unique)`.
+
+/// Top-level portable cast file (`formatVersion` 1).
+nonisolated struct CastPackage: Codable, Sendable, Equatable {
+    var formatVersion: Int
+    var exportedAt: Date
+    var cast: CastPayload
+    var personas: [PersonaPayload]
+
+    static let currentFormatVersion = 1
+}
+
+/// Cast-level metadata + run knobs captured at export time.
+nonisolated struct CastPayload: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var scene: String
+    var mood: String
+    var userPeerName: String
+    var turnModeRaw: String?
+    var paceSeconds: Double?
+    var maxTurns: Int?
+    var contextWindowTurns: Int?
+    var rollingSummaryEnabled: Bool?
+    var rngModeRaw: String?
+    var voicedPlayback: Bool?
+}
+
+/// One persona row in a portable cast file.
+nonisolated struct PersonaPayload: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var role: String
+    var voiceID: String
+    var suggestedVoice: String
+    var personaPrompt: String
+    var temperature: Double
+    var samplingPresetRaw: String
+    var readsOnOthers: [String: String]
+    var sortOrder: Int
+}
+
+// MARK: - CastPackageBuilder
+// Pure helpers so export/import voice resolution is unit-testable without
+// AppKit panels or SwiftData.
+
+nonisolated enum CastPackageBuilder {
+
+    /// Default voice used for brand-new manual speakers and missing imports.
+    static let defaultVoiceID = "cosette"
+    static let defaultNewMemberName = "Cosette"
+    static let minCastSize = 1
+    static let maxCastSize = 8
+
+    /// Build a portable package from live runtime state (+ optional SwiftData
+    /// role/reads when available, parallel by index).
+    static func make(
+        castID: UUID?,
+        castName: String,
+        scene: String,
+        mood: String,
+        userPeerName: String,
+        personas: [Persona],
+        rolesAndReads: [(role: String, suggestedVoice: String, reads: [String: String])] = [],
+        turnMode: TurnMode,
+        rngMode: RNGMode,
+        paceSeconds: Double,
+        maxTurns: Int,
+        contextWindowTurns: Int,
+        rollingSummaryEnabled: Bool,
+        voicedPlayback: Bool,
+        exportedAt: Date = .now
+    ) -> CastPackage {
+        let payloads: [PersonaPayload] = personas.enumerated().map { i, p in
+            let extra = rolesAndReads.indices.contains(i) ? rolesAndReads[i] : (role: "", suggestedVoice: "", reads: [:])
+            return PersonaPayload(
+                id: p.id,
+                name: p.name,
+                role: extra.role,
+                voiceID: p.voiceID,
+                suggestedVoice: extra.suggestedVoice,
+                personaPrompt: p.systemPrompt,
+                temperature: p.temperature,
+                samplingPresetRaw: p.samplingPreset.rawValue,
+                readsOnOthers: extra.reads,
+                sortOrder: i
+            )
+        }
+        return CastPackage(
+            formatVersion: CastPackage.currentFormatVersion,
+            exportedAt: exportedAt,
+            cast: CastPayload(
+                id: castID ?? UUID(),
+                name: castName.isEmpty ? (scene.isEmpty ? "Ensemble" : scene) : castName,
+                scene: scene,
+                mood: mood,
+                userPeerName: userPeerName,
+                turnModeRaw: turnMode.rawValue,
+                paceSeconds: paceSeconds,
+                maxTurns: maxTurns,
+                contextWindowTurns: contextWindowTurns,
+                rollingSummaryEnabled: rollingSummaryEnabled,
+                rngModeRaw: rngMode == .shuffleOnce ? "shuffleOnce" : "rerollPerTurn",
+                voicedPlayback: voicedPlayback
+            ),
+            personas: payloads
+        )
+    }
+
+    /// Resolve a voiceID against the voices available on this machine.
+    /// Missing stock/imported voices fall back to Cosette.
+    static func resolveVoiceID(_ voiceID: String, available: Set<String>) -> String {
+        if available.contains(voiceID) { return voiceID }
+        return defaultVoiceID
+    }
+
+    static func jsonEncoder() -> JSONEncoder {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        return enc
+    }
+
+    static func jsonDecoder() -> JSONDecoder {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return dec
+    }
+}

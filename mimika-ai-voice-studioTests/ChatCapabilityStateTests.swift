@@ -183,6 +183,46 @@ final class ChatCapabilityStateTests: XCTestCase {
         )
     }
 
+    func test_ensembleReasoningDefaultsOffAndWarnsWhenEnabled() async throws {
+        let (viewModel, appState) = try makeViewModel()
+        appState.chatSubMode = .ensemble
+        enqueueModels(["m"])
+        LLMStubURLProtocol.enqueue(
+            Data(
+                """
+                {"models":[{"key":"m","capabilities":{
+                    "vision":false,
+                    "trained_for_tool_use":false,
+                    "reasoning":{
+                        "allowed_options":["low","medium","high"],
+                        "default":"medium"
+                    }
+                }}]}
+                """.utf8
+            )
+        )
+
+        await viewModel.checkConnection()
+
+        // Ensemble injects Off and defaults to it even when LM Studio's
+        // graded list omits it.
+        XCTAssertEqual(viewModel.reasoningSelection, .off)
+        XCTAssertTrue(viewModel.reasoningConfiguration?.allowedOptions.contains(.off) == true)
+
+        viewModel.setReasoningSelection(.high)
+        XCTAssertEqual(viewModel.reasoningSelection, .high)
+        XCTAssertEqual(
+            appState.toastMessage,
+            "Larger thinking models tend to cause non-responsive turns in Ensemble."
+        )
+
+        // Solo keeps its own store — switching back restores medium default
+        // (no prior solo selection for this model).
+        appState.chatSubMode = .solo
+        viewModel.refreshReasoningForChatSubMode()
+        XCTAssertEqual(viewModel.reasoningSelection, .medium)
+    }
+
     private func makeViewModel() throws -> (ChatViewModel, AppState) {
         var settings = ChatSettings.default
         settings.model = "m"

@@ -5,10 +5,33 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
+**WP-CAST-1 — Cast Import/Export + roster edit + grenade + Run Settings help**
+**Status:** Needs user validation (`feature/export-import-cast`).
+
+Cast & Settings: export/import cast as JSON; add/remove members after
+personas are written; stronger grenade prompt; info.circle help on every
+run setting (Turn order / Randomness context-aware).
+
 WP-VMI-1/2/3 are COMPLETE (user-validated) on
 `improved-custom-voice-import` — PR open for merge to main. v1.5.5
 shipped (released + App Store Connect build cut). Remaining open WPs:
 WP-VIT-3 (in-app editor) and WP-VIT-4 (cleanup).
+
+---
+
+## WP-CAST-1 — Cast Import/Export, roster edit, grenade, Run Settings help
+
+**Status:** Needs user validation.
+
+1. **Export/Import cast JSON** from Cast & Settings (UUIDs, personas,
+   scene/mood, run knobs). Import mints new store IDs; missing custom
+   voices remap to `cosette`.
+2. **Add/remove cast members** post-writer: green plus (Cosette / Strict /
+   empty / cosette voice); xmark + confirmation; min 1 / max 8.
+3. **Grenade prompt** upgraded to a hard bombshell injection; UI copy
+   matches.
+4. **Run Settings info.circles** on every knob; Turn order + Randomness
+   help bodies switch with the current picker values.
 
 ---
 

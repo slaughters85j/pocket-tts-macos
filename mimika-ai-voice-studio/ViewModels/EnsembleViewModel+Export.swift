@@ -9,6 +9,9 @@
 //  one voice, and an episode that's empty after stage-direction stripping can't
 //  be saved.
 //
+//  WP-CAST-1 also lives here: portable cast JSON export/import (NSSavePanel /
+//  NSOpenPanel), since the file-panel plumbing matches transcript save.
+//
 
 import AppKit
 import Foundation
@@ -169,4 +172,191 @@ extension EnsembleViewModel {
         }
         return out + blocks.joined(separator: "\n\n---\n\n") + "\n"
     }
+
+    // MARK: - Cast package export / import (WP-CAST-1)
+
+    /// Snapshot the live cast + run knobs to a portable JSON file.
+    func exportCastToFile() {
+        guard !cast.isEmpty else {
+            showNotice("Nothing to export — load or generate a cast first.")
+            return
+        }
+        let panel = NSSavePanel()
+        panel.title = "Export Cast"
+        panel.nameFieldStringValue = suggestedCastFilename()
+        panel.allowedContentTypes = [.json]
+        panel.allowsOtherFileTypes = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let package = buildCastPackage()
+            let data = try CastPackageBuilder.jsonEncoder().encode(package)
+            try data.write(to: url, options: .atomic)
+            showNotice("Cast exported")
+        } catch {
+            showNotice("Couldn't export cast")
+        }
+    }
+
+    /// Open a cast JSON file and replace the live cast (new SwiftData row).
+    func importCastFromFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Cast"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let package = try CastPackageBuilder.jsonDecoder().decode(CastPackage.self, from: data)
+            try applyImportedPackage(package)
+        } catch {
+            showNotice("Couldn't read cast file")
+        }
+    }
+
+    /// Build a `CastPackage` from the live VM (+ optional SwiftData role/reads).
+    func buildCastPackage() -> CastPackage {
+        var rolesAndReads: [(role: String, suggestedVoice: String, reads: [String: String])] = []
+        if let ctx = appState.modelContext, let saved = currentSavedCast(ctx) {
+            rolesAndReads = saved.sortedPersonas.map {
+                (role: $0.role, suggestedVoice: $0.suggestedVoice, reads: $0.readsOnOthers)
+            }
+        }
+        return CastPackageBuilder.make(
+            castID: currentCastID,
+            castName: scene.isEmpty ? "Ensemble" : scene,
+            scene: scene,
+            mood: mood,
+            userPeerName: userPeer.name,
+            personas: cast,
+            rolesAndReads: rolesAndReads,
+            turnMode: turnOrder,
+            rngMode: rngMode,
+            paceSeconds: paceSeconds,
+            maxTurns: maxTurns,
+            contextWindowTurns: verbatimWindow,
+            rollingSummaryEnabled: rollingSummaryEnabled,
+            voicedPlayback: voicedPlayback
+        )
+    }
+
+    /// Replace the live cast from a decoded package. Throws if personas empty.
+    func applyImportedPackage(_ package: CastPackage) throws {
+        guard !package.personas.isEmpty else {
+            showNotice("Cast file has no speakers")
+            throw CastImportError.emptyPersonas
+        }
+        stop()
+        let available = availableVoiceIDs()
+        var remapped = 0
+        let sorted = package.personas.sorted { $0.sortOrder < $1.sortOrder }
+        let resolved: [(payload: PersonaPayload, voiceID: String)] = sorted.map { p in
+            let v = CastPackageBuilder.resolveVoiceID(p.voiceID, available: available)
+            if v != p.voiceID { remapped += 1 }
+            return (p, v)
+        }
+
+        scene = package.cast.scene
+        mood = package.cast.mood
+        let peer = package.cast.userPeerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !peer.isEmpty, peer != "You" {
+            userPeer.name = peer
+            userPeer.modelName = peer
+        }
+        if let raw = package.cast.turnModeRaw, let mode = TurnMode(rawValue: raw) {
+            turnOrder = mode
+        }
+        if let raw = package.cast.rngModeRaw {
+            rngMode = (raw == "rerollPerTurn") ? .rerollPerTurn : .shuffleOnce
+        }
+        if let pace = package.cast.paceSeconds { paceSeconds = pace }
+        if let max = package.cast.maxTurns { maxTurns = max }
+        if let window = package.cast.contextWindowTurns { verbatimWindow = window }
+        if let rolling = package.cast.rollingSummaryEnabled { rollingSummaryEnabled = rolling }
+        if let voiced = package.cast.voicedPlayback { voicedPlayback = voiced }
+
+        turns = []
+        rollingSummary = ""
+        summarizedUpTo = 0
+        summaryTask?.cancel(); summaryTask = nil
+        shuffledOrder = []
+        orderCursor = 0
+        producedThisRun = 0
+
+        cast = resolved.map { entry in
+            let preset = SamplingPreset(rawValue: entry.payload.samplingPresetRaw) ?? .relaxed
+            return Persona(
+                name: entry.payload.name,
+                voiceID: entry.voiceID,
+                systemPrompt: entry.payload.personaPrompt,
+                temperature: entry.payload.temperature,
+                samplingPreset: preset
+            )
+        }
+
+        persistImportedCast(package: package, resolved: resolved)
+
+        if remapped > 0 {
+            showNotice("Imported cast; \(remapped) voice(s) remapped to Cosette (missing custom voices).")
+        } else {
+            let names = cast.map(\.name).joined(separator: ", ")
+            showNotice(names.isEmpty ? "Cast imported." : "Cast imported — \(names)")
+        }
+    }
+
+    private func persistImportedCast(
+        package: CastPackage,
+        resolved: [(payload: PersonaPayload, voiceID: String)]
+    ) {
+        guard let ctx = appState.modelContext else { return }
+        let name = package.cast.name.isEmpty
+            ? (package.cast.scene.isEmpty ? "Ensemble" : package.cast.scene)
+            : package.cast.name
+        let castModel = EnsembleStore.create(ctx, name: name, scene: package.cast.scene, mood: package.cast.mood)
+        castModel.userPeerName = userPeer.name
+        if let raw = package.cast.turnModeRaw { castModel.turnModeRaw = raw }
+        if let pace = package.cast.paceSeconds { castModel.paceSeconds = pace }
+        if let window = package.cast.contextWindowTurns { castModel.contextWindowTurns = window }
+        if let rolling = package.cast.rollingSummaryEnabled { castModel.rollingSummaryEnabled = rolling }
+        currentCastID = castModel.id
+        for (i, entry) in resolved.enumerated() {
+            let p = entry.payload
+            let preset = SamplingPreset(rawValue: p.samplingPresetRaw) ?? .relaxed
+            EnsembleStore.addPersona(
+                ctx, to: castModel,
+                name: p.name,
+                role: p.role,
+                voiceID: entry.voiceID,
+                suggestedVoice: p.suggestedVoice,
+                personaPrompt: p.personaPrompt,
+                temperature: p.temperature,
+                samplingPreset: preset,
+                readsOnOthers: p.readsOnOthers,
+                sortOrder: i
+            )
+        }
+    }
+
+    private func availableVoiceIDs() -> Set<String> {
+        var ids = BundledVoice.stockIDs
+        for v in VoiceManager.shared.voices where v.pocketTTSKVPath != nil {
+            ids.insert("imported:\(v.id)")
+        }
+        // Always allow the fallback stock id even if stock assets aren't loaded yet.
+        ids.insert(CastPackageBuilder.defaultVoiceID)
+        return ids
+    }
+
+    private func suggestedCastFilename() -> String {
+        let base = scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slug = base.isEmpty ? "ensemble-cast" : base
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return "\(slug).json"
+    }
+}
+
+/// Errors from cast JSON import (surfaced as notices; type is for tests).
+enum CastImportError: Error {
+    case emptyPersonas
 }

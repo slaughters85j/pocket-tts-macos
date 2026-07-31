@@ -161,8 +161,8 @@ struct EnsembleSurfaceView: View {
         }
         .buttonStyle(.plain)
         .help(nudge
-              ? "The cast is nodding along — throw a grenade to break the consensus"
-              : "Throw a grenade — force the next speaker to break the consensus")
+              ? "The cast is nodding along — throw a grenade to detonate the consensus"
+              : "Throw a grenade — force the next speaker to drop a bombshell")
         .accessibilityIdentifier("ensemble.grenade")
     }
 
@@ -180,7 +180,7 @@ struct EnsembleSurfaceView: View {
             VStack(alignment: .leading, spacing: Theme.space2) {
                 Label("Throw a grenade", systemImage: "flame.fill")
                     .font(Theme.fontSMBold).foregroundStyle(Theme.warningFG)
-                Text("Breaks a stale conversation: the next speaker is told to drop the consensus and take a sharp, contrarian angle. The flame lights up on its own when the cast starts agreeing too much — but you can throw it any time.")
+                Text("Arms a one-shot bombshell: the next speaker is ordered to detonate the consensus with a secret, accusation, or hard pivot — not a polite quibble. The flame lights up on its own when the cast starts agreeing too much — but you can throw it any time.")
                     .font(Theme.fontXS).foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -203,7 +203,7 @@ struct EnsembleSurfaceView: View {
     /// Arm the grenade + flash a confirmation (the throw is otherwise silent).
     private func armGrenade() {
         viewModel.throwGrenade()
-        flash(ControlFlash(text: "Grenade armed — the next line breaks the consensus",
+        flash(ControlFlash(text: "Grenade armed — next line is a bombshell",
                            systemImage: "flame.fill", tint: Theme.warningFG))
     }
 

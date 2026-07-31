@@ -161,14 +161,20 @@ extension ChatViewModel {
     // MARK: Reasoning selection
 
     /// Resolve one model's reasoning control without guessing from its name.
+    /// Ensemble keeps its own stored selection (defaults to Off) so Solo
+    /// effort levels are not inherited into multi-agent turns.
     func applyReasoningConfiguration(
         _ configuration: ModelReasoningConfiguration?,
         for selection: ChatModelSelection
     ) {
         guard capabilitySelection == selection else { return }
 
-        let resolved = configuration
+        let base = configuration
             ?? (supportsReasoning ? .binaryFallback : nil)
+        let resolved = Self.reasoningConfiguration(
+            base: base,
+            forEnsemble: appState.chatSubMode == .ensemble
+        )
         reasoningConfiguration = resolved
 
         guard let resolved else {
@@ -176,15 +182,30 @@ extension ChatViewModel {
             return
         }
 
-        let stored = reasoningSelections[selection.storageKey]
+        let key = reasoningStorageKey(for: selection)
+        let stored = reasoningSelections[key]
         let selected = stored.flatMap {
             resolved.allowedOptions.contains($0) ? $0 : nil
-        } ?? resolved.defaultOption
+        } ?? Self.defaultReasoningOption(
+            for: resolved,
+            ensemble: appState.chatSubMode == .ensemble
+        )
         reasoningSelection = selected
-        reasoningSelections[selection.storageKey] = selected
+        reasoningSelections[key] = selected
+    }
+
+    /// Re-resolve the active model's thinking control after Solo ↔ Ensemble
+    /// switch so the shared badge uses the mode-scoped default/store.
+    func refreshReasoningForChatSubMode() {
+        guard let selection = capabilitySelection else { return }
+        let config = lastKnownReasoningConfigurations[selection.storageKey]
+            ?? reasoningConfiguration
+        applyReasoningConfiguration(config, for: selection)
     }
 
     /// Change reasoning only while no request owns a captured payload.
+    /// Ensemble shows a one-shot toast when thinking is turned on (not when
+    /// only changing effort level among already-on values).
     func setReasoningSelection(_ option: ModelReasoningOption) {
         guard activeTurn == nil else {
             showToast("Please wait until the model finishes responding.")
@@ -196,7 +217,52 @@ extension ChatViewModel {
             reasoningConfiguration.allowedOptions.contains(option)
         else { return }
 
+        let previous = reasoningSelection
         reasoningSelection = option
-        reasoningSelections[selection.storageKey] = option
+        reasoningSelections[reasoningStorageKey(for: selection)] = option
+
+        if appState.chatSubMode == .ensemble,
+           option != .off,
+           previous == .off || previous == nil {
+            showToast(
+                "Larger thinking models tend to cause non-responsive turns in Ensemble."
+            )
+        }
+    }
+
+    /// Solo keys by model; Ensemble uses a distinct key so defaults stay Off.
+    private func reasoningStorageKey(for selection: ChatModelSelection) -> String {
+        if appState.chatSubMode == .ensemble {
+            return selection.storageKey + "|ensemble"
+        }
+        return selection.storageKey
+    }
+
+    /// Ensemble always offers Off (injecting it when LM Studio only lists
+    /// low/medium/high) so multi-agent runs can disable thinking by default.
+    private static func reasoningConfiguration(
+        base: ModelReasoningConfiguration?,
+        forEnsemble: Bool
+    ) -> ModelReasoningConfiguration? {
+        guard let base else { return nil }
+        guard forEnsemble else { return base }
+        var options = base.allowedOptions
+        if !options.contains(.off) {
+            options.insert(.off, at: 0)
+        }
+        return ModelReasoningConfiguration(
+            allowedOptions: options,
+            defaultOption: options.contains(.off) ? .off : base.defaultOption
+        )
+    }
+
+    private static func defaultReasoningOption(
+        for configuration: ModelReasoningConfiguration,
+        ensemble: Bool
+    ) -> ModelReasoningOption {
+        if ensemble, configuration.allowedOptions.contains(.off) {
+            return .off
+        }
+        return configuration.defaultOption
     }
 }

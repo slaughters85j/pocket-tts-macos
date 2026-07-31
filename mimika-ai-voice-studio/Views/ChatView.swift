@@ -45,8 +45,15 @@ struct ChatView: View {
                 )
             }
         }
+        .onChange(of: subMode) { _, _ in
+            // Solo and Ensemble keep separate thinking defaults/stores;
+            // refresh the shared control when the user flips the sub-mode.
+            viewModel.refreshReasoningForChatSubMode()
+        }
         .onAppear {
             viewModel.startHealthChecks()
+            // Land on the mode-scoped thinking default (Ensemble → Off).
+            viewModel.refreshReasoningForChatSubMode()
             Task { isAudioMuted = await player.isMuted }
         }
         .onDisappear { viewModel.stopSoloChatSession() }

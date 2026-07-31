@@ -7,6 +7,8 @@
 //  persist to the saved cast (so reuse keeps them). Reuses the same voice +
 //  preset controls as the setup wizard's confirm-voices step.
 //
+//  WP-CAST-1: add/remove roster, import/export cast JSON.
+//
 
 import SwiftUI
 
@@ -16,6 +18,8 @@ struct EnsembleCastEditorSheet: View {
     var onClose: () -> Void
 
     @State private var editTarget: PersonaEditTarget?
+    /// Index pending removal confirmation (nil = no alert).
+    @State private var personaToRemove: Int?
 
     /// Identifiable wrapper driving the persona-editor `.sheet(item:)`.
     /// Carries a SNAPSHOT of the persona's editable fields so the sheet
@@ -40,11 +44,26 @@ struct EnsembleCastEditorSheet: View {
         }
     }
 
+    /// Roster membership (add/remove) is allowed when the loop is not mid-turn.
+    /// Unlike pencil, this is NOT gated on `turns.isEmpty` — users can grow or
+    /// shrink the cast after the writer finishes and even mid-episode (parked).
+    private var canMutateRoster: Bool {
+        switch viewModel.runState {
+        case .idle, .error, .awaitingStep: return true
+        default: return false
+        }
+    }
+
+    /// Deeper amber orange so Import/Export reads distinct from Done's accent.
+    private static let importExportOrange = Color(red: 0.85, green: 0.45, blue: 0.12)
+
     var body: some View {
         ModalContainer(title: "Cast & Settings", onClose: onClose) {
             VStack(alignment: .leading, spacing: Theme.space3) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.space4) {
+                        sceneMoodSection
+                        Divider().background(Theme.borderColor)
                         castSection
                         Divider().background(Theme.borderColor)
                         EnsembleSettingsView(viewModel: viewModel)
@@ -52,7 +71,11 @@ struct EnsembleCastEditorSheet: View {
                 }
                 .frame(maxHeight: 400)
                 Spacer()
-                HStack { Spacer(); doneButton }
+                HStack {
+                    Spacer()
+                    importExportMenu
+                    doneButton
+                }
             }
             .frame(minWidth: 460, minHeight: 440)
         }
@@ -71,13 +94,74 @@ struct EnsembleCastEditorSheet: View {
                 editTarget = nil
             }
         }
+        .alert("Remove Speaker?", isPresented: Binding(
+            get: { personaToRemove != nil },
+            set: { if !$0 { personaToRemove = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { personaToRemove = nil }
+            Button("Remove", role: .destructive) {
+                if let index = personaToRemove {
+                    _ = viewModel.removeCastMember(at: index)
+                }
+                personaToRemove = nil
+            }
+        } message: {
+            let name = personaToRemove.flatMap { viewModel.cast.indices.contains($0) ? viewModel.cast[$0].name : nil } ?? "this speaker"
+            Text("Remove \"\(name)\" from the cast? This cannot be undone.")
+        }
+    }
+
+    // MARK: - Scene & mood
+
+    /// Editable scene + mood at the top of Cast & Settings. Live values feed
+    /// `framedSystemPrompt` on the next turn; persistence + export/import
+    /// already carry both fields on the cast package.
+    private var sceneMoodSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space2) {
+            Text("SCENE & MOOD").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            Text("Anchors the cast’s topic and tone — changes apply on the next turn and save with the cast.")
+                .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            TextField(
+                "Scene — e.g. a coffee shop on a rainy afternoon",
+                text: sceneBinding,
+                axis: .vertical
+            )
+            .lineLimit(2...4)
+            .textFieldStyle(.roundedBorder)
+            .font(Theme.fontSM)
+            .accessibilityIdentifier("ensemble.castEditor.scene")
+            TextField(
+                "Mood — e.g. relaxed, but a friendly debate is brewing",
+                text: moodBinding,
+                axis: .vertical
+            )
+            .lineLimit(2...4)
+            .textFieldStyle(.roundedBorder)
+            .font(Theme.fontSM)
+            .accessibilityIdentifier("ensemble.castEditor.mood")
+        }
+    }
+
+    private var sceneBinding: Binding<String> {
+        Binding(
+            get: { viewModel.scene },
+            set: { viewModel.updateScene($0) }
+        )
+    }
+
+    private var moodBinding: Binding<String> {
+        Binding(
+            get: { viewModel.mood },
+            set: { viewModel.updateMood($0) }
+        )
     }
 
     @ViewBuilder
     private var castSection: some View {
         if viewModel.cast.isEmpty {
-            Text("No cast loaded yet. Generate a new cast or reuse the last one first.")
+            Text("No cast loaded yet. Generate a new cast, import one, or add a speaker below.")
                 .font(Theme.fontSM).foregroundStyle(Theme.textSecondary)
+            addMemberButton
         } else if voiceOptions.isEmpty {
             Text("No voices are available. Add a voice in the Voice Manager first.")
                 .font(Theme.fontSM).foregroundStyle(Theme.warningFG)
@@ -88,6 +172,7 @@ struct EnsembleCastEditorSheet: View {
             ForEach(Array(viewModel.cast.enumerated()), id: \.element.id) { index, persona in
                 personaRow(index: index, persona: persona)
             }
+            addMemberButton
         }
     }
 
@@ -113,6 +198,21 @@ struct EnsembleCastEditorSheet: View {
                       ? "Edit this persona's name and script"
                       : "Personas lock once the conversation has turns — use New Cast or Reuse Last to start fresh and edit again")
                 .accessibilityIdentifier("ensemble.castEditor.editPersona.\(index)")
+                Button {
+                    personaToRemove = index
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(canMutateRoster && viewModel.canRemoveCastMember
+                                         ? Color.red.opacity(0.85)
+                                         : Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canMutateRoster || !viewModel.canRemoveCastMember)
+                .help(viewModel.canRemoveCastMember
+                      ? "Remove this speaker from the cast"
+                      : "Keep at least one speaker in the cast")
+                .accessibilityIdentifier("ensemble.castEditor.removePersona.\(index)")
                 Spacer()
                 Picker("", selection: voiceBinding(index)) {
                     ForEach(voiceOptions) { opt in Text(opt.name).tag(opt.id) }
@@ -133,6 +233,44 @@ struct EnsembleCastEditorSheet: View {
         .padding(Theme.space2)
         .background(Theme.bgSecondary)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private var addMemberButton: some View {
+        Button {
+            _ = viewModel.addCastMember()
+        } label: {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(
+                    canMutateRoster && viewModel.canAddCastMember
+                    ? Theme.successFG
+                    : Theme.textSecondary
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!canMutateRoster || !viewModel.canAddCastMember)
+        .help(viewModel.canAddCastMember
+              ? "Add a speaker (Cosette · Strict · empty script)"
+              : "Cast is at the maximum of \(CastPackageBuilder.maxCastSize) speakers")
+        .accessibilityIdentifier("ensemble.castEditor.addPersona")
+        .padding(.top, Theme.space1)
+    }
+
+    private var importExportMenu: some View {
+        Menu {
+            Button("Export Cast…") { viewModel.exportCastToFile() }
+                .disabled(viewModel.cast.isEmpty)
+            Button("Import Cast…") { viewModel.importCastFromFile() }
+                .disabled(!canMutateRoster)
+        } label: {
+            Text("Import / Export").font(Theme.fontSMBold).foregroundStyle(.white)
+                .padding(.horizontal, Theme.space4).padding(.vertical, Theme.space2)
+                .background(Self.importExportOrange)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityIdentifier("ensemble.castEditor.importExport")
     }
 
     private var doneButton: some View {
@@ -159,7 +297,6 @@ struct EnsembleCastEditorSheet: View {
             set: { viewModel.updatePersonaPreset(at: index, preset: $0) }
         )
     }
-
 
     private func presetCaption(_ preset: SamplingPreset) -> String {
         "temp \(preset.temperature) · top-p \(preset.topP) · top-k \(preset.topK)"

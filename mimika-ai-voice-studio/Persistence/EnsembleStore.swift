@@ -74,6 +74,19 @@ enum EnsembleStore {
         try? ctx.save()
     }
 
+    /// Remove one persona from a cast and reindex remaining `sortOrder` values
+    /// to `0..<n`. Used by Cast & Settings roster editing.
+    static func removePersona(_ ctx: ModelContext, _ persona: EnsemblePersona, from cast: EnsembleCast) {
+        cast.personas.removeAll { $0.id == persona.id }
+        ctx.delete(persona)
+        let remaining = cast.sortedPersonas
+        for (i, p) in remaining.enumerated() {
+            p.sortOrder = i
+        }
+        cast.updatedAt = .now
+        try? ctx.save()
+    }
+
     static func delete(_ ctx: ModelContext, cast: EnsembleCast) {
         ctx.delete(cast)   // .cascade deletes its personas
         try? ctx.save()

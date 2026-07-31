@@ -101,9 +101,10 @@ final class EnsembleViewModel {
     // MARK: - Loop bookkeeping
     private var loopTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
-    private var shuffledOrder: [UUID] = []
-    private var orderCursor: Int = 0
-    private var producedThisRun: Int = 0
+    /// Round-robin seat order. Internal so cast import / roster edits can reset it.
+    var shuffledOrder: [UUID] = []
+    var orderCursor: Int = 0
+    var producedThisRun: Int = 0
     private var isLooping = false
     /// Set by the runner's onError; read after a turn to stop the loop and
     /// preserve the surfaced `.error` state instead of clobbering it.
@@ -112,8 +113,8 @@ final class EnsembleViewModel {
     /// on first appear (and never clobbers an in-progress conversation later).
     private var didAttemptAutoLoad = false
     /// Background rolling-summary task (one at a time) + how many out-of-window
-    /// turns accumulate before a fold runs.
-    private var summaryTask: Task<Void, Never>?
+    /// turns accumulate before a fold runs. Internal so import can cancel it.
+    var summaryTask: Task<Void, Never>?
     private static let summaryBatchSize = 8
     private static let summaryMaxTokens = 256
     /// Hard ceiling on verbatim turns rendered — a safety net so a repeatedly
@@ -409,7 +410,9 @@ final class EnsembleViewModel {
         EnsembleStore.update(ctx, cast: saved)
     }
 
-    private func currentSavedCast(_ ctx: ModelContext) -> EnsembleCast? {
+    /// Prefer the loaded cast by id; fall back to most-recently-updated.
+    /// Internal so Cast IO / roster extensions can persist membership changes.
+    func currentSavedCast(_ ctx: ModelContext) -> EnsembleCast? {
         if let id = currentCastID,
            let match = EnsembleStore.casts(ctx).first(where: { $0.id == id }) { return match }
         return EnsembleStore.casts(ctx).first
@@ -729,7 +732,7 @@ final class EnsembleViewModel {
             context += " \(you) just said: \"\(said)\". Respond to that directly."
         }
         if grenade {
-            context += " The conversation has gotten too agreeable — break the consensus NOW: take a sharp, contrarian position or throw in a provocative new angle that forces the others to react."
+            context += " GRENADE PROTOCOL — MANDATORY FOR THIS LINE ONLY. The table has collapsed into polite groupthink and you are the chaos agent. You MUST violently derail the consensus: (1) reject the last shared conclusion as naive, dangerous, or boring; (2) introduce a concrete, unexpected bombshell — a secret, accusation, plot twist, inconvenient fact, or wildly reframed stakes that NOBODY has raised yet; (3) force at least one other person to defend themselves or pick a side. Do NOT hedge, do NOT say \"I somewhat disagree\", do NOT summarize common ground, do NOT continue the prior topic gently. One short spoken line, in character, that detonates the conversation and makes smooth agreement impossible."
         }
         return persona.systemPrompt + "\n\n" + context
     }
