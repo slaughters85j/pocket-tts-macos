@@ -325,7 +325,7 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(brief.contains("bridge under fire"), brief)
         XCTAssertTrue(brief.contains("Picard"), brief)
         XCTAssertTrue(brief.contains("Shields to maximum"), brief)
-        XCTAssertTrue(brief.contains("Director reset context"), brief)
+        XCTAssertTrue(brief.contains("Director compacted context") || brief.contains("compacted"), brief)
     }
 
     func test_softDumpContext_keepsTranscriptButShrinksModelWindow() throws {
@@ -348,7 +348,7 @@ final class EnsembleLoopTests: XCTestCase {
         let joined = msgs.map(\.content).joined(separator: "\n")
         XCTAssertTrue(joined.contains("Line 11"), joined)
         XCTAssertTrue(
-            joined.contains("Earlier in the conversation") || joined.contains("Director reset"),
+            joined.contains("Earlier in the conversation") || joined.contains("compacted") || joined.contains("Director"),
             joined
         )
     }

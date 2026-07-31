@@ -10,6 +10,9 @@
 //
 
 import Foundation
+#if os(macOS)
+import AppKit
+#endif
 
 extension EnsembleViewModel {
 
@@ -120,27 +123,62 @@ extension EnsembleViewModel {
             self.draft = self.dictationStartingDraft + sep + partial
         }
         dictationController.onError = { [weak self] err in
-            self?.dictation = .unavailable(String(describing: err))
+            guard let self else { return }
+            // Soft-fail: show the message but bounce mic back to idle so a
+            // transient Speech error doesn't brick the button for the session.
+            #if DEBUG
+            print("[Ensemble] dictation error: \(err)")
+            #endif
+            self.dictationController.cancel()
+            self.dictation = .idle
+            self.showNotice("Mic error — try again or type your line")
         }
         do {
             try dictationController.start()
             dictation = .listening
+            playMicActivatedCue()
         } catch {
-            dictation = .unavailable(String(describing: error))
+            dictation = .idle
+            showNotice("Couldn't start mic — type your line instead")
         }
     }
 
     func stopListening() {
         dictationController.stop()
         let captured = dictationCapturedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Two short “duh duh” so deactivation is obvious without looking.
+        playMicDeactivatedCue()
         if captured.isEmpty {
-            // Nothing said — abandon the interjection and let the cast carry on.
+            // Nothing said.
             draft = dictationStartingDraft
             dictation = .idle
-            resumeCast()
+            // Invited turn: stay parked for typing — do NOT resume a second loop.
+            if !awaitingInvitedUserTurn {
+                resumeCast()
+            }
         } else {
             dictation = .ready
         }
+    }
+
+    // MARK: - Mic audio cues
+
+    /// One light tick when the mic arms.
+    private func playMicActivatedCue() {
+        #if os(macOS)
+        NSSound(named: "Tink")?.play()
+        #endif
+    }
+
+    /// Short double “duh duh” when the mic disarms (stop / send).
+    private func playMicDeactivatedCue() {
+        #if os(macOS)
+        NSSound(named: "Pop")?.play()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(130))
+            NSSound(named: "Pop")?.play()
+        }
+        #endif
     }
 
     // MARK: - Submit
@@ -152,10 +190,13 @@ extension EnsembleViewModel {
         if awaitingInvitedUserTurn {
             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             draft = ""
-            dictation = .idle
+            // Paperplane send after listening — same deactivate cue as stop.
+            if dictation == .ready || dictation == .listening {
+                playMicDeactivatedCue()
+            }
             if !text.isEmpty {
                 turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
-                completeInvitedUserTurn(submitted: true)
+                completeInvitedUserTurn(submitted: true) // resets mic to idle
             } else {
                 completeInvitedUserTurn(submitted: false)
             }
@@ -163,6 +204,10 @@ extension EnsembleViewModel {
         }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         draft = ""
+        if dictation == .ready || dictation == .listening {
+            playMicDeactivatedCue()
+        }
+        resetDictationToIdle()
         if !text.isEmpty {
             turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
         }

@@ -82,6 +82,18 @@ nonisolated struct ModelReasoningConfiguration: Equatable, Sendable {
 nonisolated struct ModelCapabilityMetadata: Equatable, Sendable {
     let capabilities: ModelCapabilities
     let reasoning: ModelReasoningConfiguration?
+    /// Loaded / max context length in tokens (LM Studio), when reported.
+    let contextLength: Int?
+
+    init(
+        capabilities: ModelCapabilities,
+        reasoning: ModelReasoningConfiguration?,
+        contextLength: Int? = nil
+    ) {
+        self.capabilities = capabilities
+        self.reasoning = reasoning
+        self.contextLength = contextLength
+    }
 }
 
 /// Freshness of the last authoritative metadata response.

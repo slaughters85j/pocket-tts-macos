@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DDD4100677FC483AA94FF11C /* QwenTokenEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A831A915F2904B298E16B536 /* QwenTokenEstimator.swift */; };
+		2FC9703CF2364AEFA30F2F6B /* tokenizer.json in Resources */ = {isa = PBXBuildFile; fileRef = CA8328E6FEE249E99311BC5A /* tokenizer.json */; };
+		EB4E99BB9E524E53A195BAA1 /* tokenizer_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 30DF9848357E43D7B77B2331 /* tokenizer_config.json */; };
 		02678B6169DFFA75BFF7C79E /* ReadAloudOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */; };
 		033285D231204C1D83676388 /* FluidAudioDiarizationProvider+Clustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249331AC0D2C47CABEE10564 /* FluidAudioDiarizationProvider+Clustering.swift */; };
 		052509EC66CB8DA591623EA8 /* EnsemblePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478629569DD37CB57C8DB570 /* EnsemblePersistenceTests.swift */; };
@@ -285,6 +288,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A831A915F2904B298E16B536 /* QwenTokenEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QwenTokenEstimator.swift; sourceTree = "<group>"; };
+		CA8328E6FEE249E99311BC5A /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "Resources/tokenizers/qwen3/tokenizer.json"; sourceTree = "<group>"; };
+		30DF9848357E43D7B77B2331 /* tokenizer_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "Resources/tokenizers/qwen3/tokenizer_config.json"; sourceTree = "<group>"; };
 		014EA7A3DEBBBBE9F2E731B9 /* ChatCapabilityStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCapabilityStateTests.swift; sourceTree = "<group>"; };
 		04E7EF7C8218C87225191C6F /* ChatViewModel+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Capabilities.swift"; sourceTree = "<group>"; };
 		0978D4197DBDB7F8E50E7337 /* VoiceFromVideoView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceFromVideoView.swift; sourceTree = "<group>"; };
@@ -763,6 +769,7 @@
 			isa = PBXGroup;
 			children = (
 				D53CE5D02FD2FADC0071832E /* BackoffPolicy.swift */,
+				A831A915F2904B298E16B536 /* QwenTokenEstimator.swift */,
 				D5B7DDB53007F0E1006FE124 /* SeededGenerator.swift */,
 			);
 			path = Utilities;
@@ -934,6 +941,8 @@
 				D53CE5ED2FD2FADC0071832E /* ViewModels */,
 				D53CE6012FD2FADC0071832E /* Views */,
 				D53CE6022FD2FADC0071832E /* Assets.xcassets */,
+				CA8328E6FEE249E99311BC5A /* tokenizer.json */,
+				30DF9848357E43D7B77B2331 /* tokenizer_config.json */,
 				D53CE6032FD2FADC0071832E /* ContentView.swift */,
 				D53CE6052FD2FADC0071832E /* InfoPlist.strings */,
 				D53CE6062FD2FADC0071832E /* mimika-ai-voice-studio.entitlements */,
@@ -1212,6 +1221,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				D53CE7012FD2FADC0071832E /* Assets.xcassets in Resources */,
+				2FC9703CF2364AEFA30F2F6B /* tokenizer.json in Resources */,
+				EB4E99BB9E524E53A195BAA1 /* tokenizer_config.json in Resources */,
 				D53CE7052FD2FADC0071832E /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1372,6 +1383,7 @@
 				D53CE6E92FD2FADC0071832E /* ModalContainer.swift in Sources */,
 				D53CE6EA2FD2FADC0071832E /* SpeakerIsolatorViewModel+Convert.swift in Sources */,
 				D53CE6EB2FD2FADC0071832E /* BackoffPolicy.swift in Sources */,
+				DDD4100677FC483AA94FF11C /* QwenTokenEstimator.swift in Sources */,
 				D53CE6EC2FD2FADC0071832E /* Theme.swift in Sources */,
 				D53CE6ED2FD2FADC0071832E /* MacTextEditor.swift in Sources */,
 				D53CE6EE2FD2FADC0071832E /* DemucsResampler.swift in Sources */,

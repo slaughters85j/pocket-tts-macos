@@ -142,11 +142,16 @@ nonisolated struct LMStudioModelsResponse: Decodable {
         let key: String
         let capabilities: Capabilities?
         let loadedInstances: [LoadedInstance]
+        /// Architecture / publisher max (tokens), when LM Studio reports it.
+        let maxContextLength: Int?
+        let config: Config?
 
         private enum CodingKeys: String, CodingKey {
             case key
             case capabilities
             case loadedInstances = "loaded_instances"
+            case maxContextLength = "max_context_length"
+            case config
         }
 
         init(from decoder: Decoder) throws {
@@ -157,11 +162,60 @@ nonisolated struct LMStudioModelsResponse: Decodable {
                 [LoadedInstance].self,
                 forKey: .loadedInstances
             ) ?? []
+            maxContextLength = Self.decodeFlexibleInt(container, key: .maxContextLength)
+            config = try container.decodeIfPresent(Config.self, forKey: .config)
+        }
+
+        /// Prefer loaded config context, else architecture max.
+        var resolvedContextLength: Int? {
+            if let n = config?.contextLength, n > 0 { return n }
+            if let n = maxContextLength, n > 0 { return n }
+            return nil
+        }
+
+        private static func decodeFlexibleInt(
+            _ container: KeyedDecodingContainer<CodingKeys>,
+            key: CodingKeys
+        ) -> Int? {
+            if let i = try? container.decodeIfPresent(Int.self, forKey: key) { return i }
+            if let d = try? container.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+            if let s = try? container.decodeIfPresent(String.self, forKey: key),
+               let i = Int(s) { return i }
+            return nil
+        }
+    }
+
+    struct Config: Decodable {
+        /// Context length of the *loaded* instance (user-configured in LM Studio).
+        let contextLength: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case contextLength = "context_length"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let i = try? container.decodeIfPresent(Int.self, forKey: .contextLength) {
+                contextLength = i
+            } else if let d = try? container.decodeIfPresent(Double.self, forKey: .contextLength) {
+                contextLength = Int(d)
+            } else if let s = try? container.decodeIfPresent(String.self, forKey: .contextLength),
+                      let i = Int(s) {
+                contextLength = i
+            } else {
+                contextLength = nil
+            }
         }
     }
 
     struct LoadedInstance: Decodable {
         let id: String
+        let config: Config?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case config
+        }
     }
 
     struct Capabilities: Decodable {

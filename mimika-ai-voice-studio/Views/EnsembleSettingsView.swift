@@ -275,7 +275,7 @@ struct DirectorsChairPanel: View {
                     // Boot + Reset stacked (sketch: director tools on the right).
                     VStack(spacing: Theme.space3) {
                         bootControl
-                        resetContextControl
+                        compactContextControl
                     }
                 }
 
@@ -358,35 +358,49 @@ struct DirectorsChairPanel: View {
         .padding(.top, Theme.space4)
     }
 
-    /// Soft context dump — icon under Boot (model-facing only).
-    private var resetContextControl: some View {
+    /// Compact — fold older model context; icon under Boot.
+    private var compactContextControl: some View {
         Button {
-            _ = viewModel.softDumpContext()
+            _ = viewModel.compactContext()
         } label: {
             VStack(spacing: Theme.space1) {
-                Image(systemName: "arrow.counterclockwise.circle.fill")
+                Image(systemName: "arrow.down.right.and.arrow.up.left.circle.fill")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(viewModel.turns.isEmpty ? Theme.textSecondary : Theme.accent)
+                    .foregroundStyle(compactIconColor)
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()
-                            .fill(Theme.accent.opacity(viewModel.turns.isEmpty ? 0.06 : 0.12))
-                            .overlay(Circle().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
+                            .fill(compactIconColor.opacity(viewModel.turns.isEmpty ? 0.06 : 0.14))
+                            .overlay(Circle().strokeBorder(compactIconColor.opacity(0.4), lineWidth: 1))
                     )
-                Text("Reset")
+                Text("Compact")
                     .font(Theme.fontXS)
                     .foregroundStyle(EnsembleSettingsView.chairLabelColor)
+                if let pct = viewModel.contextFillPercent {
+                    Text("~\(pct)%")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(compactIconColor)
+                }
             }
         }
         .buttonStyle(.plain)
         .disabled(viewModel.turns.isEmpty)
         .opacity(viewModel.turns.isEmpty ? 0.45 : 1)
-        .help(Self.resetContextHelp)
-        .accessibilityIdentifier("ensemble.directorsChair.resetContext")
+        .help(Self.compactContextHelp)
+        .accessibilityIdentifier("ensemble.directorsChair.compactContext")
+        .onAppear { viewModel.refreshContextFillEstimate() }
     }
 
-    fileprivate static let resetContextHelp =
-        "Soft reset for looping or degraded models: next model calls only see the last Context window turns plus a short brief of what came before. The on-screen transcript, export, and History stay complete — this is not a hard wipe."
+    private var compactIconColor: Color {
+        guard let pct = viewModel.contextFillPercent else { return Theme.accent }
+        if pct >= 90 { return Theme.errorFG }
+        if pct >= 75 { return Theme.warningFG }
+        return Theme.accent
+    }
+
+    fileprivate static let compactContextHelp =
+        "Compact older model context: next calls keep the last Context window turns plus a short brief. Transcript / export stay complete. ~% uses a Qwen reference tokenizer vs the loaded model’s context limit (toast at ~90%)."
 
     private var bootComposer: some View {
         VStack(alignment: .center, spacing: Theme.space2) {

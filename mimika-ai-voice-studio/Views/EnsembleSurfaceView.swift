@@ -292,18 +292,21 @@ struct EnsembleSurfaceView: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: Theme.space1) {
             if viewModel.awaitingInvitedUserTurn {
+                // Hug the label (not full-width); generous padding so it reads as a chip.
                 HStack(spacing: Theme.space2) {
                     Image(systemName: "person.wave.2.fill")
                         .foregroundStyle(Theme.accent)
-                    Text("You're up — type or speak within \(Int(EnsembleViewModel.invitedUserTurnTimeoutSeconds))s")
+                    Text("You're up — \(viewModel.invitedUserTurnSecondsRemaining)s left to type or speak")
                         .font(Theme.fontXS)
                         .foregroundStyle(Theme.textPrimary)
-                    Spacer(minLength: 0)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.linear(duration: 0.2), value: viewModel.invitedUserTurnSecondsRemaining)
                 }
-                .padding(.horizontal, Theme.space4)
-                .padding(.vertical, Theme.space2)
+                .padding(12)
                 .background(Theme.accent.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityIdentifier("ensemble.composer.yourTurnBanner")
             }
             if case let .unavailable(msg) = viewModel.dictation {

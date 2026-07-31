@@ -119,10 +119,12 @@ extension EnsembleViewModel {
     /// transcript. Keeps the last `verbatimWindow` turns verbatim, folds older
     /// material into a short rolling summary (scene/mood + brief line list),
     /// cancels any in-flight summarizer. Export / History still use full `turns`.
+    ///
+    /// Product name: **Compact** (Director's Chair).
     @discardableResult
     func softDumpContext() -> Bool {
         guard !turns.isEmpty else {
-            showNotice("Nothing to reset — transcript is empty")
+            presentContextDumpToast("Nothing to compact — transcript is empty")
             return false
         }
         summaryTask?.cancel()
@@ -147,11 +149,63 @@ extension EnsembleViewModel {
         }
 
         let kept = turns.count - summarizedUpTo
-        showNotice("Context reset — models keep last \(kept) turns")
+        // Top-of-window toast only (not the transcript castLoadedNotice banner).
         presentContextDumpToast(
-            "Context reset — last \(kept) of \(before) turns kept for the models"
+            "Context compacted — last \(kept) of \(before) turns kept for the models"
         )
+        refreshContextFillEstimate()
         return true
+    }
+
+    /// Alias used by the Chair control.
+    @discardableResult
+    func compactContext() -> Bool { softDumpContext() }
+
+    // MARK: - Context fill meter
+
+    /// Recompute approximate model-facing fill % (Qwen reference tokenizer).
+    func refreshContextFillEstimate() {
+        let limit = modelContextLimitTokens
+            ?? QwenTokenEstimator.shared.modelMaxLength
+        let usable = max(1_024, limit - maxResponseTokens - 256)
+        let text = modelFacingEstimateText()
+        let promptTokens = QwenTokenEstimator.shared.countTokens(text)
+        let total = promptTokens + maxResponseTokens
+        let pct = min(100, Int((Double(total) / Double(usable) * 100.0).rounded()))
+        contextFillPercent = pct
+
+        if pct >= 90, !didWarnContextNearFull {
+            didWarnContextNearFull = true
+            presentContextDumpToast(
+                "Context ~\(pct)% full — Compact recommended"
+            )
+        } else if pct < 80 {
+            // Re-arm the warning after a successful compact or shorter episode.
+            didWarnContextNearFull = false
+        }
+    }
+
+    /// Text that approximates the next model request (system-ish + window + summary).
+    func modelFacingEstimateText() -> String {
+        var parts: [String] = []
+        if !rollingSummary.isEmpty {
+            parts.append("Earlier in the conversation: \(rollingSummary)")
+        }
+        if !scene.isEmpty { parts.append("The scene: \(scene).") }
+        if !mood.isEmpty { parts.append("The mood and topic: \(mood).") }
+        if let departure = lastDepartureNote { parts.append(departure) }
+        // Longest persona script as system-prompt overhead proxy.
+        if let longest = cast.map(\.systemPrompt).max(by: { $0.count < $1.count }) {
+            parts.append(longest)
+        }
+        let keep = max(4, verbatimWindow)
+        let recent = Array(turns.suffix(keep))
+        for turn in recent where !turn.isSceneBeat {
+            parts.append("\(turn.speakerName): \(turn.content)")
+        }
+        // Framing boilerplate overhead (rough constant).
+        parts.append(String(repeating: "x", count: 400))
+        return parts.joined(separator: "\n")
     }
 
     /// Compact “state of play” from turns that fall outside the new window.
@@ -177,7 +231,7 @@ extension EnsembleViewModel {
         if !castNames.isEmpty {
             parts.append("cast: " + castNames.joined(separator: ", "))
         }
-        parts.append("Director reset context; continue in character from recent lines.")
+        parts.append("Director compacted context; continue in character from recent lines.")
 
         // Prefer the last few dropped lines (most relevant) over the oldest.
         let samples = droppedTurns

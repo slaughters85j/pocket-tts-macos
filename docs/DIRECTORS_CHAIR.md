@@ -27,7 +27,7 @@ shipping Boot / User turn / Context dump.
 
 1. **Director’s Chair chrome** (glass overlay) — shipped  
 2. **Boot** (2A) — shipped (MVP)  
-3. **Context soft-dump** (2C) — shipped (MVP); Reset icon under Boot  
+3. **Context Compact** (2C) — shipped; Compact icon under Boot + fill %  
 4. **User turn** (2B) — shipped (MVP)  
 
 ---
@@ -66,29 +66,37 @@ shipping Boot / User turn / Context dump.
 **Runtime:**
 
 - Synthetic `userTurnSpeakerID` in `effectiveCastForTurnOrder()` for pick only.
-- Conductor/Director may select the human; loop awaits submit or 25s timeout.
+- Conductor/Director may select the human; loop awaits submit or **60s** timeout
+  with a live countdown on the composer banner.
 - Banner above composer + system beep + toast.
 - Timeout skips (notice); empty submit doesn’t complete invited wait.
-- Barge-in mic during invite only opens dictation; finish/submit completes wait.
+- Barge-in mic during invite only opens dictation; finish/submit completes wait
+  and always resets the mic to idle (avoids sticky `.unavailable`).
 
 ---
 
-## 2C — Context dump (soft) — shipped MVP
+## 2C — Context Compact — shipped
 
-**Intent:** Reset app-side request context when small models loop/degrade —
+**Intent:** Compact model-facing context when small models loop/degrade —
 not LM Studio’s UI clear, same *effect* on next request size.
 
-**UI:** Director’s Chair → **Reset context** (with info.circle).
+**UI:** Director’s Chair → **Compact** icon under Boot, with **~N%** fill
+(Qwen reference tokenizer vs loaded context length). Color: orange → amber ≥75%
+→ red ≥90%. Toast at ≥90%: “Compact recommended”.
 
-**Runtime (`softDumpContext`):**
+**Runtime (`compactContext` / `softDumpContext`):**
 
 - Does **not** delete `turns` (transcript / Multi-Talk / Markdown stay full).
 - Cancels in-flight rolling summarizer.
 - Keeps last `verbatimWindow` turns model-facing (`summarizedUpTo` advanced).
 - Folds older turns into a short non-LLM brief (scene, mood, cast, recent lines).
-- Notice + app toast: how many turns models still see.
+- Top-of-window toast only.
 
-**Not v1:** hard wipe of transcript; per-agent dump.
+**Tokenizer:** vendored `Resources/tokenizers/qwen3/tokenizer.json` (from
+froggeric Qwen3.5 MLX layout). Denominator from LM Studio `context_length` /
+`max_context_length` when available, else tokenizer `model_max_length`.
+
+**Not v1:** hard wipe of transcript; per-agent dump; exact per-model tokenizer.
 
 ---
 

@@ -66,6 +66,12 @@ final class EnsembleViewModel {
     /// so their past lines keep their own name + voice instead of collapsing onto
     /// the user tag or Multi-Talk's default stock voice (alba).
     var departedSpeakers: [Persona] = []
+    /// Loaded / max context length for the active model (tokens), when known.
+    var modelContextLimitTokens: Int?
+    /// Approximate model-facing fill 0…100 using the Qwen reference tokenizer.
+    var contextFillPercent: Int?
+    /// One-shot “near full” toast guard until Compact brings fill back down.
+    var didWarnContextNearFull = false
     /// When true (and the user has a real character name), the director/conductor
     /// may pick the human as next speaker — parks the loop until they type/speak
     /// or the timeout fires.
@@ -73,7 +79,9 @@ final class EnsembleViewModel {
     /// True while the loop is waiting on an invited user turn (not barge-in).
     var awaitingInvitedUserTurn: Bool = false
     /// Seconds the human has when tapped to speak.
-    static let invitedUserTurnTimeoutSeconds: Double = 25
+    static let invitedUserTurnTimeoutSeconds: Double = 60
+    /// Live countdown while `awaitingInvitedUserTurn` (drives composer banner).
+    var invitedUserTurnSecondsRemaining: Int = 0
     /// Sentinel UUID for “human is next” in pick only — turns still use `speakerID == nil`.
     static let userTurnSpeakerID =
         UUID(uuidString: "A11CE5CE-0000-4000-8000-0000000005E2")!
@@ -233,7 +241,8 @@ final class EnsembleViewModel {
 
     func checkConnection() async {
         do {
-            let models = try await makeClient().listModels()
+            let client = makeClient()
+            let models = try await client.listModels()
             availableModels = models
             guard !models.isEmpty else {
                 connectionState = .disconnected(reason: "no models loaded")
@@ -245,6 +254,12 @@ final class EnsembleViewModel {
             let saved = appState.chatSettings.model
             let effective = models.contains(saved) ? saved : (models.first ?? saved)
             connectionState = .connected(model: effective)
+            // Context length for the Compact fill meter (best effort).
+            if let meta = try? await client.modelMetadata(for: effective),
+               let n = meta.contextLength, n > 0 {
+                modelContextLimitTokens = n
+            }
+            refreshContextFillEstimate()
         } catch {
             connectionState = .disconnected(reason: shortError(error))
         }
@@ -554,7 +569,14 @@ final class EnsembleViewModel {
     /// Tear down any in-progress dictation and reset the mic to idle — so Stop
     /// (or any hard reset) never leaves the mic capturing into `draft`.
     func cancelDictation() {
+        resetDictationToIdle()
+    }
+
+    /// Stop the speech controller and force mic UI back to idle (never leave
+    /// `.unavailable` sticky after an invited-turn or barge-in cycle ends).
+    func resetDictationToIdle() {
         dictationController.cancel()
+        dictationCapturedText = ""
         dictation = .idle
     }
 
@@ -568,6 +590,9 @@ final class EnsembleViewModel {
             guard !text.isEmpty else { return }
             draft = ""
             turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+            // Always kill the mic session — leaving it running after Send is what
+            // stuck the button on .unavailable via late onError callbacks.
+            resetDictationToIdle()
             completeInvitedUserTurn(submitted: true)
             return
         }
@@ -588,6 +613,7 @@ final class EnsembleViewModel {
     /// Park the loop until the user submits a line or the timeout elapses.
     func waitForInvitedUserTurn() async -> Bool {
         awaitingInvitedUserTurn = true
+        invitedUserTurnSecondsRemaining = Int(Self.invitedUserTurnTimeoutSeconds)
         runState = .userTurn
         presentUserTurnToast()
         playUserTurnCue()
@@ -596,8 +622,15 @@ final class EnsembleViewModel {
             invitedUserContinuation = cont
             invitedUserTimeoutTask?.cancel()
             invitedUserTimeoutTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(Self.invitedUserTurnTimeoutSeconds))
-                guard let self, !Task.isCancelled else { return }
+                guard let self else { return }
+                var left = Int(Self.invitedUserTurnTimeoutSeconds)
+                self.invitedUserTurnSecondsRemaining = left
+                while left > 0 {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { return }
+                    left -= 1
+                    self.invitedUserTurnSecondsRemaining = left
+                }
                 self.completeInvitedUserTurn(submitted: false)
             }
         }
@@ -608,6 +641,10 @@ final class EnsembleViewModel {
         invitedUserTimeoutTask?.cancel()
         invitedUserTimeoutTask = nil
         awaitingInvitedUserTurn = false
+        invitedUserTurnSecondsRemaining = 0
+        // Always re-arm the mic affordance — invited turns often leave dictation
+        // mid-session if the user hit Send while still "listening".
+        resetDictationToIdle()
         guard let cont = invitedUserContinuation else { return }
         invitedUserContinuation = nil
         cont.resume(returning: submitted)
@@ -618,7 +655,7 @@ final class EnsembleViewModel {
 
     private func presentUserTurnToast() {
         let secs = Int(Self.invitedUserTurnTimeoutSeconds)
-        let msg = "You're up, \(userPeer.modelName) — speak or type (\(secs)s)"
+        let msg = "You're up, \(userPeer.modelName) — \(secs)s to speak or type"
         appState.toastMessage = msg
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
@@ -653,6 +690,7 @@ final class EnsembleViewModel {
             lastSpeaker = lastSpeakerIDForPick()
             producedThisRun += 1
             refreshSummaryIfNeeded()
+            refreshContextFillEstimate()
             if advanceMode == .step {
                 runState = .awaitingStep
                 return

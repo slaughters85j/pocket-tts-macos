@@ -120,9 +120,19 @@ actor LocalLLMClient {
             if metadata.reasoning?.indicatesSupport == true {
                 result.insert(.reasoning)
             }
+            // Prefer context on a matching loaded instance, else the model entry.
+            var contextLimit = entry.resolvedContextLength
+            if let loaded = entry.loadedInstances.first(where: { $0.id == model }),
+               let n = loaded.config?.contextLength, n > 0 {
+                contextLimit = n
+            } else if let loaded = entry.loadedInstances.first,
+                      let n = loaded.config?.contextLength, n > 0 {
+                contextLimit = n
+            }
             return ModelCapabilityMetadata(
                 capabilities: result,
-                reasoning: metadata.reasoning?.configuration
+                reasoning: metadata.reasoning?.configuration,
+                contextLength: contextLimit
             )
         } catch let error as ClientError {
             throw error
