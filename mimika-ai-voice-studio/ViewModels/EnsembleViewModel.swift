@@ -38,9 +38,9 @@ final class EnsembleViewModel {
     var advanceMode: AdvanceMode = .step
     var turnOrder: TurnMode = .director
     var rngMode: RNGMode = .shuffleOnce
-    /// Free = wild cards / digressions welcome (default). Scene-first = prefer
-    /// playing out the set scene+mood; the human's lines still always win.
-    var scenePlayMode: ScenePlayMode = .free
+    /// Scene-first = prefer playing out the set scene+mood (default). Free =
+    /// wild cards / digressions welcome; the human's lines still always win.
+    var scenePlayMode: ScenePlayMode = .sceneFirst
     var paceDelay: Duration = .milliseconds(600)
     /// `paceDelay` as seconds — a slider-friendly bridge for the settings panel.
     var paceSeconds: Double {
@@ -59,6 +59,10 @@ final class EnsembleViewModel {
     var pendingBoot: PendingBoot?
     /// Sticky note for remaining speakers after a boot (cleared on next boot or new cast).
     var lastDepartureNote: String?
+    /// Speakers removed by Boot — kept for Multi-Talk / History / Markdown export
+    /// so their past lines keep their own name + voice instead of collapsing onto
+    /// the user tag or Multi-Talk's default stock voice (alba).
+    var departedSpeakers: [Persona] = []
     var maxTurns: Int = 60
     /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
     /// on top of the "one or two sentences" instruction + stop sequences.
@@ -283,6 +287,7 @@ final class EnsembleViewModel {
         }
         pendingBoot = nil
         lastDepartureNote = nil
+        departedSpeakers = []
         persistCast(scene: scene, mood: mood, confirmed: confirmed)
     }
 
@@ -344,6 +349,7 @@ final class EnsembleViewModel {
         producedThisRun = 0
         pendingBoot = nil
         lastDepartureNote = nil
+        departedSpeakers = []
         cast = saved.sortedPersonas.map { p in
             Persona(
                 name: p.name,
@@ -729,6 +735,10 @@ final class EnsembleViewModel {
         lastDepartureNote = beat
         pendingBoot = nil
         turns.append(.sceneBeat(beat))
+        // Archive before remove so export can still map this speakerID → name/voice.
+        if !departedSpeakers.contains(where: { $0.id == persona.id }) {
+            departedSpeakers.append(persona)
+        }
         _ = removeCastMember(id: persona.id)
         // Ensemble banner + app-wide toast (visible even with the Chair open).
         showNotice("Booted \(name)")
@@ -775,8 +785,8 @@ final class EnsembleViewModel {
     /// autonomous text loop then drifts off-theme (and small models slide into
     /// meta "I am an AI" navel-gazing).
     ///
-    /// `scenePlayMode` steers how hard that anchor pulls: Free keeps today's
-    /// loose riff; Scene-first pushes faithful scene play — but the human
+    /// `scenePlayMode` steers how hard that anchor pulls: Scene-first (default)
+    /// pushes faithful scene play; Free keeps a loose riff — but the human
     /// always wins when they redirect.
     private func framedSystemPrompt(
         _ persona: Persona,

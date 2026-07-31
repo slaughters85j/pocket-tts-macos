@@ -201,8 +201,8 @@ nonisolated enum RNGMode: Sendable {
 
 // MARK: - ScenePlayMode
 // How hard the cast should stick to the user-set scene + mood vs. follow
-// whatever heat the table (and the human) just introduced. Free is the
-// default so off-rails wild cards stay easy; Scene-first is opt-in fidelity.
+// whatever heat the table (and the human) just introduced. Scene-first is
+// the default for faithful scene play; Free is opt-in for off-rails chaos.
 
 // MARK: - PendingBoot
 // Director's Chair: one-shot exit directive for a cast member, then remove.
@@ -312,7 +312,7 @@ nonisolated enum CastPackageBuilder {
         contextWindowTurns: Int,
         rollingSummaryEnabled: Bool,
         voicedPlayback: Bool,
-        scenePlayMode: ScenePlayMode = .free,
+        scenePlayMode: ScenePlayMode = .sceneFirst,
         exportedAt: Date = .now
     ) -> CastPackage {
         let payloads: [PersonaPayload] = personas.enumerated().map { i, p in

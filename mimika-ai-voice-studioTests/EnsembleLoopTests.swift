@@ -290,6 +290,42 @@ final class EnsembleLoopTests: XCTestCase {
                        "the user's export voice must be distinct from every cast voice (no shared-voice tag collision)")
     }
 
+    func test_exportLabels_bootedSpeakersKeepOwnTagsAndVoices() throws {
+        // Boot removes from live cast but past turns keep the UUID. Export must
+        // still map those lines to the booted name/voice — not "You"/alba.
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let riker = Persona(name: "Cmdr. Riker", voiceID: "jean", systemPrompt: "")
+        let picard = Persona(name: "Picard", voiceID: "javert", systemPrompt: "")
+        let worf = Persona(name: "Worf", voiceID: "marius", systemPrompt: "")
+        vm.cast = [picard, worf]          // riker already booted out of live cast
+        vm.departedSpeakers = [riker]
+        vm.userPeer.name = "Milton"
+        vm.userPeer.modelName = "Milton"
+        vm.turns = [
+            EnsembleTurn(speakerID: riker.id, speakerName: "Cmdr. Riker", content: "Shields up."),
+            EnsembleTurn(speakerID: picard.id, speakerName: "Picard", content: "Make it so."),
+            EnsembleTurn(speakerID: nil, speakerName: "Milton", content: "I'm here."),
+            EnsembleTurn(speakerID: worf.id, speakerName: "Worf", content: "Aye."),
+        ]
+        let labels = vm.exportLabels()
+        let script = EnsembleViewModel.formatMultiTalkScript(
+            turns: vm.turns, label: labels.label, stripBrackets: false
+        )
+        XCTAssertTrue(script.contains("{Cmdr. Riker} Shields up."), script)
+        XCTAssertTrue(script.contains("{Picard} Make it so."), script)
+        XCTAssertTrue(script.contains("{Milton} I'm here."), script)
+        XCTAssertTrue(script.contains("{Worf} Aye."), script)
+        XCTAssertFalse(script.contains("{You}"), "booted lines must not collapse onto the user tag")
+        XCTAssertFalse(script.contains("{Alba}"), "booted lines must not collapse onto default stock")
+        let rikerRef = labels.speakers.first { $0.name == "Cmdr. Riker" }
+        XCTAssertEqual(rikerRef?.voiceID, "jean")
+        let userRef = labels.speakers.first { $0.name == "Milton" }
+        XCTAssertNotNil(userRef)
+        XCTAssertNotEqual(userRef?.voiceID, "jean")
+        XCTAssertNotEqual(userRef?.voiceID, "javert")
+        XCTAssertNotEqual(userRef?.voiceID, "marius")
+    }
+
     func test_formatTranscriptMarkdown_realNames_preservesContentAndHeader() throws {
         let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
         let mara = Persona(name: "Mara", voiceID: "v1", systemPrompt: "")

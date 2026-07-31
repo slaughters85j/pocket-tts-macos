@@ -170,7 +170,7 @@ struct EnsembleCastEditorSheet: View {
             Text("YOU").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
             Text("Optional character name — how the cast addresses you when you jump in. Leave blank for “You”.")
                 .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
-            TextField("e.g. Milton, Dr. Crusher, Guest", text: userPeerNameBinding)
+            TextField("Assign yourself a character…", text: userPeerNameBinding)
                 .textFieldStyle(.roundedBorder)
                 .font(Theme.fontSM)
                 .accessibilityIdentifier("ensemble.castEditor.userPeerName")

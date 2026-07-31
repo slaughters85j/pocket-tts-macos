@@ -128,9 +128,9 @@ struct EnsembleSettingsView: View {
     private var scenePlayHelp: String {
         switch viewModel.scenePlayMode {
         case .free:
-            return "Free (default): the cast riffs freely. Scene and mood are light hints. Wild cards, digressions, and off-rails turns are welcome — flip to Scene-first when you want them to play the set scene more faithfully."
+            return "Free: the cast riffs freely. Scene and mood are light hints. Wild cards, digressions, and off-rails turns are welcome — flip back to Scene-first when you want them on the set scene again."
         case .sceneFirst:
-            return "Scene-first: each line should advance the established scene and mood (orders, reports, in-world heat). Still always follows you if you deliberately redirect — it is not a content filter. Switch back to Free anytime for chaos."
+            return "Scene-first (default): each line should advance the established scene and mood (orders, reports, in-world heat). Still always follows you if you deliberately redirect — it is not a content filter. Switch to Free anytime for chaos."
         }
     }
 

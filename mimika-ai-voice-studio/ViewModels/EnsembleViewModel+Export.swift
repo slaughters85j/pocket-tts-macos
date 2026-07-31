@@ -54,10 +54,13 @@ extension EnsembleViewModel {
         return lines.joined(separator: "\n")
     }
 
-    /// Unique export tag per DISTINCT speaker (each cast member + the user),
-    /// disambiguating duplicate/blank names so two "Alex"s — or a user sharing a
-    /// cast name — each map to their own Multi-Talk voice. Returns the
-    /// speakerID→tag mapper plus the matching speaker list (same order/tags).
+    /// Unique export tag per DISTINCT speaker (live cast + **booted** archive +
+    /// user), disambiguating duplicate/blank names so two "Alex"s — or a user
+    /// sharing a cast name — each map to their own Multi-Talk voice.
+    ///
+    /// Boot removes speakers from the live cast for the run loop, but their
+    /// past turns still carry their UUID. Without the archive, those IDs fell
+    /// through to the user label (or Multi-Talk's default stock voice, alba).
     func exportLabels() -> (label: (UUID?) -> String, speakers: [SpeakerRef]) {
         var used = Set<String>()
         func unique(_ base: String) -> String {
@@ -69,15 +72,37 @@ extension EnsembleViewModel {
             used.insert(name)
             return name
         }
+
+        // Live cast first (stable order), then booted speakers in boot order.
+        var roster: [Persona] = []
+        var seen = Set<UUID>()
+        for p in cast where seen.insert(p.id).inserted {
+            roster.append(p)
+        }
+        for p in departedSpeakers where seen.insert(p.id).inserted {
+            roster.append(p)
+        }
+
         var idToLabel: [UUID: String] = [:]
         var refs: [SpeakerRef] = []
-        for persona in cast {
+        for persona in roster {
             let tag = unique(persona.name)
             idToLabel[persona.id] = tag
             refs.append(SpeakerRef(name: tag, voiceID: persona.voiceID))
         }
+
+        // Orphan turn speakers (shouldn't happen if boot archives correctly —
+        // recover by name from the turn so we still never collapse to "You"/alba).
+        for turn in turns {
+            guard let id = turn.speakerID, !turn.isSceneBeat, idToLabel[id] == nil else { continue }
+            let tag = unique(turn.speakerName)
+            idToLabel[id] = tag
+            refs.append(SpeakerRef(name: tag, voiceID: CastPackageBuilder.defaultVoiceID))
+        }
+
         var userLabel = "You"
-        if turns.contains(where: { $0.speakerID == nil }) {
+        let hasUserTurns = turns.contains { $0.speakerID == nil && !$0.isSceneBeat }
+        if hasUserTurns {
             userLabel = unique(userPeer.name)
             // The user needs their OWN voice in the re-voiced export, not a cast
             // member's. Sharing a voiceID makes the user's voice NAME equal that
@@ -90,23 +115,28 @@ extension EnsembleViewModel {
             // Pocket capability is only required when Pocket is the active
             // backend: Multi-Talk's applyReuse remap degrades cross-backend
             // IDs safely, so a Fish-only clone is a valid match under Fish.
-            // Fall back to the first stock voice the cast isn't using.
-            let castVoiceIDs = Set(cast.map(\.voiceID))
+            // Fall back to the first stock voice the roster isn't using.
+            let rosterVoiceIDs = Set(roster.map(\.voiceID))
             let requirePocketKV = appState.chatSettings.activeBackend == .pocketTTS
             let userVoice = VoiceManager.shared.voices
                 .first {
                     (!requirePocketKV || $0.pocketTTSKVPath != nil)
                         && $0.name.caseInsensitiveCompare(userPeer.name) == .orderedSame
-                        && !castVoiceIDs.contains("imported:\($0.id)")
+                        && !rosterVoiceIDs.contains("imported:\($0.id)")
                 }
                 .map { "imported:\($0.id)" }
-                ?? BundledVoice.stockIDs.sorted().first { !castVoiceIDs.contains($0) }
-                ?? cast.first?.voiceID ?? "cosette"
+                ?? BundledVoice.stockIDs.sorted().first { !rosterVoiceIDs.contains($0) }
+                ?? roster.first?.voiceID
+                ?? CastPackageBuilder.defaultVoiceID
             refs.append(SpeakerRef(name: userLabel, voiceID: userVoice))
         }
+
         let label: (UUID?) -> String = { id in
-            if let id, let tag = idToLabel[id] { return tag }
-            return userLabel
+            // nil = user only. Booted cast IDs must never fall through here.
+            guard let id else { return userLabel }
+            if let tag = idToLabel[id] { return tag }
+            // Last resort (shouldn't run if orphan recovery above is complete).
+            return "Speaker"
         }
         return (label, refs)
     }
@@ -171,6 +201,10 @@ extension EnsembleViewModel {
         for turn in turns {
             let content = turn.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !content.isEmpty else { continue }
+            if turn.isSceneBeat {
+                blocks.append("**Scene**:\n\(content)")
+                continue
+            }
             blocks.append("**\(label(turn.speakerID))**:\n\(content)")
         }
         return out + blocks.joined(separator: "\n\n---\n\n") + "\n"
@@ -290,6 +324,9 @@ extension EnsembleViewModel {
         shuffledOrder = []
         orderCursor = 0
         producedThisRun = 0
+        pendingBoot = nil
+        lastDepartureNote = nil
+        departedSpeakers = []
 
         cast = resolved.map { entry in
             let preset = SamplingPreset(rawValue: entry.payload.samplingPresetRaw) ?? .relaxed

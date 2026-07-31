@@ -19,7 +19,7 @@ shipping Boot / User turn / Context dump.
 
 ### Scene play
 
-- `Free` (default) / `Scene-first` — see `ScenePlayMode` + `framedSystemPrompt`.
+- `Scene-first` (default) / `Free` — see `ScenePlayMode` + `framedSystemPrompt`.
 
 ---
 
