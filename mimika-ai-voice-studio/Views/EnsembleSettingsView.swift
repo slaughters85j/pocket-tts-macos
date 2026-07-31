@@ -40,6 +40,15 @@ struct EnsembleSettingsView: View {
                 .disabled(!randomnessApplies)
                 .opacity(randomnessApplies ? 1 : 0.45)
             }
+            row("Scene play", helpTitle: "Scene play", helpBody: scenePlayHelp,
+                accessibilityID: "ensemble.settings.help.scenePlay") {
+                Picker("", selection: $viewModel.scenePlayMode) {
+                    ForEach(ScenePlayMode.allCases, id: \.self) {
+                        Text($0.displayName).tag($0)
+                    }
+                }
+                .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+            }
             row("Pace", helpTitle: "Pace", helpBody: paceHelp,
                 accessibilityID: "ensemble.settings.help.pace") {
                 HStack(spacing: Theme.space2) {
@@ -107,6 +116,15 @@ struct EnsembleSettingsView: View {
                 // not re-shuffle every turn despite the menu label.
                 return "Uses the cast’s current list order as the speaking cycle (no shuffle). Direct name-mentions still jump the queue."
             }
+        }
+    }
+
+    private var scenePlayHelp: String {
+        switch viewModel.scenePlayMode {
+        case .free:
+            return "Free (default): the cast riffs freely. Scene and mood are light hints. Wild cards, digressions, and off-rails turns are welcome — flip to Scene-first when you want them to play the set scene more faithfully."
+        case .sceneFirst:
+            return "Scene-first: each line should advance the established scene and mood (orders, reports, in-world heat). Still always follows you if you deliberately redirect — it is not a content filter. Switch back to Free anytime for chaos."
         }
     }
 

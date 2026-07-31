@@ -183,6 +183,26 @@ nonisolated enum RNGMode: Sendable {
     case shuffleOnce
 }
 
+// MARK: - ScenePlayMode
+// How hard the cast should stick to the user-set scene + mood vs. follow
+// whatever heat the table (and the human) just introduced. Free is the
+// default so off-rails wild cards stay easy; Scene-first is opt-in fidelity.
+
+/// Whether Ensemble framing prioritizes free riffing or faithful scene play.
+nonisolated enum ScenePlayMode: String, CaseIterable, Codable, Sendable {
+    /// Light scene/mood hints; chase lively reactions and user digressions.
+    case free
+    /// Prefer advancing the established scene; still always honor the human.
+    case sceneFirst
+
+    var displayName: String {
+        switch self {
+        case .free:       return "Free"
+        case .sceneFirst: return "Scene-first"
+        }
+    }
+}
+
 // MARK: - ChatSubMode
 // The Chat tab's Solo (1:1) vs Ensemble (multi-agent) toggle. Persisted on
 // AppState; defaults to .solo so existing behavior is unchanged on launch.
@@ -221,6 +241,7 @@ nonisolated struct CastPayload: Codable, Sendable, Equatable {
     var rollingSummaryEnabled: Bool?
     var rngModeRaw: String?
     var voicedPlayback: Bool?
+    var scenePlayModeRaw: String?
 }
 
 /// One persona row in a portable cast file.
@@ -266,6 +287,7 @@ nonisolated enum CastPackageBuilder {
         contextWindowTurns: Int,
         rollingSummaryEnabled: Bool,
         voicedPlayback: Bool,
+        scenePlayMode: ScenePlayMode = .free,
         exportedAt: Date = .now
     ) -> CastPackage {
         let payloads: [PersonaPayload] = personas.enumerated().map { i, p in
@@ -298,7 +320,8 @@ nonisolated enum CastPackageBuilder {
                 contextWindowTurns: contextWindowTurns,
                 rollingSummaryEnabled: rollingSummaryEnabled,
                 rngModeRaw: rngMode == .shuffleOnce ? "shuffleOnce" : "rerollPerTurn",
-                voicedPlayback: voicedPlayback
+                voicedPlayback: voicedPlayback,
+                scenePlayModeRaw: scenePlayMode.rawValue
             ),
             personas: payloads
         )

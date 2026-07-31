@@ -38,6 +38,9 @@ final class EnsembleViewModel {
     var advanceMode: AdvanceMode = .step
     var turnOrder: TurnMode = .director
     var rngMode: RNGMode = .shuffleOnce
+    /// Free = wild cards / digressions welcome (default). Scene-first = prefer
+    /// playing out the set scene+mood; the human's lines still always win.
+    var scenePlayMode: ScenePlayMode = .free
     var paceDelay: Duration = .milliseconds(600)
     /// `paceDelay` as seconds — a slider-friendly bridge for the settings panel.
     var paceSeconds: Double {
@@ -713,6 +716,10 @@ final class EnsembleViewModel {
     /// define WHO they are but nothing anchors WHAT they're discussing — an
     /// autonomous text loop then drifts off-theme (and small models slide into
     /// meta "I am an AI" navel-gazing).
+    ///
+    /// `scenePlayMode` steers how hard that anchor pulls: Free keeps today's
+    /// loose riff; Scene-first pushes faithful scene play — but the human
+    /// always wins when they redirect.
     private func framedSystemPrompt(_ persona: Persona, grenade: Bool = false) -> String {
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
@@ -723,18 +730,51 @@ final class EnsembleViewModel {
         // otherwise mistake for an instruction addressed to itself.)
         let you = userPeer.modelName   // model-facing label — never the "You" pronoun
         context += " \(you) is a real person in this conversation with you; their lines are prefixed \"\(you):\". When \(you) speaks or asks you something, acknowledge them and answer directly — never ignore them or just talk past them."
-        if !scene.isEmpty { context += " The scene: \(scene)." }
-        if !mood.isEmpty { context += " The mood and topic: \(mood). Stay roughly on topic, but always respond to \(you) when they speak." }
+
+        let hasScene = !scene.isEmpty
+        let hasMood = !mood.isEmpty
+        switch scenePlayMode {
+        case .free:
+            if hasScene { context += " The scene: \(scene)." }
+            if hasMood {
+                context += " The mood and topic: \(mood). Stay roughly on topic, but always respond to \(you) when they speak."
+            } else if hasScene {
+                context += " Stay roughly in the scene, but always respond to \(you) when they speak."
+            }
+            context += " Free play is on: lively riffs, digressions, and wild turns are welcome — especially when \(you) steers that way."
+        case .sceneFirst:
+            if hasScene { context += " The scene: \(scene)." }
+            if hasMood { context += " The mood and topic: \(mood)." }
+            context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
+            if !hasScene && !hasMood {
+                context += " No scene/mood is set yet — keep the conversation coherent and in character until one is."
+            }
+        }
+
         // If the user's line is the most recent, make this turn a direct reply.
         if turns.last?.speakerID == nil,
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !said.isEmpty {
             context += " \(you) just said: \"\(said)\". Respond to that directly."
+            if scenePlayMode == .sceneFirst {
+                context += " Their move takes priority over the prior scene thread if they changed the game."
+            }
         }
         if grenade {
-            context += " GRENADE PROTOCOL — MANDATORY FOR THIS LINE ONLY. The table has collapsed into polite groupthink and you are the chaos agent. You MUST violently derail the consensus: (1) reject the last shared conclusion as naive, dangerous, or boring; (2) introduce a concrete, unexpected bombshell — a secret, accusation, plot twist, inconvenient fact, or wildly reframed stakes that NOBODY has raised yet; (3) force at least one other person to defend themselves or pick a side. Do NOT hedge, do NOT say \"I somewhat disagree\", do NOT summarize common ground, do NOT continue the prior topic gently. One short spoken line, in character, that detonates the conversation and makes smooth agreement impossible."
+            context += grenadeProtocolText(you: you)
         }
         return persona.systemPrompt + "\n\n" + context
+    }
+
+    /// One-shot disruption text; Scene-first keeps bombshells in-world unless
+    /// the human already yanked the table off the rails.
+    private func grenadeProtocolText(you: String) -> String {
+        switch scenePlayMode {
+        case .free:
+            return " GRENADE PROTOCOL — MANDATORY FOR THIS LINE ONLY. The table has collapsed into polite groupthink and you are the chaos agent. You MUST violently derail the consensus: (1) reject the last shared conclusion as naive, dangerous, or boring; (2) introduce a concrete, unexpected bombshell — a secret, accusation, plot twist, inconvenient fact, or wildly reframed stakes that NOBODY has raised yet; (3) force at least one other person to defend themselves or pick a side. Do NOT hedge, do NOT say \"I somewhat disagree\", do NOT summarize common ground, do NOT continue the prior topic gently. One short spoken line, in character, that detonates the conversation and makes smooth agreement impossible."
+        case .sceneFirst:
+            return " GRENADE PROTOCOL — MANDATORY FOR THIS LINE ONLY. Detonate the stale consensus WITHOUT abandoning the established scene and stakes (unless \(you) already redirected elsewhere — then follow them). (1) Reject the last shared conclusion as naive, dangerous, or boring; (2) drop a concrete in-world bombshell — sabotage, betrayal, false sensor hit, secret order, hidden cost, or a hard tactical twist nobody raised yet; (3) force at least one other person to defend themselves or pick a side. Do NOT hedge or soft-agree. One short spoken line, in character, that detonates the conversation while still playing the scene."
+        }
     }
 
     /// "Name:" stop sequences for every OTHER participant (+ the user) so the

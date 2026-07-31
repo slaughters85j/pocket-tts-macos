@@ -111,7 +111,8 @@ final class EnsemblePersistenceTests: XCTestCase {
             maxTurns: 60,
             contextWindowTurns: 16,
             rollingSummaryEnabled: true,
-            voicedPlayback: true
+            voicedPlayback: true,
+            scenePlayMode: .sceneFirst
         )
         let data = try CastPackageBuilder.jsonEncoder().encode(package)
         let decoded = try CastPackageBuilder.jsonDecoder().decode(CastPackage.self, from: data)
@@ -119,6 +120,7 @@ final class EnsemblePersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.formatVersion, CastPackage.currentFormatVersion)
         XCTAssertEqual(decoded.cast.scene, "Ten Forward")
         XCTAssertEqual(decoded.cast.turnModeRaw, TurnMode.director.rawValue)
+        XCTAssertEqual(decoded.cast.scenePlayModeRaw, ScenePlayMode.sceneFirst.rawValue)
         XCTAssertEqual(decoded.personas.count, 2)
         XCTAssertEqual(decoded.personas[0].name, "Picard")
         XCTAssertEqual(decoded.personas[0].readsOnOthers["Q"], "exhausting")

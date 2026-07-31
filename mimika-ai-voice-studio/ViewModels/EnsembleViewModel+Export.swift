@@ -236,7 +236,8 @@ extension EnsembleViewModel {
             maxTurns: maxTurns,
             contextWindowTurns: verbatimWindow,
             rollingSummaryEnabled: rollingSummaryEnabled,
-            voicedPlayback: voicedPlayback
+            voicedPlayback: voicedPlayback,
+            scenePlayMode: scenePlayMode
         )
     }
 
@@ -274,6 +275,10 @@ extension EnsembleViewModel {
         if let window = package.cast.contextWindowTurns { verbatimWindow = window }
         if let rolling = package.cast.rollingSummaryEnabled { rollingSummaryEnabled = rolling }
         if let voiced = package.cast.voicedPlayback { voicedPlayback = voiced }
+        if let raw = package.cast.scenePlayModeRaw,
+           let mode = ScenePlayMode(rawValue: raw) {
+            scenePlayMode = mode
+        }
 
         turns = []
         rollingSummary = ""
