@@ -27,7 +27,7 @@ shipping Boot / User turn / Context dump.
 
 1. **Director’s Chair chrome** (glass overlay) — shipped  
 2. **Boot** (2A) — shipped (MVP)  
-3. **Context soft-dump** (2C)  
+3. **Context soft-dump** (2C) — shipped (MVP)  
 4. **User turn** (2B)  
 
 ---
@@ -75,18 +75,22 @@ shipping Boot / User turn / Context dump.
 
 ---
 
-## 2C — Context dump (soft)
+## 2C — Context dump (soft) — shipped MVP
 
 **Intent:** Reset app-side request context when small models loop/degrade —
 not LM Studio’s UI clear, same *effect* on next request size.
 
-**Soft dump (preferred):**
+**UI:** Director’s Chair → **Reset context** (with info.circle).
 
-- Keep scene + mood + last K turns (and optional short “state of play” brief).
-- Clear or fold older transcript from the window / refresh rolling summary.
-- Universal first; per-agent smaller window optional later.
+**Runtime (`softDumpContext`):**
 
-**Hard dump** (full `turns` wipe) — usually too harsh; avoid as default.
+- Does **not** delete `turns` (transcript / Multi-Talk / Markdown stay full).
+- Cancels in-flight rolling summarizer.
+- Keeps last `verbatimWindow` turns model-facing (`summarizedUpTo` advanced).
+- Folds older turns into a short non-LLM brief (scene, mood, cast, recent lines).
+- Notice + app toast: how many turns models still see.
+
+**Not v1:** hard wipe of transcript; per-agent dump.
 
 ---
 

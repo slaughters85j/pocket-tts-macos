@@ -290,6 +290,49 @@ final class EnsembleLoopTests: XCTestCase {
                        "the user's export voice must be distinct from every cast voice (no shared-voice tag collision)")
     }
 
+    func test_softDumpBrief_includesSceneCastAndRecentLines() {
+        let dropped = [
+            EnsembleTurn(speakerID: UUID(), speakerName: "Picard", content: "Shields to maximum."),
+            EnsembleTurn(speakerID: UUID(), speakerName: "Riker", content: "Aye, Captain — rerouting power."),
+            EnsembleTurn.sceneBeat("ignored in samples"),
+        ]
+        let brief = EnsembleViewModel.buildSoftDumpBrief(
+            droppedTurns: dropped,
+            scene: "bridge under fire",
+            mood: "tense",
+            castNames: ["Picard", "Riker", "Worf"]
+        )
+        XCTAssertTrue(brief.contains("bridge under fire"), brief)
+        XCTAssertTrue(brief.contains("Picard"), brief)
+        XCTAssertTrue(brief.contains("Shields to maximum"), brief)
+        XCTAssertTrue(brief.contains("Director reset context"), brief)
+    }
+
+    func test_softDumpContext_keepsTranscriptButShrinksModelWindow() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let a = Persona(name: "Ada", voiceID: "v", systemPrompt: "")
+        vm.cast = [a]
+        vm.verbatimWindow = 4
+        vm.scene = "lab"
+        for i in 0..<12 {
+            vm.turns.append(EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "Line \(i)."))
+        }
+        XCTAssertTrue(vm.softDumpContext())
+        XCTAssertEqual(vm.turns.count, 12, "full transcript must remain for export/UI")
+        XCTAssertEqual(vm.summarizedUpTo, 8)
+        XCTAssertFalse(vm.rollingSummary.isEmpty)
+        XCTAssertTrue(vm.rollingSummary.contains("lab") || vm.rollingSummary.contains("Line"),
+                      vm.rollingSummary)
+        // Model-facing window should be the last 4 lines (+ brief of earlier).
+        let msgs = vm.messagesForPersona(a)
+        let joined = msgs.map(\.content).joined(separator: "\n")
+        XCTAssertTrue(joined.contains("Line 11"), joined)
+        XCTAssertTrue(
+            joined.contains("Earlier in the conversation") || joined.contains("Director reset"),
+            joined
+        )
+    }
+
     func test_exportLabels_bootedSpeakersKeepOwnTagsAndVoices() throws {
         // Boot removes from live cast but past turns keep the UUID. Export must
         // still map those lines to the booted name/voice — not "You"/alba.

@@ -88,6 +88,28 @@ struct EnsembleSettingsView: View {
                 helpBody: rollingSummaryHelp,
                 accessibilityID: "ensemble.settings.help.rollingSummary"
             )
+
+            // Soft context dump — model-facing only; transcript stays full.
+            HStack(spacing: Theme.space2) {
+                Button {
+                    _ = viewModel.softDumpContext()
+                } label: {
+                    Label("Reset context", systemImage: "arrow.counterclockwise")
+                        .font(Theme.fontSM)
+                }
+                .buttonStyle(.bordered)
+                .tint(Theme.accent)
+                .disabled(viewModel.turns.isEmpty)
+                .accessibilityIdentifier("ensemble.settings.resetContext")
+
+                SettingInfoButton(
+                    title: "Reset context",
+                    message: contextDumpHelp,
+                    accessibilityID: "ensemble.settings.help.resetContext"
+                )
+                Spacer(minLength: 0)
+            }
+            .padding(.top, Theme.space1)
         }
     }
 
@@ -152,6 +174,10 @@ struct EnsembleSettingsView: View {
 
     private var rollingSummaryHelp: String {
         "When on, turns that fall outside the context window are compressed into a short “earlier in the conversation…” summary so long episodes stay coherent without sending the full history every turn."
+    }
+
+    private var contextDumpHelp: String {
+        "Soft reset for looping or degraded models: next model calls only see the last Context window turns plus a short brief of what came before. The on-screen transcript, export, and History stay complete — this is not a hard wipe."
     }
 
     // MARK: - Layout
