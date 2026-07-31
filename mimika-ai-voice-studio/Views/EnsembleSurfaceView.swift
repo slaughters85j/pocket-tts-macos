@@ -118,6 +118,7 @@ struct EnsembleSurfaceView: View {
     }
 
     private func color(for turn: EnsembleTurn) -> Color {
+        if turn.isSceneBeat { return Theme.warningFG }
         guard let sid = turn.speakerID,
               let idx = viewModel.cast.firstIndex(where: { $0.id == sid }) else {
             return Theme.accent   // the user

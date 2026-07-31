@@ -43,6 +43,9 @@ extension EnsembleViewModel {
     static func formatMultiTalkScript(turns: [EnsembleTurn], label: (UUID?) -> String, stripBrackets: Bool) -> String {
         var lines: [String] = []
         for turn in turns {
+            // Scene beats (boot deaths, etc.) stay in the Ensemble transcript
+            // for the models; Multi-Talk only wants spoken cast/user lines.
+            if turn.isSceneBeat { continue }
             let cleaned = TextNormalizer.stripStageDirections(turn.content, stripBracketedTags: stripBrackets)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { continue }

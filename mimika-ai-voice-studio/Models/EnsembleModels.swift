@@ -136,6 +136,13 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
     /// user turns. Ensemble-only — never part of the Multi-Talk export.
     var samplingPreset: SamplingPreset?
 
+    /// Synthetic "Scene" beats (boot deaths, etc.) — not a cast member or the user.
+    /// Lands in POV history as a public event the models actually read.
+    static let sceneBeatSpeakerID = UUID(uuidString: "A11CE5CE-0000-4000-8000-00000000BEA7")!
+
+    /// True for director/scene announcements injected into the transcript.
+    var isSceneBeat: Bool { speakerID == Self.sceneBeatSpeakerID }
+
     init(
         id: UUID = UUID(),
         speakerID: UUID?,
@@ -152,6 +159,15 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         self.wasCutOff = wasCutOff
         self.spokenSentences = spokenSentences
         self.samplingPreset = samplingPreset
+    }
+
+    /// Public scene announcement (boot / environmental event).
+    static func sceneBeat(_ content: String) -> EnsembleTurn {
+        EnsembleTurn(
+            speakerID: sceneBeatSpeakerID,
+            speakerName: "Scene",
+            content: content
+        )
     }
 }
 
@@ -187,6 +203,15 @@ nonisolated enum RNGMode: Sendable {
 // How hard the cast should stick to the user-set scene + mood vs. follow
 // whatever heat the table (and the human) just introduced. Free is the
 // default so off-rails wild cards stay easy; Scene-first is opt-in fidelity.
+
+// MARK: - PendingBoot
+// Director's Chair: one-shot exit directive for a cast member, then remove.
+
+/// Armed boot: force this speaker next, inject exit framing, remove after turn.
+nonisolated struct PendingBoot: Equatable, Sendable {
+    let speakerID: UUID
+    let reason: String
+}
 
 /// Whether Ensemble framing prioritizes free riffing or faithful scene play.
 nonisolated enum ScenePlayMode: String, CaseIterable, Codable, Sendable {

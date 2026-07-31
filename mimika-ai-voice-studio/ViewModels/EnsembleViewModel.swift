@@ -54,6 +54,11 @@ final class EnsembleViewModel {
     /// One-shot disruption armed by "throw a grenade" — the next turn is told to
     /// break the consensus, then this clears.
     var pendingGrenade: Bool = false
+    /// Director's Chair Boot: force this speaker next with an exit directive,
+    /// then remove them from the cast after the turn lands.
+    var pendingBoot: PendingBoot?
+    /// Sticky note for remaining speakers after a boot (cleared on next boot or new cast).
+    var lastDepartureNote: String?
     var maxTurns: Int = 60
     /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
     /// on top of the "one or two sentences" instruction + stop sequences.
@@ -276,6 +281,8 @@ final class EnsembleViewModel {
                 samplingPreset: entry.preset
             )
         }
+        pendingBoot = nil
+        lastDepartureNote = nil
         persistCast(scene: scene, mood: mood, confirmed: confirmed)
     }
 
@@ -335,6 +342,8 @@ final class EnsembleViewModel {
         shuffledOrder = []
         orderCursor = 0
         producedThisRun = 0
+        pendingBoot = nil
+        lastDepartureNote = nil
         cast = saved.sortedPersonas.map { p in
             Persona(
                 name: p.name,
@@ -603,7 +612,10 @@ final class EnsembleViewModel {
     func runOneTurn(lastSpeaker: UUID?) async -> Bool {
         runState = .picking
         let nextID: UUID?
-        if turnOrder == .director {
+        // Boot forces the target next so the exit line lands immediately.
+        if let boot = pendingBoot, cast.contains(where: { $0.id == boot.speakerID }) {
+            nextID = boot.speakerID
+        } else if turnOrder == .director {
             nextID = await pickNextViaDirector(lastSpeaker: lastSpeaker)
         } else {
             var generator = SystemRandomNumberGenerator()
@@ -627,6 +639,10 @@ final class EnsembleViewModel {
         lastTurnFailed = false
         let grenade = pendingGrenade   // consume the one-shot disruption
         pendingGrenade = false
+        let bootReason: String? = {
+            guard let boot = pendingBoot, boot.speakerID == persona.id else { return nil }
+            return boot.reason
+        }()
 
         // Build the request BEFORE appending this turn's placeholder so the
         // persona sees only the context that PRECEDES its own line — not an
@@ -635,7 +651,7 @@ final class EnsembleViewModel {
         let request = SpokenTurnRunner.Request(
             messages: messagesForPersona(persona),
             model: resolvedModel,
-            systemPrompt: framedSystemPrompt(persona, grenade: grenade),
+            systemPrompt: framedSystemPrompt(persona, grenade: grenade, bootReason: bootReason),
             temperature: preset.temperature,
             voiceID: persona.voiceID,
             options: currentSynthesisOptions(for: persona.voiceID),
@@ -686,6 +702,48 @@ final class EnsembleViewModel {
             turns[i].content = cleaned
         }
         currentSpeakerID = nil
+
+        // Boot: after a successful exit line, remove them and arm a note for the table.
+        // Failed/empty turns keep `pendingBoot` so the next pick retries.
+        if bootReason != nil, !lastTurnFailed, !cleaned.isEmpty {
+            finalizeBoot(of: persona, reason: bootReason ?? "")
+        }
+    }
+
+    /// Publish departure for remaining speakers and drop the booted persona.
+    ///
+    /// Models often ignore a buried system note, so we also inject a **Scene**
+    /// transcript beat into the shared history (same channel as dialogue). That
+    /// is what makes the table actually notice the panel explosion / death.
+    private func finalizeBoot(of persona: Persona, reason: String) {
+        let reasonTrim = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = persona.name
+        let beat: String
+        if reasonTrim.isEmpty {
+            beat = "\(name) is gone from the scene and cannot speak or be addressed again."
+        } else {
+            // Lead with the director reason so "a panel exploded and killed him"
+            // is what the cast reads in the transcript window.
+            beat = "\(reasonTrim). \(name) is gone and cannot speak or be addressed again."
+        }
+        lastDepartureNote = beat
+        pendingBoot = nil
+        turns.append(.sceneBeat(beat))
+        _ = removeCastMember(id: persona.id)
+        // Ensemble banner + app-wide toast (visible even with the Chair open).
+        showNotice("Booted \(name)")
+        presentBootToast("\(name) has been booted from the cast")
+    }
+
+    /// Surface a short app-level toast (ContentView banner) that auto-clears.
+    private func presentBootToast(_ message: String) {
+        appState.toastMessage = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            if appState.toastMessage == message {
+                appState.toastMessage = nil
+            }
+        }
     }
 
     // MARK: - Internals
@@ -720,7 +778,11 @@ final class EnsembleViewModel {
     /// `scenePlayMode` steers how hard that anchor pulls: Free keeps today's
     /// loose riff; Scene-first pushes faithful scene play — but the human
     /// always wins when they redirect.
-    private func framedSystemPrompt(_ persona: Persona, grenade: Bool = false) -> String {
+    private func framedSystemPrompt(
+        _ persona: Persona,
+        grenade: Bool = false,
+        bootReason: String? = nil
+    ) -> String {
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
         var context = "You are \(persona.name). Respond ONLY as \(persona.name), with a single short line of spoken dialogue — just the words you say out loud, in the first person. Do NOT wrap your line in quotation marks. Do NOT narrate actions, gestures, tone, or expressions, and never describe yourself in the third person (no \"he said\", no \"she replies calmly\", no \"*sighs*\"). Do NOT write lines for any other character, and do NOT prefix your reply with a name. Remain fully in character; never refer to yourself as an AI, a model, or an assistant."
@@ -751,6 +813,13 @@ final class EnsembleViewModel {
             }
         }
 
+        // Sticky public fact after someone was booted. Also mirrored as a Scene
+        // transcript beat — this system line is a second hit so small models
+        // still react if they skim history poorly.
+        if let departure = lastDepartureNote, !departure.isEmpty {
+            context += " CRITICAL SCENE EVENT (you witnessed this): \(departure) React in character if it affects you — shock, orders, grief, tactical fallout. Never address the departed or wait for their reply."
+        }
+
         // If the user's line is the most recent, make this turn a direct reply.
         if turns.last?.speakerID == nil,
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -759,6 +828,12 @@ final class EnsembleViewModel {
             if scenePlayMode == .sceneFirst {
                 context += " Their move takes priority over the prior scene thread if they changed the game."
             }
+        }
+        if let bootReason {
+            let r = bootReason.trimmingCharacters(in: .whitespacesAndNewlines)
+            context += " BOOT PROTOCOL — MANDATORY FOR THIS LINE ONLY. This is your EXIT from the scene. Enact the director's instruction"
+            if !r.isEmpty { context += " (\(r))" }
+            context += " in character as a single short spoken line — leave, die, be dismissed, storm out, etc. Do NOT stay and continue the argument; this is your last line. After this you are gone forever."
         }
         if grenade {
             context += grenadeProtocolText(you: you)

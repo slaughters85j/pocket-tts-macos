@@ -8,6 +8,7 @@
 //  preset controls as the setup wizard's confirm-voices step.
 //
 //  WP-CAST-1: add/remove roster, import/export cast JSON.
+//  Run knobs live in the toolbar Director's Chair (not this sheet).
 //
 
 import SwiftUI
@@ -65,8 +66,9 @@ struct EnsembleCastEditorSheet: View {
                         sceneMoodSection
                         Divider().background(Theme.borderColor)
                         castSection
-                        Divider().background(Theme.borderColor)
-                        EnsembleSettingsView(viewModel: viewModel)
+                        Text("Run knobs (turn order, pace, scene play…) live in the Director’s Chair on the Ensemble toolbar.")
+                            .font(Theme.fontXS)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                 }
                 .frame(maxHeight: 400)
@@ -77,7 +79,7 @@ struct EnsembleCastEditorSheet: View {
                     doneButton
                 }
             }
-            .frame(minWidth: 460, minHeight: 440)
+            .frame(minWidth: 460, minHeight: 400)
         }
         .sheet(item: $editTarget) { target in
             EnsemblePersonaEditorSheet(

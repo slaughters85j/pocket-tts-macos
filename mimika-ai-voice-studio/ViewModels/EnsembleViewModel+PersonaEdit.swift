@@ -122,10 +122,12 @@ extension EnsembleViewModel {
     func removeCastMember(at index: Int) -> Bool {
         guard cast.indices.contains(index) else { return false }
         guard cast.count > CastPackageBuilder.minCastSize else { return false }
+        let removedID = cast[index].id
         cast.remove(at: index)
         // Drop a removed speaker from the RR shuffle so cursor stays valid.
         shuffledOrder = []
         orderCursor = 0
+        if pendingBoot?.speakerID == removedID { pendingBoot = nil }
         guard let ctx = appState.modelContext, let saved = currentSavedCast(ctx) else { return true }
         let personas = saved.sortedPersonas
         guard personas.indices.contains(index) else {
@@ -134,6 +136,34 @@ extension EnsembleViewModel {
             return true
         }
         EnsembleStore.removePersona(ctx, personas[index], from: saved)
+        return true
+    }
+
+    /// Remove by persona id (Boot + roster).
+    @discardableResult
+    func removeCastMember(id: UUID) -> Bool {
+        guard let index = cast.firstIndex(where: { $0.id == id }) else { return false }
+        return removeCastMember(at: index)
+    }
+
+    // MARK: - Boot (Director's Chair)
+
+    /// Arm a one-shot exit for `speakerID`: they speak next with the reason,
+    /// then leave the cast. Remaining speakers get a public departure note.
+    @discardableResult
+    func bootCastMember(id: UUID, reason: String) -> Bool {
+        guard cast.count > CastPackageBuilder.minCastSize else {
+            showNotice("Keep at least one speaker in the cast")
+            return false
+        }
+        guard cast.contains(where: { $0.id == id }) else { return false }
+        let name = cast.first(where: { $0.id == id })?.name ?? "Speaker"
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingBoot = PendingBoot(speakerID: id, reason: trimmed)
+        showNotice(trimmed.isEmpty
+                   ? "Boot armed — \(name) exits on their next line"
+                   : "Boot armed — \(name): \(trimmed)")
+        kickIfParked()
         return true
     }
 
