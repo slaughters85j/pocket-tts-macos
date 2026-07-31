@@ -61,7 +61,8 @@ shipping Boot / User turn / Context dump.
 **Prereqs:**
 
 - User must have a **real character name** (not default “You” / “Guest”).
-- Expose **user peer name** in Cast & Settings (today only in New Cast wizard).
+- **User peer name** is editable in Cast & Settings (**YOU** section) and in
+  the New Cast wizard.
 - Checkbox in Director’s Chair: **Include me in turn order** (only enabled when
   name is set).
 

@@ -70,6 +70,26 @@ extension EnsembleViewModel {
         EnsembleStore.update(ctx, cast: saved)
     }
 
+    // MARK: - User peer name (Cast & Settings)
+
+    /// Set how the cast addresses the human. Empty → display "You" / model
+    /// "Guest" (same convention as the New Cast wizard). Mirrors display into
+    /// `modelName` when the user picks a real proper noun so the LLM never
+    /// sees the pronoun "You" as a speaker label.
+    func updateUserPeerName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            userPeer.name = "You"
+            userPeer.modelName = "Guest"
+        } else {
+            userPeer.name = trimmed
+            userPeer.modelName = trimmed
+        }
+        guard let ctx = appState.modelContext, let saved = currentSavedCast(ctx) else { return }
+        saved.userPeerName = userPeer.name
+        EnsembleStore.update(ctx, cast: saved)
+    }
+
     // MARK: - Roster add / remove (WP-CAST-1)
 
     /// Append a blank Cosette / Strict speaker and persist to the saved cast.

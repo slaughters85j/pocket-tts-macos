@@ -65,6 +65,8 @@ struct EnsembleCastEditorSheet: View {
                     VStack(alignment: .leading, spacing: Theme.space4) {
                         sceneMoodSection
                         Divider().background(Theme.borderColor)
+                        userPeerSection
+                        Divider().background(Theme.borderColor)
                         castSection
                         Text("Run knobs (turn order, pace, scene play…) live in the Director’s Chair on the Ensemble toolbar.")
                             .font(Theme.fontXS)
@@ -155,6 +157,34 @@ struct EnsembleCastEditorSheet: View {
         Binding(
             get: { viewModel.mood },
             set: { viewModel.updateMood($0) }
+        )
+    }
+
+    // MARK: - Your character name
+
+    /// Optional proper noun for the human peer (same idea as New Cast wizard).
+    /// Empty keeps display "You" / model "Guest". A real name is required later
+    /// for Director's Chair "include me in turn order" (User turn).
+    private var userPeerSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space2) {
+            Text("YOU").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            Text("Optional character name — how the cast addresses you when you jump in. Leave blank for “You”.")
+                .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            TextField("e.g. Milton, Dr. Crusher, Guest", text: userPeerNameBinding)
+                .textFieldStyle(.roundedBorder)
+                .font(Theme.fontSM)
+                .accessibilityIdentifier("ensemble.castEditor.userPeerName")
+        }
+    }
+
+    private var userPeerNameBinding: Binding<String> {
+        Binding(
+            get: {
+                // Show empty when still on the default display pronoun so the
+                // field placeholder reads as "optional".
+                viewModel.userPeer.name == "You" ? "" : viewModel.userPeer.name
+            },
+            set: { viewModel.updateUserPeerName($0) }
         )
     }
 
