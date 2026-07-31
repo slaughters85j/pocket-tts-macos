@@ -290,6 +290,26 @@ final class EnsembleLoopTests: XCTestCase {
                        "the user's export voice must be distinct from every cast voice (no shared-voice tag collision)")
     }
 
+    func test_effectiveCastForTurnOrder_includesUserWhenEnabled() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let picard = Persona(name: "Picard", voiceID: "javert", systemPrompt: "")
+        vm.cast = [picard]
+        vm.userPeer.name = "You"
+        vm.userPeer.modelName = "Guest"
+        vm.setIncludeUserInTurnOrder(true)
+        XCTAssertFalse(vm.includeUserInTurnOrder, "requires a real character name")
+        XCTAssertEqual(vm.effectiveCastForTurnOrder().count, 1)
+
+        vm.userPeer.name = "Milton"
+        vm.userPeer.modelName = "Milton"
+        vm.setIncludeUserInTurnOrder(true)
+        XCTAssertTrue(vm.includeUserInTurnOrder)
+        let roster = vm.effectiveCastForTurnOrder()
+        XCTAssertEqual(roster.count, 2)
+        XCTAssertEqual(roster.last?.id, EnsembleViewModel.userTurnSpeakerID)
+        XCTAssertEqual(roster.last?.name, "Milton")
+    }
+
     func test_softDumpBrief_includesSceneCastAndRecentLines() {
         let dropped = [
             EnsembleTurn(speakerID: UUID(), speakerName: "Picard", content: "Shields to maximum."),

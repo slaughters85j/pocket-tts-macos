@@ -89,28 +89,22 @@ struct EnsembleSettingsView: View {
                 accessibilityID: "ensemble.settings.help.rollingSummary"
             )
 
-            // Soft context dump — model-facing only; transcript stays full.
-            HStack(spacing: Theme.space2) {
-                Button {
-                    _ = viewModel.softDumpContext()
-                } label: {
-                    Label("Reset context", systemImage: "arrow.counterclockwise")
-                        .font(Theme.fontSM)
-                }
-                .buttonStyle(.bordered)
-                .tint(Theme.accent)
-                .disabled(viewModel.turns.isEmpty)
-                .accessibilityIdentifier("ensemble.settings.resetContext")
-
-                SettingInfoButton(
-                    title: "Reset context",
-                    message: contextDumpHelp,
-                    accessibilityID: "ensemble.settings.help.resetContext"
-                )
-                Spacer(minLength: 0)
-            }
-            .padding(.top, Theme.space1)
+            toggleRow(
+                title: "Include me in turn order",
+                isOn: includeUserBinding,
+                helpTitle: "Include me in turn order",
+                helpBody: includeUserHelp,
+                accessibilityID: "ensemble.settings.help.includeUser"
+            )
+            .opacity(viewModel.hasRealUserCharacterName ? 1 : 0.55)
         }
+    }
+
+    private var includeUserBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.includeUserInTurnOrder },
+            set: { viewModel.setIncludeUserInTurnOrder($0) }
+        )
     }
 
     // MARK: - Context-aware help bodies
@@ -176,8 +170,11 @@ struct EnsembleSettingsView: View {
         "When on, turns that fall outside the context window are compressed into a short “earlier in the conversation…” summary so long episodes stay coherent without sending the full history every turn."
     }
 
-    private var contextDumpHelp: String {
-        "Soft reset for looping or degraded models: next model calls only see the last Context window turns plus a short brief of what came before. The on-screen transcript, export, and History stay complete — this is not a hard wipe."
+    private var includeUserHelp: String {
+        if viewModel.hasRealUserCharacterName {
+            return "When on, the director/conductor can pick you (\(viewModel.userPeer.modelName)) as the next speaker. You’ll get a cue and a short window to type or speak. Requires your character name in Cast & Settings."
+        }
+        return "Set your character name in Cast & Settings (YOU section) first — then the director can tap you to speak mid-scene."
     }
 
     // MARK: - Layout
@@ -275,7 +272,11 @@ struct DirectorsChairPanel: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    bootControl
+                    // Boot + Reset stacked (sketch: director tools on the right).
+                    VStack(spacing: Theme.space3) {
+                        bootControl
+                        resetContextControl
+                    }
                 }
 
                 // Full-width row under settings so the BOOT card can center.
@@ -354,8 +355,38 @@ struct DirectorsChairPanel: View {
                  ? "A boot is already armed"
                  : "Need at least two speakers to boot"))
         .accessibilityIdentifier("ensemble.directorsChair.boot")
-        .padding(.top, Theme.space6)
+        .padding(.top, Theme.space4)
     }
+
+    /// Soft context dump — icon under Boot (model-facing only).
+    private var resetContextControl: some View {
+        Button {
+            _ = viewModel.softDumpContext()
+        } label: {
+            VStack(spacing: Theme.space1) {
+                Image(systemName: "arrow.counterclockwise.circle.fill")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(viewModel.turns.isEmpty ? Theme.textSecondary : Theme.accent)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(Theme.accent.opacity(viewModel.turns.isEmpty ? 0.06 : 0.12))
+                            .overlay(Circle().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
+                    )
+                Text("Reset")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(EnsembleSettingsView.chairLabelColor)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.turns.isEmpty)
+        .opacity(viewModel.turns.isEmpty ? 0.45 : 1)
+        .help(Self.resetContextHelp)
+        .accessibilityIdentifier("ensemble.directorsChair.resetContext")
+    }
+
+    fileprivate static let resetContextHelp =
+        "Soft reset for looping or degraded models: next model calls only see the last Context window turns plus a short brief of what came before. The on-screen transcript, export, and History stay complete — this is not a hard wipe."
 
     private var bootComposer: some View {
         VStack(alignment: .center, spacing: Theme.space2) {

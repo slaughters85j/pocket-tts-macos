@@ -33,6 +33,11 @@ extension EnsembleViewModel {
     /// in-flight sentence, hand the floor to the user, and start listening.
     /// Audio stops synchronously; auth/dictation is async.
     func bargeIn() {
+        // Already parked for an invited turn — just open the mic; don't cut the wait.
+        if awaitingInvitedUserTurn {
+            Task { await startListening() }
+            return
+        }
         interruptForBargeIn()
         truncateInFlightTurn()
         currentSpeakerID = nil
@@ -143,6 +148,19 @@ extension EnsembleViewModel {
     /// Append the captured/typed turn (if any) and resume the cast so someone
     /// reacts. The conductor honors a name mentioned in the user's turn.
     func finishBargeIn() {
+        // Invited turn: complete the parked wait instead of starting a new loop.
+        if awaitingInvitedUserTurn {
+            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft = ""
+            dictation = .idle
+            if !text.isEmpty {
+                turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+                completeInvitedUserTurn(submitted: true)
+            } else {
+                completeInvitedUserTurn(submitted: false)
+            }
+            return
+        }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         draft = ""
         if !text.isEmpty {

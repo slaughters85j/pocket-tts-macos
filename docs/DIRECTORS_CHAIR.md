@@ -27,8 +27,8 @@ shipping Boot / User turn / Context dump.
 
 1. **Director’s Chair chrome** (glass overlay) — shipped  
 2. **Boot** (2A) — shipped (MVP)  
-3. **Context soft-dump** (2C) — shipped (MVP)  
-4. **User turn** (2B)  
+3. **Context soft-dump** (2C) — shipped (MVP); Reset icon under Boot  
+4. **User turn** (2B) — shipped (MVP)  
 
 ---
 
@@ -54,24 +54,22 @@ shipping Boot / User turn / Context dump.
 
 ---
 
-## 2B — User turn
+## 2B — User turn — shipped MVP
 
 **Intent:** User is a peer who can be *tapped* to speak next (not only barge-in).
 
 **Prereqs:**
 
-- User must have a **real character name** (not default “You” / “Guest”).
-- **User peer name** is editable in Cast & Settings (**YOU** section) and in
-  the New Cast wizard.
-- Checkbox in Director’s Chair: **Include me in turn order** (only enabled when
-  name is set).
+- Real character name in Cast & Settings (**YOU**) or New Cast wizard.
+- Chair toggle: **Include me in turn order**.
 
 **Runtime:**
 
-- Conductor/Director may select the human as next speaker.
-- Loop parks in `.userTurn`; toast above composer (“You’re up”); optional tone.
-- Timeout → skip / resume AI; never block forever.
-- Complements barge-in; does not replace it.
+- Synthetic `userTurnSpeakerID` in `effectiveCastForTurnOrder()` for pick only.
+- Conductor/Director may select the human; loop awaits submit or 25s timeout.
+- Banner above composer + system beep + toast.
+- Timeout skips (notice); empty submit doesn’t complete invited wait.
+- Barge-in mic during invite only opens dictation; finish/submit completes wait.
 
 ---
 

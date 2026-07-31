@@ -81,6 +81,8 @@ extension EnsembleViewModel {
         if trimmed.isEmpty {
             userPeer.name = "You"
             userPeer.modelName = "Guest"
+            // Include-me requires a real character name.
+            includeUserInTurnOrder = false
         } else {
             userPeer.name = trimmed
             userPeer.modelName = trimmed

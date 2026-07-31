@@ -20,6 +20,9 @@
 import Foundation
 import Observation
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 @Observable
@@ -63,6 +66,19 @@ final class EnsembleViewModel {
     /// so their past lines keep their own name + voice instead of collapsing onto
     /// the user tag or Multi-Talk's default stock voice (alba).
     var departedSpeakers: [Persona] = []
+    /// When true (and the user has a real character name), the director/conductor
+    /// may pick the human as next speaker — parks the loop until they type/speak
+    /// or the timeout fires.
+    var includeUserInTurnOrder: Bool = false
+    /// True while the loop is waiting on an invited user turn (not barge-in).
+    var awaitingInvitedUserTurn: Bool = false
+    /// Seconds the human has when tapped to speak.
+    static let invitedUserTurnTimeoutSeconds: Double = 25
+    /// Sentinel UUID for “human is next” in pick only — turns still use `speakerID == nil`.
+    static let userTurnSpeakerID =
+        UUID(uuidString: "A11CE5CE-0000-4000-8000-0000000005E2")!
+    private var invitedUserContinuation: CheckedContinuation<Bool, Never>?
+    private var invitedUserTimeoutTask: Task<Void, Never>?
     var maxTurns: Int = 60
     /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
     /// on top of the "one or two sentences" instruction + stop sequences.
@@ -469,8 +485,50 @@ final class EnsembleViewModel {
         loopTask?.cancel()
         runner.cancel()
         cancelDictation()
+        completeInvitedUserTurn(submitted: false)
         runState = .idle
         currentSpeakerID = nil
+    }
+
+    /// True when Cast & Settings (or New Cast) set a proper character name.
+    var hasRealUserCharacterName: Bool {
+        let n = userPeer.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !n.isEmpty && n != "You"
+    }
+
+    /// Toggle “include me in turn order”; requires a real character name.
+    func setIncludeUserInTurnOrder(_ on: Bool) {
+        if on, !hasRealUserCharacterName {
+            includeUserInTurnOrder = false
+            showNotice("Set your character name in Cast & Settings first")
+            return
+        }
+        includeUserInTurnOrder = on
+        shuffledOrder = []
+        orderCursor = 0
+    }
+
+    /// Live cast plus optional synthetic user peer for Conductor / Director picks.
+    func effectiveCastForTurnOrder() -> [Persona] {
+        guard includeUserInTurnOrder, hasRealUserCharacterName else { return cast }
+        var expanded = cast
+        expanded.append(Persona(
+            id: Self.userTurnSpeakerID,
+            name: userPeer.modelName,
+            voiceID: "",
+            systemPrompt: ""
+        ))
+        return expanded
+    }
+
+    /// Last speaker id for pick exclusion — maps user turns (`speakerID == nil`)
+    /// to the synthetic user-turn id when include-me is on.
+    func lastSpeakerIDForPick() -> UUID? {
+        guard let last = turns.last, !last.isSceneBeat else { return nil }
+        if last.speakerID == nil {
+            return includeUserInTurnOrder ? Self.userTurnSpeakerID : nil
+        }
+        return last.speakerID
     }
 
     /// Cut the loop + the in-flight turn + the player — used by barge-in. Kept
@@ -504,6 +562,15 @@ final class EnsembleViewModel {
     /// this up on its next iteration (mention override honored); otherwise we
     /// advance one turn so someone reacts.
     func submitUserTurn() {
+        // Invited turn (director/conductor tapped the human) — complete the wait.
+        if awaitingInvitedUserTurn {
+            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            draft = ""
+            turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+            completeInvitedUserTurn(submitted: true)
+            return
+        }
         // After a barge-in (the user cut the cast off), submitting resumes the
         // cast in the prior advance mode instead of queuing/stepping.
         if case .userTurn = runState { finishBargeIn(); return }
@@ -514,6 +581,58 @@ final class EnsembleViewModel {
         if !isLooping, canRun {
             stepOnce()
         }
+    }
+
+    // MARK: - Invited user turn (include me in turn order)
+
+    /// Park the loop until the user submits a line or the timeout elapses.
+    func waitForInvitedUserTurn() async -> Bool {
+        awaitingInvitedUserTurn = true
+        runState = .userTurn
+        presentUserTurnToast()
+        playUserTurnCue()
+
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            invitedUserContinuation = cont
+            invitedUserTimeoutTask?.cancel()
+            invitedUserTimeoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(Self.invitedUserTurnTimeoutSeconds))
+                guard let self, !Task.isCancelled else { return }
+                self.completeInvitedUserTurn(submitted: false)
+            }
+        }
+    }
+
+    /// Resume a parked invited-user wait (submit or timeout).
+    func completeInvitedUserTurn(submitted: Bool) {
+        invitedUserTimeoutTask?.cancel()
+        invitedUserTimeoutTask = nil
+        awaitingInvitedUserTurn = false
+        guard let cont = invitedUserContinuation else { return }
+        invitedUserContinuation = nil
+        cont.resume(returning: submitted)
+        if !submitted {
+            showNotice("Skipped — no line from you in time")
+        }
+    }
+
+    private func presentUserTurnToast() {
+        let secs = Int(Self.invitedUserTurnTimeoutSeconds)
+        let msg = "You're up, \(userPeer.modelName) — speak or type (\(secs)s)"
+        appState.toastMessage = msg
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            if appState.toastMessage == msg {
+                appState.toastMessage = nil
+            }
+        }
+    }
+
+    private func playUserTurnCue() {
+        #if os(macOS)
+        // Short system cue so the user notices without watching the UI.
+        NSSound.beep()
+        #endif
     }
 
     // MARK: - Loop
@@ -527,11 +646,11 @@ final class EnsembleViewModel {
         isLooping = true
         defer { isLooping = false }
 
-        var lastSpeaker = turns.last?.speakerID
+        var lastSpeaker = lastSpeakerIDForPick()
         while !Task.isCancelled && producedThisRun < maxTurns {
             let produced = await runOneTurn(lastSpeaker: lastSpeaker)
             if !produced || Task.isCancelled { break }
-            lastSpeaker = turns.last?.speakerID
+            lastSpeaker = lastSpeakerIDForPick()
             producedThisRun += 1
             refreshSummaryIfNeeded()
             if advanceMode == .step {
@@ -617,20 +736,29 @@ final class EnsembleViewModel {
     /// unit tests. Returns whether the loop should continue.
     func runOneTurn(lastSpeaker: UUID?) async -> Bool {
         runState = .picking
+        let pickCast = effectiveCastForTurnOrder()
+        let excludeLast = lastSpeaker ?? lastSpeakerIDForPick()
         let nextID: UUID?
         // Boot forces the target next so the exit line lands immediately.
         if let boot = pendingBoot, cast.contains(where: { $0.id == boot.speakerID }) {
             nextID = boot.speakerID
         } else if turnOrder == .director {
-            nextID = await pickNextViaDirector(lastSpeaker: lastSpeaker)
+            nextID = await pickNextViaDirector(lastSpeaker: excludeLast, pickCast: pickCast)
         } else {
             var generator = SystemRandomNumberGenerator()
             nextID = Conductor.pickNext(
-                cast: cast, turns: turns, lastSpeaker: lastSpeaker,
+                cast: pickCast, turns: turns, lastSpeaker: excludeLast,
                 mode: turnOrder, rng: rngMode,
                 shuffledOrder: &shuffledOrder, cursor: &orderCursor, using: &generator
             )
         }
+
+        // Director/conductor tapped the human peer.
+        if nextID == Self.userTurnSpeakerID {
+            _ = await waitForInvitedUserTurn()
+            return !Task.isCancelled
+        }
+
         guard let speakerID = nextID,
               let persona = cast.first(where: { $0.id == speakerID }) else {
             runState = .idle

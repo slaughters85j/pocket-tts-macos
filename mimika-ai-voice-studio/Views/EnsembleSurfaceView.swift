@@ -291,11 +291,30 @@ struct EnsembleSurfaceView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: Theme.space1) {
+            if viewModel.awaitingInvitedUserTurn {
+                HStack(spacing: Theme.space2) {
+                    Image(systemName: "person.wave.2.fill")
+                        .foregroundStyle(Theme.accent)
+                    Text("You're up — type or speak within \(Int(EnsembleViewModel.invitedUserTurnTimeoutSeconds))s")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Theme.space4)
+                .padding(.vertical, Theme.space2)
+                .background(Theme.accent.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                .accessibilityIdentifier("ensemble.composer.yourTurnBanner")
+            }
             if case let .unavailable(msg) = viewModel.dictation {
                 Text(msg).font(Theme.fontXS).foregroundStyle(Theme.warningFG)
             }
             HStack(spacing: Theme.space3) {
-                TextField("Jump in…", text: $viewModel.draft, axis: .vertical)
+                TextField(
+                    viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…",
+                    text: $viewModel.draft,
+                    axis: .vertical
+                )
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
                     .font(Theme.fontSM)
