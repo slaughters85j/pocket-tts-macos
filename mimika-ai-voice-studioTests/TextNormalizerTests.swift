@@ -298,6 +298,43 @@ final class TextNormalizerTests: XCTestCase {
         XCTAssertEqual(TextNormalizer.stripStageDirections(input), input)
     }
 
+    // MARK: - Emoji stripping
+    //
+    // LLMs inject emoji freely; Pocket-TTS byte-fallbacks them into garble.
+    // stripEmojis is the speech/export boundary; normalize() also calls it.
+
+    func test_stripEmojis_removesCommonEmojiAndTidiesSpaces() {
+        let input = "Oh boy 😂 Fox, deal me one more round 🔥!"
+        XCTAssertEqual(
+            TextNormalizer.stripEmojis(input),
+            "Oh boy Fox, deal me one more round!"
+        )
+    }
+
+    func test_stripEmojis_preservesDigitsAndWords() {
+        let input = "Deck 9 is ready. Call *#42."
+        XCTAssertEqual(TextNormalizer.stripEmojis(input), input)
+    }
+
+    func test_stripEmojis_idempotent() {
+        let input = "Hello 😀 world 🚀"
+        let once = TextNormalizer.stripEmojis(input)
+        XCTAssertEqual(TextNormalizer.stripEmojis(once), once)
+        XCTAssertEqual(once, "Hello world")
+    }
+
+    func test_normalize_stripsEmojisBeforeSpeechExpansion() {
+        // normalize is the TTS path — emoji must not survive into SentencePiece.
+        let result = TextNormalizer.normalize("Score 3 🎉 points")
+        XCTAssertFalse(result.contains("🎉"))
+        XCTAssertTrue(result.lowercased().contains("three") || result.contains("3"), result)
+        XCTAssertTrue(result.lowercased().contains("score"), result)
+        XCTAssertTrue(result.lowercased().contains("points"), result)
+    }
+
+    // pretoken leading-space attachment lives in QwenTokenEstimator (unit-tested
+    // via count stability: multi-word strings must not overcount by ~1/word).
+
     // MARK: - Whisper-artifact stripping
     //
     // WhisperKit emits non-speech markers like `[music]`, `[silence]`,

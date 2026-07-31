@@ -118,6 +118,7 @@ struct EnsembleSurfaceView: View {
     }
 
     private func color(for turn: EnsembleTurn) -> Color {
+        if turn.isSceneBeat { return Theme.warningFG }
         guard let sid = turn.speakerID,
               let idx = viewModel.cast.firstIndex(where: { $0.id == sid }) else {
             return Theme.accent   // the user
@@ -161,8 +162,8 @@ struct EnsembleSurfaceView: View {
         }
         .buttonStyle(.plain)
         .help(nudge
-              ? "The cast is nodding along — throw a grenade to break the consensus"
-              : "Throw a grenade — force the next speaker to break the consensus")
+              ? "The cast is nodding along — throw a grenade to detonate the consensus"
+              : "Throw a grenade — force the next speaker to drop a bombshell")
         .accessibilityIdentifier("ensemble.grenade")
     }
 
@@ -180,7 +181,7 @@ struct EnsembleSurfaceView: View {
             VStack(alignment: .leading, spacing: Theme.space2) {
                 Label("Throw a grenade", systemImage: "flame.fill")
                     .font(Theme.fontSMBold).foregroundStyle(Theme.warningFG)
-                Text("Breaks a stale conversation: the next speaker is told to drop the consensus and take a sharp, contrarian angle. The flame lights up on its own when the cast starts agreeing too much — but you can throw it any time.")
+                Text("Arms a one-shot bombshell: the next speaker is ordered to detonate the consensus with a secret, accusation, or hard pivot — not a polite quibble. The flame lights up on its own when the cast starts agreeing too much — but you can throw it any time.")
                     .font(Theme.fontXS).foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -203,7 +204,7 @@ struct EnsembleSurfaceView: View {
     /// Arm the grenade + flash a confirmation (the throw is otherwise silent).
     private func armGrenade() {
         viewModel.throwGrenade()
-        flash(ControlFlash(text: "Grenade armed — the next line breaks the consensus",
+        flash(ControlFlash(text: "Grenade armed — next line is a bombshell",
                            systemImage: "flame.fill", tint: Theme.warningFG))
     }
 
@@ -290,11 +291,33 @@ struct EnsembleSurfaceView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: Theme.space1) {
+            if viewModel.awaitingInvitedUserTurn {
+                // Hug the label (not full-width); generous padding so it reads as a chip.
+                HStack(spacing: Theme.space2) {
+                    Image(systemName: "person.wave.2.fill")
+                        .foregroundStyle(Theme.accent)
+                    Text("You're up — \(viewModel.invitedUserTurnSecondsRemaining)s left to type or speak")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textPrimary)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.linear(duration: 0.2), value: viewModel.invitedUserTurnSecondsRemaining)
+                }
+                .padding(12)
+                .background(Theme.accent.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .accessibilityIdentifier("ensemble.composer.yourTurnBanner")
+            }
             if case let .unavailable(msg) = viewModel.dictation {
                 Text(msg).font(Theme.fontXS).foregroundStyle(Theme.warningFG)
             }
             HStack(spacing: Theme.space3) {
-                TextField("Jump in…", text: $viewModel.draft, axis: .vertical)
+                TextField(
+                    viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…",
+                    text: $viewModel.draft,
+                    axis: .vertical
+                )
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
                     .font(Theme.fontSM)

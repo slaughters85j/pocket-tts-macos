@@ -136,6 +136,13 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
     /// user turns. Ensemble-only — never part of the Multi-Talk export.
     var samplingPreset: SamplingPreset?
 
+    /// Synthetic "Scene" beats (boot deaths, etc.) — not a cast member or the user.
+    /// Lands in POV history as a public event the models actually read.
+    static let sceneBeatSpeakerID = UUID(uuidString: "A11CE5CE-0000-4000-8000-00000000BEA7")!
+
+    /// True for director/scene announcements injected into the transcript.
+    var isSceneBeat: Bool { speakerID == Self.sceneBeatSpeakerID }
+
     init(
         id: UUID = UUID(),
         speakerID: UUID?,
@@ -152,6 +159,15 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         self.wasCutOff = wasCutOff
         self.spokenSentences = spokenSentences
         self.samplingPreset = samplingPreset
+    }
+
+    /// Public scene announcement (boot / environmental event).
+    static func sceneBeat(_ content: String) -> EnsembleTurn {
+        EnsembleTurn(
+            speakerID: sceneBeatSpeakerID,
+            speakerName: "Scene",
+            content: content
+        )
     }
 }
 
@@ -178,9 +194,47 @@ nonisolated enum AdvanceMode: Sendable {
 
 /// How the scramble dial behaves: re-draw the order every turn (chaos) or
 /// shuffle once at run start (stable-but-scrambled rotation).
-nonisolated enum RNGMode: Sendable {
+nonisolated enum RNGMode: String, CaseIterable, Codable, Sendable {
     case rerollPerTurn
     case shuffleOnce
+}
+
+// MARK: - ScenePlayMode
+// How hard the cast should stick to the user-set scene + mood vs. follow
+// whatever heat the table (and the human) just introduced. Scene-first is
+// the default for faithful scene play; Free is opt-in for off-rails chaos.
+
+// MARK: - PendingBoot
+// Director's Chair: one-shot exit directive for a cast member, then remove.
+
+/// Armed boot: force this speaker next, inject exit framing, remove after turn.
+nonisolated struct PendingBoot: Equatable, Sendable {
+    let speakerID: UUID
+    let reason: String
+}
+
+// MARK: - PendingDirective
+// Director's Chair: one-shot cast-specific direction (steer / stop phrase / etc.).
+
+/// Armed direction: force this speaker next, inject instruction, Strict sampling.
+nonisolated struct PendingDirective: Equatable, Sendable {
+    let speakerID: UUID
+    let instruction: String
+}
+
+/// Whether Ensemble framing prioritizes free riffing or faithful scene play.
+nonisolated enum ScenePlayMode: String, CaseIterable, Codable, Sendable {
+    /// Light scene/mood hints; chase lively reactions and user digressions.
+    case free
+    /// Prefer advancing the established scene; still always honor the human.
+    case sceneFirst
+
+    var displayName: String {
+        switch self {
+        case .free:       return "Free"
+        case .sceneFirst: return "Scene-first"
+        }
+    }
 }
 
 // MARK: - ChatSubMode
@@ -190,4 +244,158 @@ nonisolated enum RNGMode: Sendable {
 nonisolated enum ChatSubMode: String, CaseIterable, Sendable {
     case solo
     case ensemble
+}
+
+// MARK: - CastPackage (portable cast export/import)
+// JSON file format for sharing or backing up a cast. Source UUIDs are
+// informational — import always mints new store/runtime IDs so re-importing
+// the same file never collides with `@Attribute(.unique)`.
+
+/// Top-level portable cast file (`formatVersion` 1).
+nonisolated struct CastPackage: Codable, Sendable, Equatable {
+    var formatVersion: Int
+    var exportedAt: Date
+    var cast: CastPayload
+    var personas: [PersonaPayload]
+
+    static let currentFormatVersion = 1
+}
+
+/// Cast-level metadata + run knobs captured at export time.
+nonisolated struct CastPayload: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var scene: String
+    var mood: String
+    var userPeerName: String
+    var turnModeRaw: String?
+    var paceSeconds: Double?
+    var maxTurns: Int?
+    var contextWindowTurns: Int?
+    var rollingSummaryEnabled: Bool?
+    var rngModeRaw: String?
+    var voicedPlayback: Bool?
+    var scenePlayModeRaw: String?
+}
+
+/// One persona row in a portable cast file.
+nonisolated struct PersonaPayload: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var role: String
+    var voiceID: String
+    var suggestedVoice: String
+    var personaPrompt: String
+    var temperature: Double
+    var samplingPresetRaw: String
+    var readsOnOthers: [String: String]
+    var sortOrder: Int
+}
+
+// MARK: - CastPackageBuilder
+// Pure helpers so export/import voice resolution is unit-testable without
+// AppKit panels or SwiftData.
+
+nonisolated enum CastPackageBuilder {
+
+    /// Default voice used for brand-new manual speakers and missing imports.
+    static let defaultVoiceID = "cosette"
+    static let defaultNewMemberName = "Cosette"
+    static let minCastSize = 1
+    static let maxCastSize = 8
+
+    /// Build a portable package from live runtime state (+ optional SwiftData
+    /// role/reads when available, parallel by index).
+    static func make(
+        castID: UUID?,
+        castName: String,
+        scene: String,
+        mood: String,
+        userPeerName: String,
+        personas: [Persona],
+        rolesAndReads: [(role: String, suggestedVoice: String, reads: [String: String])] = [],
+        turnMode: TurnMode,
+        rngMode: RNGMode,
+        paceSeconds: Double,
+        maxTurns: Int,
+        contextWindowTurns: Int,
+        rollingSummaryEnabled: Bool,
+        voicedPlayback: Bool,
+        scenePlayMode: ScenePlayMode = .sceneFirst,
+        exportedAt: Date = .now
+    ) -> CastPackage {
+        let payloads: [PersonaPayload] = personas.enumerated().map { i, p in
+            let extra = rolesAndReads.indices.contains(i) ? rolesAndReads[i] : (role: "", suggestedVoice: "", reads: [:])
+            return PersonaPayload(
+                id: p.id,
+                name: p.name,
+                role: extra.role,
+                voiceID: p.voiceID,
+                suggestedVoice: extra.suggestedVoice,
+                personaPrompt: p.systemPrompt,
+                temperature: p.temperature,
+                samplingPresetRaw: p.samplingPreset.rawValue,
+                readsOnOthers: extra.reads,
+                sortOrder: i
+            )
+        }
+        return CastPackage(
+            formatVersion: CastPackage.currentFormatVersion,
+            exportedAt: exportedAt,
+            cast: CastPayload(
+                id: castID ?? UUID(),
+                name: castName.isEmpty ? (scene.isEmpty ? "Ensemble" : scene) : castName,
+                scene: scene,
+                mood: mood,
+                userPeerName: userPeerName,
+                turnModeRaw: turnMode.rawValue,
+                paceSeconds: paceSeconds,
+                maxTurns: maxTurns,
+                contextWindowTurns: contextWindowTurns,
+                rollingSummaryEnabled: rollingSummaryEnabled,
+                rngModeRaw: rngMode.rawValue,
+                voicedPlayback: voicedPlayback,
+                scenePlayModeRaw: scenePlayMode.rawValue
+            ),
+            personas: payloads
+        )
+    }
+
+    /// Resolve a voiceID against the voices available on this machine.
+    /// Missing stock/imported voices fall back to Cosette.
+    static func resolveVoiceID(_ voiceID: String, available: Set<String>) -> String {
+        if available.contains(voiceID) { return voiceID }
+        return defaultVoiceID
+    }
+
+    // MARK: Import clamps (UI ranges)
+
+    static let maxTurnsRange = 4...300
+    static let verbatimWindowRange = 4...40
+    static let paceSecondsRange = 0.0...2.5
+
+    static func clampMaxTurns(_ value: Int) -> Int {
+        min(maxTurnsRange.upperBound, max(maxTurnsRange.lowerBound, value))
+    }
+
+    static func clampVerbatimWindow(_ value: Int) -> Int {
+        min(verbatimWindowRange.upperBound, max(verbatimWindowRange.lowerBound, value))
+    }
+
+    static func clampPaceSeconds(_ value: Double) -> Double {
+        min(paceSecondsRange.upperBound, max(paceSecondsRange.lowerBound, value))
+    }
+
+    static func jsonEncoder() -> JSONEncoder {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        return enc
+    }
+
+    static func jsonDecoder() -> JSONDecoder {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return dec
+    }
 }

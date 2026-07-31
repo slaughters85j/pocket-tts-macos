@@ -73,6 +73,142 @@ final class EnsemblePersistenceTests: XCTestCase {
         XCTAssertEqual(EnsembleStore.casts(ctx).first?.turnMode, .director)
     }
 
+    // MARK: - WP-CAST-1 removePersona + CastPackage
+
+    func test_removePersona_reindexesSortOrder() throws {
+        let ctx = try makeContext()
+        let cast = EnsembleStore.create(ctx, name: "Bridge")
+        EnsembleStore.addPersona(ctx, to: cast, name: "Picard", voiceID: "javert", sortOrder: 0)
+        EnsembleStore.addPersona(ctx, to: cast, name: "Riker", voiceID: "jean", sortOrder: 1)
+        EnsembleStore.addPersona(ctx, to: cast, name: "Data", voiceID: "marius", sortOrder: 2)
+
+        let mid = cast.sortedPersonas[1]
+        EnsembleStore.removePersona(ctx, mid, from: cast)
+
+        XCTAssertEqual(cast.sortedPersonas.map(\.name), ["Picard", "Data"])
+        XCTAssertEqual(cast.sortedPersonas.map(\.sortOrder), [0, 1])
+    }
+
+    func test_castPackage_roundTripEncodeDecode() throws {
+        let personas = [
+            Persona(name: "Picard", voiceID: "javert", systemPrompt: "Captain.", samplingPreset: .strict),
+            Persona(name: "Q", voiceID: "marius", systemPrompt: "Chaos.", samplingPreset: .butterflyChaser),
+        ]
+        let package = CastPackageBuilder.make(
+            castID: UUID(),
+            castName: "Q Continuum",
+            scene: "Ten Forward",
+            mood: "unimpressed",
+            userPeerName: "Guest",
+            personas: personas,
+            rolesAndReads: [
+                (role: "captain", suggestedVoice: "gravelly", reads: ["Q": "exhausting"]),
+                (role: "entity", suggestedVoice: "", reads: [:]),
+            ],
+            turnMode: .director,
+            rngMode: .shuffleOnce,
+            paceSeconds: 0.6,
+            maxTurns: 60,
+            contextWindowTurns: 16,
+            rollingSummaryEnabled: true,
+            voicedPlayback: true,
+            scenePlayMode: .sceneFirst
+        )
+        let data = try CastPackageBuilder.jsonEncoder().encode(package)
+        let decoded = try CastPackageBuilder.jsonDecoder().decode(CastPackage.self, from: data)
+
+        XCTAssertEqual(decoded.formatVersion, CastPackage.currentFormatVersion)
+        XCTAssertEqual(decoded.cast.scene, "Ten Forward")
+        XCTAssertEqual(decoded.cast.turnModeRaw, TurnMode.director.rawValue)
+        XCTAssertEqual(decoded.cast.scenePlayModeRaw, ScenePlayMode.sceneFirst.rawValue)
+        XCTAssertEqual(decoded.personas.count, 2)
+        XCTAssertEqual(decoded.personas[0].name, "Picard")
+        XCTAssertEqual(decoded.personas[0].readsOnOthers["Q"], "exhausting")
+        XCTAssertEqual(decoded.personas[1].samplingPresetRaw, SamplingPreset.butterflyChaser.rawValue)
+    }
+
+    func test_castPackage_toleratesMissingOptionalRunKnobs() throws {
+        // Minimal JSON an older/hand-written exporter might produce.
+        let json = """
+        {
+          "formatVersion": 1,
+          "exportedAt": "2026-01-15T12:00:00Z",
+          "cast": {
+            "id": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+            "name": "Minimal",
+            "scene": "bridge",
+            "mood": "tense",
+            "userPeerName": "You"
+          },
+          "personas": [
+            {
+              "id": "11111111-2222-3333-4444-555555555555",
+              "name": "Data",
+              "role": "",
+              "voiceID": "marius",
+              "suggestedVoice": "",
+              "personaPrompt": "Android.",
+              "temperature": 0.7,
+              "samplingPresetRaw": "relaxed",
+              "readsOnOthers": {},
+              "sortOrder": 0
+            }
+          ]
+        }
+        """
+        let data = Data(json.utf8)
+        let decoded = try CastPackageBuilder.jsonDecoder().decode(CastPackage.self, from: data)
+        XCTAssertEqual(decoded.personas.count, 1)
+        XCTAssertNil(decoded.cast.turnModeRaw)
+        XCTAssertNil(decoded.cast.maxTurns)
+        XCTAssertEqual(decoded.personas[0].voiceID, "marius")
+    }
+
+    func test_resolveVoiceID_fallsBackToCosette() {
+        let available: Set<String> = ["javert", "cosette"]
+        XCTAssertEqual(CastPackageBuilder.resolveVoiceID("javert", available: available), "javert")
+        XCTAssertEqual(
+            CastPackageBuilder.resolveVoiceID("imported:deadbeef", available: available),
+            CastPackageBuilder.defaultVoiceID
+        )
+    }
+
+    func test_importClampsRunKnobsAndCapsCastSize() throws {
+        XCTAssertEqual(CastPackageBuilder.clampMaxTurns(999), 300)
+        XCTAssertEqual(CastPackageBuilder.clampMaxTurns(1), 4)
+        XCTAssertEqual(CastPackageBuilder.clampVerbatimWindow(100), 40)
+        XCTAssertEqual(CastPackageBuilder.clampPaceSeconds(9), 2.5)
+        XCTAssertEqual(RNGMode(rawValue: "shuffleOnce"), .shuffleOnce)
+        XCTAssertEqual(RNGMode(rawValue: "rerollPerTurn"), .rerollPerTurn)
+    }
+
+    func test_qwenPretokens_attachLeadingSpaceToFollowingWord() {
+        let parts = QwenTokenEstimator.shared.pretokensForTesting("Hello world")
+        XCTAssertEqual(parts, ["Hello", " world"], parts.joined(separator: "|"))
+        XCTAssertFalse(parts.contains { $0.allSatisfy(\.isWhitespace) })
+    }
+
+    func test_castPackage_rejectsFutureFormatVersionOnApply() throws {
+        // Decode still works; applyImportedPackage is what rejects.
+        var package = CastPackageBuilder.make(
+            castID: UUID(),
+            castName: "X",
+            scene: "s",
+            mood: "m",
+            userPeerName: "You",
+            personas: [Persona(name: "A", voiceID: "cosette", systemPrompt: "")],
+            turnMode: .director,
+            rngMode: .shuffleOnce,
+            paceSeconds: 0.6,
+            maxTurns: 60,
+            contextWindowTurns: 16,
+            rollingSummaryEnabled: true,
+            voicedPlayback: true
+        )
+        package.formatVersion = 99
+        XCTAssertGreaterThan(package.formatVersion, CastPackage.currentFormatVersion)
+    }
+
     // MARK: - Sessions
 
     func test_appendSession_persistsSpeakersInOrder() throws {

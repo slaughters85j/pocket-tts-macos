@@ -17,14 +17,16 @@ extension EnsembleViewModel {
 
     /// Pick the next speaker via an LLM "director" call. Mention override wins
     /// first (free + deterministic); on any failure we fall back to weighted-
-    /// random excluding the last speaker.
-    func pickNextViaDirector(lastSpeaker: UUID?) async -> UUID? {
+    /// random excluding the last speaker. `pickCast` may include the synthetic
+    /// user peer when “include me in turn order” is on.
+    func pickNextViaDirector(lastSpeaker: UUID?, pickCast: [Persona]? = nil) async -> UUID? {
+        let roster = pickCast ?? effectiveCastForTurnOrder()
         if let last = turns.last,
-           let mentioned = Conductor.detectMention(in: last.content, cast: cast, excluding: last.speakerID),
-           !Conductor.wouldExtendMentionPingPong(mentioned: mentioned, cast: cast, turns: turns) {
+           let mentioned = Conductor.detectMention(in: last.content, cast: roster, excluding: last.speakerID),
+           !Conductor.wouldExtendMentionPingPong(mentioned: mentioned, cast: roster, turns: turns) {
             return mentioned
         }
-        let prompt = DirectorPrompt.build(cast: cast, turns: turnsForModel(), window: verbatimWindow)
+        let prompt = DirectorPrompt.build(cast: roster, turns: turnsForModel(), window: verbatimWindow)
         do {
             var raw = ""
             let stream = makeClient().streamChat(
@@ -32,15 +34,15 @@ extension EnsembleViewModel {
                 model: resolvedModel, systemPrompt: prompt.system, temperature: 0.3, maxTokens: 16
             )
             for try await delta in stream { raw += delta }
-            if let picked = DirectorPrompt.resolve(raw, cast: cast, excluding: lastSpeaker) {
+            if let picked = DirectorPrompt.resolve(raw, cast: roster, excluding: lastSpeaker) {
                 return picked
             }
         } catch {
             // fall through to weighted-random
         }
         var generator = SystemRandomNumberGenerator()
-        let pool = cast.filter { $0.id != lastSpeaker }
-        return Conductor.weightedChoice(pool.isEmpty ? cast : pool, using: &generator)?.id
+        let pool = roster.filter { $0.id != lastSpeaker }
+        return Conductor.weightedChoice(pool.isEmpty ? roster : pool, using: &generator)?.id
     }
 
     // MARK: - Agreement-collapse "grenade"

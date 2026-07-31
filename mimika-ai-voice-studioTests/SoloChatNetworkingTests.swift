@@ -60,6 +60,94 @@ final class SoloChatNetworkingTests: XCTestCase {
         XCTAssertFalse(capabilities.contains(.reasoning))
     }
 
+    func test_lmStudioEntry_prefersArchitectureMaxWhenNoLoadedInstance() throws {
+        // Bare catalog config often defaults to 8192; architecture max is the real ceiling.
+        let json = """
+        {
+          "models": [{
+            "key": "qwen3",
+            "max_context_length": 262144,
+            "config": { "context_length": 8192 },
+            "loaded_instances": [],
+            "capabilities": {
+              "vision": false,
+              "trained_for_tool_use": false,
+              "reasoning": null
+            }
+          }]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(LMStudioModelsResponse.self, from: json)
+        let entry = decoded.models[0]
+        XCTAssertEqual(entry.resolvedContextLength, 262144)
+        XCTAssertNil(entry.loadedContextLength(for: "qwen3"))
+    }
+
+    func test_lmStudioEntry_loadedInstanceWinsOverArchitectureMax() throws {
+        let json = """
+        {
+          "models": [{
+            "key": "qwen3",
+            "max_context_length": 262144,
+            "config": { "context_length": 8192 },
+            "loaded_instances": [
+              { "id": "qwen3", "config": { "context_length": 32768 } }
+            ],
+            "capabilities": {
+              "vision": false,
+              "trained_for_tool_use": false,
+              "reasoning": null
+            }
+          }]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(LMStudioModelsResponse.self, from: json)
+        let entry = decoded.models[0]
+        XCTAssertEqual(entry.loadedContextLength(for: "qwen3"), 32768)
+        // Fallback without matching load still prefers architecture max.
+        XCTAssertEqual(entry.resolvedContextLength, 262144)
+    }
+
+    func test_servingModelIDs_emptyWhenNothingLoaded() throws {
+        let json = Data(
+            #"{"models":[{"key":"qwen3","loaded_instances":[],"capabilities":{"vision":false,"trained_for_tool_use":false}}]}"#.utf8
+        )
+        let decoded = try JSONDecoder().decode(LMStudioModelsResponse.self, from: json)
+        XCTAssertTrue(decoded.servingModelIDs().isEmpty)
+        XCTAssertEqual(decoded.catalogModelIDs(), ["qwen3"])
+        XCTAssertFalse(decoded.isServing("qwen3"))
+    }
+
+    func test_catalogAndServingIDs_separateLoadedFromDownloaded() throws {
+        let json = Data(
+            """
+            {"models":[
+              {"key":"a/model","loaded_instances":[{"id":"a/model-inst"}],
+               "capabilities":{"vision":false,"trained_for_tool_use":false}},
+              {"key":"b/idle","loaded_instances":[],
+               "capabilities":{"vision":false,"trained_for_tool_use":false}}
+            ]}
+            """.utf8
+        )
+        let decoded = try JSONDecoder().decode(LMStudioModelsResponse.self, from: json)
+        XCTAssertEqual(Set(decoded.catalogModelIDs()), Set(["a/model", "b/idle"]))
+        XCTAssertTrue(decoded.isServing("a/model"))
+        XCTAssertTrue(decoded.isServing("a/model-inst"))
+        XCTAssertFalse(decoded.isServing("b/idle"))
+        XCTAssertEqual(decoded.loadedInstanceIDs(), ["a/model-inst"])
+    }
+
+    func test_friendlyConnectionError_hidesRawBodies() {
+        let raw = LocalLLMClient.ClientError.httpError(
+            status: 500,
+            body: #"{"error":"internal","stack":"…"}"#
+        )
+        let friendly = LocalLLMClient.friendlyConnectionError(raw)
+        XCTAssertEqual(friendly, "server error")
+        XCTAssertFalse(friendly.contains("stack"))
+        XCTAssertFalse(friendly.contains("{"))
+    }
+
     func test_modelMetadata_preservesReasoningOptionsAndDefault() async throws {
         LLMStubURLProtocol.setResponse(
             Data(

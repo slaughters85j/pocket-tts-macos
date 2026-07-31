@@ -35,6 +35,11 @@ mimika-ai-voice-studio/Resources/
 # container via the in-app Voice Manager, never in source.
 !mimika-ai-voice-studio/Resources/tokenizer.model
 !mimika-ai-voice-studio/Resources/tokenizer_vocab.json
+# Ensemble Compact fill meter — Qwen3 reference tokenizer (~19 MB).
+!mimika-ai-voice-studio/Resources/tokenizers/
+!mimika-ai-voice-studio/Resources/tokenizers/qwen3/
+!mimika-ai-voice-studio/Resources/tokenizers/qwen3/tokenizer.json
+!mimika-ai-voice-studio/Resources/tokenizers/qwen3/tokenizer_config.json
 !mimika-ai-voice-studio/Resources/voice_kv_states/
 !mimika-ai-voice-studio/Resources/voice_kv_states/alba.safetensors
 !mimika-ai-voice-studio/Resources/voice_kv_states/azelma.safetensors

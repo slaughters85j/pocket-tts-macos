@@ -138,15 +138,62 @@ nonisolated struct ModelsResponse: Decodable {
 nonisolated struct LMStudioModelsResponse: Decodable {
     let models: [Entry]
 
+    /// IDs for models that currently have at least one loaded instance.
+    /// Includes both instance ids and catalog keys so saved preferences match.
+    func servingModelIDs() -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
+        for entry in models where !entry.loadedInstances.isEmpty {
+            for inst in entry.loadedInstances {
+                if seen.insert(inst.id).inserted { out.append(inst.id) }
+            }
+            if seen.insert(entry.key).inserted { out.append(entry.key) }
+        }
+        return out
+    }
+
+    /// Downloaded/catalog model keys (picker source) — not necessarily loaded.
+    func catalogModelIDs() -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
+        for entry in models {
+            if seen.insert(entry.key).inserted { out.append(entry.key) }
+        }
+        return out
+    }
+
+    /// Loaded instance ids only (for unload).
+    func loadedInstanceIDs() -> [String] {
+        models.flatMap { $0.loadedInstances.map(\.id) }
+    }
+
+    /// True if `model` is already loaded (matches key or instance id).
+    func isServing(_ model: String) -> Bool {
+        servingModelIDs().contains { idsMatch($0, model) }
+    }
+
+    private func idsMatch(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        if a.hasSuffix(b) || b.hasSuffix(a) { return true }
+        let ta = a.split(separator: "/").last.map(String.init) ?? a
+        let tb = b.split(separator: "/").last.map(String.init) ?? b
+        return ta == tb
+    }
+
     struct Entry: Decodable {
         let key: String
         let capabilities: Capabilities?
         let loadedInstances: [LoadedInstance]
+        /// Architecture / publisher max (tokens), when LM Studio reports it.
+        let maxContextLength: Int?
+        let config: Config?
 
         private enum CodingKeys: String, CodingKey {
             case key
             case capabilities
             case loadedInstances = "loaded_instances"
+            case maxContextLength = "max_context_length"
+            case config
         }
 
         init(from decoder: Decoder) throws {
@@ -157,11 +204,80 @@ nonisolated struct LMStudioModelsResponse: Decodable {
                 [LoadedInstance].self,
                 forKey: .loadedInstances
             ) ?? []
+            maxContextLength = Self.decodeFlexibleInt(container, key: .maxContextLength)
+            config = try container.decodeIfPresent(Config.self, forKey: .config)
+        }
+
+        /// Fallback when no loaded instance is matched.
+        /// Prefer architecture `max_context_length` over bare `config.context_length`:
+        /// the latter is often a catalog default (e.g. 8192) that understates the
+        /// model’s real ceiling when the instance isn’t matched by id.
+        var resolvedContextLength: Int? {
+            if let n = maxContextLength, n > 0 { return n }
+            if let n = config?.contextLength, n > 0 { return n }
+            return nil
+        }
+
+        /// Loaded instance n_ctx for `model` if present (actual server capacity).
+        func loadedContextLength(for model: String) -> Int? {
+            let match = loadedInstances.first(where: { Self.idsMatch($0.id, model) })
+                ?? loadedInstances.first
+            if let n = match?.config?.contextLength, n > 0 { return n }
+            return nil
+        }
+
+        private static func idsMatch(_ a: String, _ b: String) -> Bool {
+            if a == b { return true }
+            // LM Studio sometimes keys as publisher/name and serves as a longer path.
+            if a.hasSuffix(b) || b.hasSuffix(a) { return true }
+            let ta = a.split(separator: "/").last.map(String.init) ?? a
+            let tb = b.split(separator: "/").last.map(String.init) ?? b
+            return ta == tb
+        }
+
+        private static func decodeFlexibleInt(
+            _ container: KeyedDecodingContainer<CodingKeys>,
+            key: CodingKeys
+        ) -> Int? {
+            if let i = try? container.decodeIfPresent(Int.self, forKey: key) { return i }
+            if let d = try? container.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+            if let s = try? container.decodeIfPresent(String.self, forKey: key),
+               let i = Int(s) { return i }
+            return nil
+        }
+    }
+
+    struct Config: Decodable {
+        /// Context length of the *loaded* instance (user-configured in LM Studio).
+        let contextLength: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case contextLength = "context_length"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let i = try? container.decodeIfPresent(Int.self, forKey: .contextLength) {
+                contextLength = i
+            } else if let d = try? container.decodeIfPresent(Double.self, forKey: .contextLength) {
+                contextLength = Int(d)
+            } else if let s = try? container.decodeIfPresent(String.self, forKey: .contextLength),
+                      let i = Int(s) {
+                contextLength = i
+            } else {
+                contextLength = nil
+            }
         }
     }
 
     struct LoadedInstance: Decodable {
         let id: String
+        let config: Config?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case config
+        }
     }
 
     struct Capabilities: Decodable {

@@ -186,6 +186,60 @@ nonisolated enum TextNormalizer {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - Emoji stripping
+    //
+    // LLMs love emoji (😂🔥😉). Pocket-TTS byte-fallbacks them into noise and
+    // the AR loop often glitches hard — users hear garble / runaway tone.
+    // Strip at the speech/export boundary; keep them in the on-screen transcript
+    // so the chat UI still shows the model’s flair.
+
+    /// Remove emoji and emoji sequences (flags, skin tones, ZWJ families, keycaps).
+    /// Leaves letters, digits, and ordinary punctuation alone. Idempotent.
+    static func stripEmojis(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var out = String()
+        out.reserveCapacity(text.count)
+        for ch in text {
+            if isEmojiLike(ch) { continue }
+            out.append(ch)
+        }
+        // Collapse gaps left by removals (same tidy pass as stage directions).
+        var working = out.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+        working = working.replacingOccurrences(of: " ([,.!?;:])", with: "$1", options: .regularExpression)
+        let lines = working.components(separatedBy: "\n").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// True for emoji grapheme clusters (including multi-scalar sequences).
+    /// Deliberately false for ASCII digits / `#` / `*` which Unicode sometimes
+    /// tags as emoji bases for keycap sequences.
+    private static func isEmojiLike(_ ch: Character) -> Bool {
+        for s in ch.unicodeScalars {
+            if s.properties.isEmojiPresentation { return true }
+            // ZWJ / emoji-style VS glue multi-scalar emoji; drop the whole Character.
+            if s.value == 0x200D || s.value == 0xFE0F { return true }
+            // Regional indicators (flags), skin tones, tag sequences, keycap mark.
+            if (0x1F1E6...0x1F1FF).contains(s.value) { return true }
+            if (0x1F3FB...0x1F3FF).contains(s.value) { return true }
+            if (0xE0020...0xE007F).contains(s.value) { return true }
+            if s.value == 0x20E3 { return true }
+        }
+        // Single-scalar emoji without default presentation (e.g. ☹ U+2639).
+        // Skip ASCII so "1" / "#" never disappear.
+        if ch.unicodeScalars.count == 1, let s = ch.unicodeScalars.first {
+            if s.properties.isEmoji
+                && s.value > 0x00FF
+                && !(s.value >= 0x30 && s.value <= 0x39)
+                && s.value != 0x23
+                && s.value != 0x2A {
+                return true
+            }
+        }
+        return false
+    }
+
     // MARK: - STT artifact stripping
     //
     // ASR backends can emit non-speech markers as bracketed text like
@@ -304,17 +358,20 @@ nonisolated enum TextNormalizer {
     // MARK: - Public API
 
     static func normalize(_ text: String) -> String {
-        // Smart-punctuation normalization runs FIRST, before anything else
-        // touches the string. The SentencePiece tokenizer maps ASCII
-        // apostrophes / quotes / hyphens / ellipsis to single canonical
-        // pieces; the Unicode "smart" equivalents byte-fallback into 3-4
-        // separate tokens (e.g. curly `’` → `<0xE2><0x80><0x99>`), which
-        // the model wasn't trained on and reliably distorts on. This is
-        // the most common source of "every contraction sounds garbled"
-        // reports because macOS smart-quote substitution + LLM-generated
-        // scripts (AI Writer) emit curly punctuation by default. Cheap
-        // fix here, audible improvement everywhere downstream.
-        var t = normalizeSmartPunctuation(text)
+        // Emoji first (Character-level) so ZWJ families / flags leave as whole
+        // clusters before smart-punct strips ZWJ alone and leaves debris.
+        var t = stripEmojis(text)
+        // Smart-punctuation normalization runs next. The SentencePiece
+        // tokenizer maps ASCII apostrophes / quotes / hyphens / ellipsis to
+        // single canonical pieces; the Unicode "smart" equivalents
+        // byte-fallback into 3-4 separate tokens (e.g. curly `’` →
+        // `<0xE2><0x80><0x99>`), which the model wasn't trained on and
+        // reliably distorts on. This is the most common source of "every
+        // contraction sounds garbled" reports because macOS smart-quote
+        // substitution + LLM-generated scripts (AI Writer) emit curly
+        // punctuation by default. Cheap fix here, audible improvement
+        // everywhere downstream.
+        t = normalizeSmartPunctuation(t)
         // Ellipsis: now handled above (curly … → "...") and otherwise
         // passed through. The Python reference uses `...` as an
         // end-of-sentence token inside its SentencePiece-based chunker

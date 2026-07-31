@@ -42,9 +42,15 @@ struct ConnectionStatusPill: View {
 
     private var label: String {
         switch state {
-        case .checking:                  return "Checking LLM endpoint…"
-        case let .connected(model):      return "Connected — \(model)"
-        case let .disconnected(reason):  return "Not connected (\(reason))"
+        case .checking:
+            return "Checking LLM endpoint…"
+        case let .connected(model):
+            return "Connected — \(model)"
+        case let .disconnected(reason):
+            // Reasons are already short (friendlyConnectionError / "no model loaded").
+            let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return "Not connected" }
+            return "Not connected — \(trimmed)"
         }
     }
 }

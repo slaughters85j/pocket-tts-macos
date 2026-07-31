@@ -10,14 +10,17 @@ extension ChatViewModel {
 
     // MARK: Polling lifecycle
 
-    /// Start one idempotent 30-second health/capability loop.
+    /// Start one idempotent 1-second health/capability loop.
+    /// UI state is only written when connectivity or model actually changes.
     func startHealthChecks() {
         guard healthCheckTask == nil else { return }
+        // Ensemble Compact may open later in the same process; pre-warm once.
+        QwenTokenEstimator.prewarm()
         healthCheckTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.checkConnection()
                 do {
-                    try await Task.sleep(for: .seconds(30))
+                    try await Task.sleep(for: .seconds(1))
                 } catch {
                     break
                 }
@@ -36,6 +39,8 @@ extension ChatViewModel {
     }
 
     /// Publish connectivity first, then probe richer capability metadata.
+    /// Polls every second; skips Observation writes and capability probes when
+    /// the serving model set is unchanged.
     func checkConnection() async {
         let requestID = UUID()
         connectionRequestID = requestID
@@ -68,7 +73,7 @@ extension ChatViewModel {
         )
 
         do {
-            let models = try await client.listModels()
+            let models = try await client.listServingModels()
             guard
                 !Task.isCancelled,
                 requestID == connectionRequestID,
@@ -77,24 +82,43 @@ extension ChatViewModel {
                 settings.model == requestedModel
             else { return }
             guard let loaded = models.first else {
-                connectionState = .disconnected(reason: "no models loaded")
+                setConnectionStateIfChanged(.disconnected(reason: "no model loaded"))
                 return
             }
 
             let effectiveModel = models.contains(settings.model) ? settings.model : loaded
-            connectionState = .connected(model: effectiveModel)
+            let next = ConnectionState.connected(model: effectiveModel)
+            let connectionChanged = connectionState != next
+            setConnectionStateIfChanged(next)
 
             let selection = ChatModelSelection(
                 endpoint: appState.currentEndpointBaseURL,
                 model: effectiveModel
             )
             let forced = settings.forcedCapabilities(for: selection)
-            capabilitySelection = selection
-            await probeCapabilities(for: selection, forced: forced)
+            // Re-probe only when the serving model/endpoint changed, or we
+            // never got a successful capability read for this selection.
+            let needsProbe = connectionChanged
+                || capabilitySelection != selection
+                || capabilityState.freshness == .unknown
+            if capabilitySelection != selection {
+                capabilitySelection = selection
+            }
+            if needsProbe {
+                await probeCapabilities(for: selection, forced: forced)
+            }
         } catch {
             guard !Task.isCancelled, requestID == connectionRequestID else { return }
-            connectionState = .disconnected(reason: shortError(error))
+            setConnectionStateIfChanged(
+                .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
+            )
         }
+    }
+
+    /// Avoid redundant `@Observable` publishes on a 1s poll.
+    private func setConnectionStateIfChanged(_ next: ConnectionState) {
+        guard connectionState != next else { return }
+        connectionState = next
     }
 
     /// Probe authoritative LM Studio metadata with stale-result protection.
@@ -161,14 +185,20 @@ extension ChatViewModel {
     // MARK: Reasoning selection
 
     /// Resolve one model's reasoning control without guessing from its name.
+    /// Ensemble keeps its own stored selection (defaults to Off) so Solo
+    /// effort levels are not inherited into multi-agent turns.
     func applyReasoningConfiguration(
         _ configuration: ModelReasoningConfiguration?,
         for selection: ChatModelSelection
     ) {
         guard capabilitySelection == selection else { return }
 
-        let resolved = configuration
+        let base = configuration
             ?? (supportsReasoning ? .binaryFallback : nil)
+        let resolved = Self.reasoningConfiguration(
+            base: base,
+            forEnsemble: appState.chatSubMode == .ensemble
+        )
         reasoningConfiguration = resolved
 
         guard let resolved else {
@@ -176,15 +206,30 @@ extension ChatViewModel {
             return
         }
 
-        let stored = reasoningSelections[selection.storageKey]
+        let key = reasoningStorageKey(for: selection)
+        let stored = reasoningSelections[key]
         let selected = stored.flatMap {
             resolved.allowedOptions.contains($0) ? $0 : nil
-        } ?? resolved.defaultOption
+        } ?? Self.defaultReasoningOption(
+            for: resolved,
+            ensemble: appState.chatSubMode == .ensemble
+        )
         reasoningSelection = selected
-        reasoningSelections[selection.storageKey] = selected
+        reasoningSelections[key] = selected
+    }
+
+    /// Re-resolve the active model's thinking control after Solo ↔ Ensemble
+    /// switch so the shared badge uses the mode-scoped default/store.
+    func refreshReasoningForChatSubMode() {
+        guard let selection = capabilitySelection else { return }
+        let config = lastKnownReasoningConfigurations[selection.storageKey]
+            ?? reasoningConfiguration
+        applyReasoningConfiguration(config, for: selection)
     }
 
     /// Change reasoning only while no request owns a captured payload.
+    /// Ensemble shows a one-shot toast when thinking is turned on (not when
+    /// only changing effort level among already-on values).
     func setReasoningSelection(_ option: ModelReasoningOption) {
         guard activeTurn == nil else {
             showToast("Please wait until the model finishes responding.")
@@ -196,7 +241,52 @@ extension ChatViewModel {
             reasoningConfiguration.allowedOptions.contains(option)
         else { return }
 
+        let previous = reasoningSelection
         reasoningSelection = option
-        reasoningSelections[selection.storageKey] = option
+        reasoningSelections[reasoningStorageKey(for: selection)] = option
+
+        if appState.chatSubMode == .ensemble,
+           option != .off,
+           previous == .off || previous == nil {
+            showToast(
+                "Larger thinking models tend to cause non-responsive turns in Ensemble."
+            )
+        }
+    }
+
+    /// Solo keys by model; Ensemble uses a distinct key so defaults stay Off.
+    private func reasoningStorageKey(for selection: ChatModelSelection) -> String {
+        if appState.chatSubMode == .ensemble {
+            return selection.storageKey + "|ensemble"
+        }
+        return selection.storageKey
+    }
+
+    /// Ensemble always offers Off (injecting it when LM Studio only lists
+    /// low/medium/high) so multi-agent runs can disable thinking by default.
+    private static func reasoningConfiguration(
+        base: ModelReasoningConfiguration?,
+        forEnsemble: Bool
+    ) -> ModelReasoningConfiguration? {
+        guard let base else { return nil }
+        guard forEnsemble else { return base }
+        var options = base.allowedOptions
+        if !options.contains(.off) {
+            options.insert(.off, at: 0)
+        }
+        return ModelReasoningConfiguration(
+            allowedOptions: options,
+            defaultOption: options.contains(.off) ? .off : base.defaultOption
+        )
+    }
+
+    private static func defaultReasoningOption(
+        for configuration: ModelReasoningConfiguration,
+        ensemble: Bool
+    ) -> ModelReasoningOption {
+        if ensemble, configuration.allowedOptions.contains(.off) {
+            return .off
+        }
+        return configuration.defaultOption
     }
 }

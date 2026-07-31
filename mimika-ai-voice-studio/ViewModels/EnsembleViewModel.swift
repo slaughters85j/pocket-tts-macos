@@ -20,6 +20,9 @@
 import Foundation
 import Observation
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 @Observable
@@ -38,6 +41,9 @@ final class EnsembleViewModel {
     var advanceMode: AdvanceMode = .step
     var turnOrder: TurnMode = .director
     var rngMode: RNGMode = .shuffleOnce
+    /// Scene-first = prefer playing out the set scene+mood (default). Free =
+    /// wild cards / digressions welcome; the human's lines still always win.
+    var scenePlayMode: ScenePlayMode = .sceneFirst
     var paceDelay: Duration = .milliseconds(600)
     /// `paceDelay` as seconds — a slider-friendly bridge for the settings panel.
     var paceSeconds: Double {
@@ -51,6 +57,45 @@ final class EnsembleViewModel {
     /// One-shot disruption armed by "throw a grenade" — the next turn is told to
     /// break the consensus, then this clears.
     var pendingGrenade: Bool = false
+    /// Director's Chair Boot: force this speaker next with an exit directive,
+    /// then remove them from the cast after the turn lands.
+    var pendingBoot: PendingBoot?
+    /// Director's Chair Direct: force this speaker next with a custom instruction
+    /// (steer prose, ban a phrase, etc.) at Strict sampling.
+    var pendingDirective: PendingDirective?
+    /// Sticky note for remaining speakers after a boot (cleared on next boot or new cast).
+    var lastDepartureNote: String?
+    /// Speakers removed by Boot — kept for Multi-Talk / History / Markdown export
+    /// so their past lines keep their own name + voice instead of collapsing onto
+    /// the user tag or Multi-Talk's default stock voice (alba).
+    var departedSpeakers: [Persona] = []
+    /// Effective context ceiling for Compact % (loaded n_ctx when known).
+    var modelContextLimitTokens: Int?
+    /// Architecture max from LM Studio (`max_context_length`), when known.
+    /// Shown when higher than the loaded limit so users know to raise n_ctx.
+    var modelArchitectureMaxTokens: Int?
+    /// Optional override for Compact denominator (tokens). `nil` = use server.
+    /// Does not change LM Studio’s actual load — only our fill estimate.
+    var contextLimitOverrideTokens: Int?
+    /// Approximate model-facing fill 0…100 using the Qwen reference tokenizer.
+    var contextFillPercent: Int?
+    /// One-shot “near full” toast guard until Compact brings fill back down.
+    var didWarnContextNearFull = false
+    /// When true (and the user has a real character name), the director/conductor
+    /// may pick the human as next speaker — parks the loop until they type/speak
+    /// or the timeout fires.
+    var includeUserInTurnOrder: Bool = false
+    /// True while the loop is waiting on an invited user turn (not barge-in).
+    var awaitingInvitedUserTurn: Bool = false
+    /// Seconds the human has when tapped to speak.
+    static let invitedUserTurnTimeoutSeconds: Double = 60
+    /// Live countdown while `awaitingInvitedUserTurn` (drives composer banner).
+    var invitedUserTurnSecondsRemaining: Int = 0
+    /// Sentinel UUID for “human is next” in pick only — turns still use `speakerID == nil`.
+    static let userTurnSpeakerID =
+        UUID(uuidString: "A11CE5CE-0000-4000-8000-0000000005E2")!
+    private var invitedUserContinuation: CheckedContinuation<Bool, Never>?
+    private var invitedUserTimeoutTask: Task<Void, Never>?
     var maxTurns: Int = 60
     /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
     /// on top of the "one or two sentences" instruction + stop sequences.
@@ -101,9 +146,10 @@ final class EnsembleViewModel {
     // MARK: - Loop bookkeeping
     private var loopTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
-    private var shuffledOrder: [UUID] = []
-    private var orderCursor: Int = 0
-    private var producedThisRun: Int = 0
+    /// Round-robin seat order. Internal so cast import / roster edits can reset it.
+    var shuffledOrder: [UUID] = []
+    var orderCursor: Int = 0
+    var producedThisRun: Int = 0
     private var isLooping = false
     /// Set by the runner's onError; read after a turn to stop the loop and
     /// preserve the surfaced `.error` state instead of clobbering it.
@@ -112,8 +158,8 @@ final class EnsembleViewModel {
     /// on first appear (and never clobbers an in-progress conversation later).
     private var didAttemptAutoLoad = false
     /// Background rolling-summary task (one at a time) + how many out-of-window
-    /// turns accumulate before a fold runs.
-    private var summaryTask: Task<Void, Never>?
+    /// turns accumulate before a fold runs. Internal so import can cancel it.
+    var summaryTask: Task<Void, Never>?
     private static let summaryBatchSize = 8
     private static let summaryMaxTokens = 256
     /// Hard ceiling on verbatim turns rendered — a safety net so a repeatedly
@@ -192,22 +238,29 @@ final class EnsembleViewModel {
 
     // MARK: - Connection
 
+    /// 1s poll of serving models; UI only updates when state actually changes.
     func startHealthChecks() {
         guard healthCheckTask == nil else { return }
+        // Parse the 19 MB Qwen tokenizer off-main before Compact first opens.
+        QwenTokenEstimator.prewarm()
         healthCheckTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.checkConnection()
-                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 s
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
     func checkConnection() async {
         do {
-            let models = try await makeClient().listModels()
-            availableModels = models
+            let client = makeClient()
+            // Loaded/serving only — LM Studio catalog entries must not light the pill.
+            let models = try await client.listServingModels()
+            if availableModels != models {
+                availableModels = models
+            }
             guard !models.isEmpty else {
-                connectionState = .disconnected(reason: "no models loaded")
+                setConnectionStateIfChanged(.disconnected(reason: "no model loaded"))
                 return
             }
             // Report the model that will ACTUALLY serve the request: the app-level
@@ -215,10 +268,42 @@ final class EnsembleViewModel {
             // what makes the pill self-heal when the user swaps models in LM Studio.
             let saved = appState.chatSettings.model
             let effective = models.contains(saved) ? saved : (models.first ?? saved)
-            connectionState = .connected(model: effective)
+            let next = ConnectionState.connected(model: effective)
+            let connectionChanged = connectionState != next
+            setConnectionStateIfChanged(next)
+
+            // Context metadata + Compact % only when the serving model changes
+            // (fill also refreshes after turns; no need every poll).
+            guard connectionChanged || modelContextLimitTokens == nil else { return }
+            if let meta = try? await client.modelMetadata(for: effective) {
+                if let n = meta.contextLength, n > 0, modelContextLimitTokens != n {
+                    modelContextLimitTokens = n
+                }
+                if modelArchitectureMaxTokens != meta.architectureMaxContextLength {
+                    modelArchitectureMaxTokens = meta.architectureMaxContextLength
+                }
+                #if DEBUG
+                if connectionChanged {
+                    print(
+                        "[Compact] context meta loaded=\(meta.contextLength.map(String.init) ?? "?") "
+                        + "archMax=\(meta.architectureMaxContextLength.map(String.init) ?? "?") "
+                        + "override=\(contextLimitOverrideTokens.map(String.init) ?? "nil") model=\(effective)"
+                    )
+                }
+                #endif
+            }
+            refreshContextFillEstimate()
         } catch {
-            connectionState = .disconnected(reason: shortError(error))
+            setConnectionStateIfChanged(
+                .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
+            )
         }
+    }
+
+    /// Avoid redundant `@Observable` publishes on a 1s poll.
+    private func setConnectionStateIfChanged(_ next: ConnectionState) {
+        guard connectionState != next else { return }
+        connectionState = next
     }
 
     // MARK: - Default cast (Phase 1 hardcoded)
@@ -272,6 +357,10 @@ final class EnsembleViewModel {
                 samplingPreset: entry.preset
             )
         }
+        pendingBoot = nil
+        pendingDirective = nil
+        lastDepartureNote = nil
+        departedSpeakers = []
         persistCast(scene: scene, mood: mood, confirmed: confirmed)
     }
 
@@ -331,6 +420,10 @@ final class EnsembleViewModel {
         shuffledOrder = []
         orderCursor = 0
         producedThisRun = 0
+        pendingBoot = nil
+        pendingDirective = nil
+        lastDepartureNote = nil
+        departedSpeakers = []
         cast = saved.sortedPersonas.map { p in
             Persona(
                 name: p.name,
@@ -409,7 +502,9 @@ final class EnsembleViewModel {
         EnsembleStore.update(ctx, cast: saved)
     }
 
-    private func currentSavedCast(_ ctx: ModelContext) -> EnsembleCast? {
+    /// Prefer the loaded cast by id; fall back to most-recently-updated.
+    /// Internal so Cast IO / roster extensions can persist membership changes.
+    func currentSavedCast(_ ctx: ModelContext) -> EnsembleCast? {
         if let id = currentCastID,
            let match = EnsembleStore.casts(ctx).first(where: { $0.id == id }) { return match }
         return EnsembleStore.casts(ctx).first
@@ -448,8 +543,51 @@ final class EnsembleViewModel {
         loopTask?.cancel()
         runner.cancel()
         cancelDictation()
+        // Deliberate stop — don't imply a timeout with the "in time" notice.
+        completeInvitedUserTurn(submitted: false, noticeOnSkip: false)
         runState = .idle
         currentSpeakerID = nil
+    }
+
+    /// True when Cast & Settings (or New Cast) set a proper character name.
+    var hasRealUserCharacterName: Bool {
+        let n = userPeer.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !n.isEmpty && n != "You"
+    }
+
+    /// Toggle “include me in turn order”; requires a real character name.
+    func setIncludeUserInTurnOrder(_ on: Bool) {
+        if on, !hasRealUserCharacterName {
+            includeUserInTurnOrder = false
+            showNotice("Set your character name in Cast & Settings first")
+            return
+        }
+        includeUserInTurnOrder = on
+        shuffledOrder = []
+        orderCursor = 0
+    }
+
+    /// Live cast plus optional synthetic user peer for Conductor / Director picks.
+    func effectiveCastForTurnOrder() -> [Persona] {
+        guard includeUserInTurnOrder, hasRealUserCharacterName else { return cast }
+        var expanded = cast
+        expanded.append(Persona(
+            id: Self.userTurnSpeakerID,
+            name: userPeer.modelName,
+            voiceID: "",
+            systemPrompt: ""
+        ))
+        return expanded
+    }
+
+    /// Last speaker id for pick exclusion — maps user turns (`speakerID == nil`)
+    /// to the synthetic user-turn id when include-me is on.
+    func lastSpeakerIDForPick() -> UUID? {
+        guard let last = turns.last, !last.isSceneBeat else { return nil }
+        if last.speakerID == nil {
+            return includeUserInTurnOrder ? Self.userTurnSpeakerID : nil
+        }
+        return last.speakerID
     }
 
     /// Cut the loop + the in-flight turn + the player — used by barge-in. Kept
@@ -475,7 +613,14 @@ final class EnsembleViewModel {
     /// Tear down any in-progress dictation and reset the mic to idle — so Stop
     /// (or any hard reset) never leaves the mic capturing into `draft`.
     func cancelDictation() {
+        resetDictationToIdle()
+    }
+
+    /// Stop the speech controller and force mic UI back to idle (never leave
+    /// `.unavailable` sticky after an invited-turn or barge-in cycle ends).
+    func resetDictationToIdle() {
         dictationController.cancel()
+        dictationCapturedText = ""
         dictation = .idle
     }
 
@@ -483,6 +628,18 @@ final class EnsembleViewModel {
     /// this up on its next iteration (mention override honored); otherwise we
     /// advance one turn so someone reacts.
     func submitUserTurn() {
+        // Invited turn (director/conductor tapped the human) — complete the wait.
+        if awaitingInvitedUserTurn {
+            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            draft = ""
+            turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+            // Always kill the mic session — leaving it running after Send is what
+            // stuck the button on .unavailable via late onError callbacks.
+            resetDictationToIdle()
+            completeInvitedUserTurn(submitted: true)
+            return
+        }
         // After a barge-in (the user cut the cast off), submitting resumes the
         // cast in the prior advance mode instead of queuing/stepping.
         if case .userTurn = runState { finishBargeIn(); return }
@@ -493,6 +650,71 @@ final class EnsembleViewModel {
         if !isLooping, canRun {
             stepOnce()
         }
+    }
+
+    // MARK: - Invited user turn (include me in turn order)
+
+    /// Park the loop until the user submits a line or the timeout elapses.
+    func waitForInvitedUserTurn() async -> Bool {
+        awaitingInvitedUserTurn = true
+        invitedUserTurnSecondsRemaining = Int(Self.invitedUserTurnTimeoutSeconds)
+        runState = .userTurn
+        presentUserTurnToast()
+        playUserTurnCue()
+
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            invitedUserContinuation = cont
+            invitedUserTimeoutTask?.cancel()
+            invitedUserTimeoutTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                var left = Int(Self.invitedUserTurnTimeoutSeconds)
+                self.invitedUserTurnSecondsRemaining = left
+                while left > 0 {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { return }
+                    left -= 1
+                    self.invitedUserTurnSecondsRemaining = left
+                }
+                self.completeInvitedUserTurn(submitted: false)
+            }
+        }
+    }
+
+    /// Resume a parked invited-user wait (submit or timeout).
+    /// - Parameter noticeOnSkip: when false (Stop), skip the timeout-flavored notice.
+    func completeInvitedUserTurn(submitted: Bool, noticeOnSkip: Bool = true) {
+        invitedUserTimeoutTask?.cancel()
+        invitedUserTimeoutTask = nil
+        awaitingInvitedUserTurn = false
+        invitedUserTurnSecondsRemaining = 0
+        // Always re-arm the mic affordance — invited turns often leave dictation
+        // mid-session if the user hit Send while still "listening".
+        resetDictationToIdle()
+        guard let cont = invitedUserContinuation else { return }
+        invitedUserContinuation = nil
+        cont.resume(returning: submitted)
+        if !submitted, noticeOnSkip {
+            showNotice("Skipped — no line from you in time")
+        }
+    }
+
+    private func presentUserTurnToast() {
+        let secs = Int(Self.invitedUserTurnTimeoutSeconds)
+        let msg = "You're up, \(userPeer.modelName) — \(secs)s to speak or type"
+        appState.toastMessage = msg
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            if appState.toastMessage == msg {
+                appState.toastMessage = nil
+            }
+        }
+    }
+
+    private func playUserTurnCue() {
+        #if os(macOS)
+        // Short system cue so the user notices without watching the UI.
+        NSSound.beep()
+        #endif
     }
 
     // MARK: - Loop
@@ -506,13 +728,14 @@ final class EnsembleViewModel {
         isLooping = true
         defer { isLooping = false }
 
-        var lastSpeaker = turns.last?.speakerID
+        var lastSpeaker = lastSpeakerIDForPick()
         while !Task.isCancelled && producedThisRun < maxTurns {
             let produced = await runOneTurn(lastSpeaker: lastSpeaker)
             if !produced || Task.isCancelled { break }
-            lastSpeaker = turns.last?.speakerID
+            lastSpeaker = lastSpeakerIDForPick()
             producedThisRun += 1
             refreshSummaryIfNeeded()
+            refreshContextFillEstimate()
             if advanceMode == .step {
                 runState = .awaitingStep
                 return
@@ -596,17 +819,32 @@ final class EnsembleViewModel {
     /// unit tests. Returns whether the loop should continue.
     func runOneTurn(lastSpeaker: UUID?) async -> Bool {
         runState = .picking
+        let pickCast = effectiveCastForTurnOrder()
+        let excludeLast = lastSpeaker ?? lastSpeakerIDForPick()
         let nextID: UUID?
-        if turnOrder == .director {
-            nextID = await pickNextViaDirector(lastSpeaker: lastSpeaker)
+        // Boot / Direct force their target next so the instruction lands now.
+        // Boot wins if both are armed (exit is more urgent than a steer).
+        if let boot = pendingBoot, cast.contains(where: { $0.id == boot.speakerID }) {
+            nextID = boot.speakerID
+        } else if let dir = pendingDirective, cast.contains(where: { $0.id == dir.speakerID }) {
+            nextID = dir.speakerID
+        } else if turnOrder == .director {
+            nextID = await pickNextViaDirector(lastSpeaker: excludeLast, pickCast: pickCast)
         } else {
             var generator = SystemRandomNumberGenerator()
             nextID = Conductor.pickNext(
-                cast: cast, turns: turns, lastSpeaker: lastSpeaker,
+                cast: pickCast, turns: turns, lastSpeaker: excludeLast,
                 mode: turnOrder, rng: rngMode,
                 shuffledOrder: &shuffledOrder, cursor: &orderCursor, using: &generator
             )
         }
+
+        // Director/conductor tapped the human peer.
+        if nextID == Self.userTurnSpeakerID {
+            _ = await waitForInvitedUserTurn()
+            return !Task.isCancelled
+        }
+
         guard let speakerID = nextID,
               let persona = cast.first(where: { $0.id == speakerID }) else {
             runState = .idle
@@ -621,15 +859,26 @@ final class EnsembleViewModel {
         lastTurnFailed = false
         let grenade = pendingGrenade   // consume the one-shot disruption
         pendingGrenade = false
+        let bootReason: String? = {
+            guard let boot = pendingBoot, boot.speakerID == persona.id else { return nil }
+            return boot.reason
+        }()
+        let direction: String? = {
+            guard let dir = pendingDirective, dir.speakerID == persona.id else { return nil }
+            return dir.instruction
+        }()
 
         // Build the request BEFORE appending this turn's placeholder so the
         // persona sees only the context that PRECEDES its own line — not an
         // empty in-flight assistant turn plus a spurious "(continue)".
-        let preset = persona.samplingPreset
+        // Direct forces Strict sampling so the instruction is more likely obeyed.
+        let preset: SamplingPreset = direction != nil ? .strict : persona.samplingPreset
         let request = SpokenTurnRunner.Request(
             messages: messagesForPersona(persona),
             model: resolvedModel,
-            systemPrompt: framedSystemPrompt(persona, grenade: grenade),
+            systemPrompt: framedSystemPrompt(
+                persona, grenade: grenade, bootReason: bootReason, direction: direction
+            ),
             temperature: preset.temperature,
             voiceID: persona.voiceID,
             options: currentSynthesisOptions(for: persona.voiceID),
@@ -645,7 +894,7 @@ final class EnsembleViewModel {
 
         let turnID = UUID()
         turns.append(EnsembleTurn(id: turnID, speakerID: persona.id, speakerName: persona.name,
-                                  samplingPreset: persona.samplingPreset))
+                                  samplingPreset: preset))
         currentSpeakerID = persona.id
         runState = .generating(speaker: persona.id)
 
@@ -680,6 +929,56 @@ final class EnsembleViewModel {
             turns[i].content = cleaned
         }
         currentSpeakerID = nil
+
+        // Boot: after a successful exit line, remove them and arm a note for the table.
+        // Failed/empty turns keep `pendingBoot` so the next pick retries.
+        if bootReason != nil, !lastTurnFailed, !cleaned.isEmpty {
+            finalizeBoot(of: persona, reason: bootReason ?? "")
+        }
+        // Direct: one-shot — clear only after a successful directed line.
+        if direction != nil, !lastTurnFailed, !cleaned.isEmpty {
+            pendingDirective = nil
+        }
+    }
+
+    /// Publish departure for remaining speakers and drop the booted persona.
+    ///
+    /// Models often ignore a buried system note, so we also inject a **Scene**
+    /// transcript beat into the shared history (same channel as dialogue). That
+    /// is what makes the table actually notice the panel explosion / death.
+    private func finalizeBoot(of persona: Persona, reason: String) {
+        let reasonTrim = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = persona.name
+        let beat: String
+        if reasonTrim.isEmpty {
+            beat = "\(name) is gone from the scene and cannot speak or be addressed again."
+        } else {
+            // Lead with the director reason so "a panel exploded and killed him"
+            // is what the cast reads in the transcript window.
+            beat = "\(reasonTrim). \(name) is gone and cannot speak or be addressed again."
+        }
+        lastDepartureNote = beat
+        pendingBoot = nil
+        turns.append(.sceneBeat(beat))
+        // Archive before remove so export can still map this speakerID → name/voice.
+        if !departedSpeakers.contains(where: { $0.id == persona.id }) {
+            departedSpeakers.append(persona)
+        }
+        _ = removeCastMember(id: persona.id)
+        // Ensemble banner + app-wide toast (visible even with the Chair open).
+        showNotice("Booted \(name)")
+        presentBootToast("\(name) has been booted from the cast")
+    }
+
+    /// Surface a short app-level toast (ContentView banner) that auto-clears.
+    private func presentBootToast(_ message: String) {
+        appState.toastMessage = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            if appState.toastMessage == message {
+                appState.toastMessage = nil
+            }
+        }
     }
 
     // MARK: - Internals
@@ -710,7 +1009,16 @@ final class EnsembleViewModel {
     /// define WHO they are but nothing anchors WHAT they're discussing — an
     /// autonomous text loop then drifts off-theme (and small models slide into
     /// meta "I am an AI" navel-gazing).
-    private func framedSystemPrompt(_ persona: Persona, grenade: Bool = false) -> String {
+    ///
+    /// `scenePlayMode` steers how hard that anchor pulls: Scene-first (default)
+    /// pushes faithful scene play; Free keeps a loose riff — but the human
+    /// always wins when they redirect.
+    private func framedSystemPrompt(
+        _ persona: Persona,
+        grenade: Bool = false,
+        bootReason: String? = nil,
+        direction: String? = nil
+    ) -> String {
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
         var context = "You are \(persona.name). Respond ONLY as \(persona.name), with a single short line of spoken dialogue — just the words you say out loud, in the first person. Do NOT wrap your line in quotation marks. Do NOT narrate actions, gestures, tone, or expressions, and never describe yourself in the third person (no \"he said\", no \"she replies calmly\", no \"*sighs*\"). Do NOT write lines for any other character, and do NOT prefix your reply with a name. Remain fully in character; never refer to yourself as an AI, a model, or an assistant."
@@ -720,18 +1028,70 @@ final class EnsembleViewModel {
         // otherwise mistake for an instruction addressed to itself.)
         let you = userPeer.modelName   // model-facing label — never the "You" pronoun
         context += " \(you) is a real person in this conversation with you; their lines are prefixed \"\(you):\". When \(you) speaks or asks you something, acknowledge them and answer directly — never ignore them or just talk past them."
-        if !scene.isEmpty { context += " The scene: \(scene)." }
-        if !mood.isEmpty { context += " The mood and topic: \(mood). Stay roughly on topic, but always respond to \(you) when they speak." }
+
+        let hasScene = !scene.isEmpty
+        let hasMood = !mood.isEmpty
+        switch scenePlayMode {
+        case .free:
+            if hasScene { context += " The scene: \(scene)." }
+            if hasMood {
+                context += " The mood and topic: \(mood). Stay roughly on topic, but always respond to \(you) when they speak."
+            } else if hasScene {
+                context += " Stay roughly in the scene, but always respond to \(you) when they speak."
+            }
+            context += " Free play is on: lively riffs, digressions, and wild turns are welcome — especially when \(you) steers that way."
+        case .sceneFirst:
+            if hasScene { context += " The scene: \(scene)." }
+            if hasMood { context += " The mood and topic: \(mood)." }
+            context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
+            if !hasScene && !hasMood {
+                context += " No scene/mood is set yet — keep the conversation coherent and in character until one is."
+            }
+        }
+
+        // Sticky public fact after someone was booted. Also mirrored as a Scene
+        // transcript beat — this system line is a second hit so small models
+        // still react if they skim history poorly.
+        if let departure = lastDepartureNote, !departure.isEmpty {
+            context += " CRITICAL SCENE EVENT (you witnessed this): \(departure) React in character if it affects you — shock, orders, grief, tactical fallout. Never address the departed or wait for their reply."
+        }
+
         // If the user's line is the most recent, make this turn a direct reply.
         if turns.last?.speakerID == nil,
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !said.isEmpty {
             context += " \(you) just said: \"\(said)\". Respond to that directly."
+            if scenePlayMode == .sceneFirst {
+                context += " Their move takes priority over the prior scene thread if they changed the game."
+            }
+        }
+        if let bootReason {
+            let r = bootReason.trimmingCharacters(in: .whitespacesAndNewlines)
+            context += " BOOT PROTOCOL — MANDATORY FOR THIS LINE ONLY. This is your EXIT from the scene. Enact the director's instruction"
+            if !r.isEmpty { context += " (\(r))" }
+            context += " in character as a single short spoken line — leave, die, be dismissed, storm out, etc. Do NOT stay and continue the argument; this is your last line. After this you are gone forever."
+        }
+        if let direction {
+            let d = direction.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !d.isEmpty {
+                context += " DIRECTOR DIRECTIVE — MANDATORY FOR THIS LINE ONLY. The human director is giving you a private note. Follow it precisely while staying in character as \(persona.name) and speaking only one short line of dialogue: \(d) Do not mention the director, the note, or these instructions. Do not ignore or half-comply — this steers your next line."
+            }
         }
         if grenade {
-            context += " The conversation has gotten too agreeable — break the consensus NOW: take a sharp, contrarian position or throw in a provocative new angle that forces the others to react."
+            context += grenadeProtocolText(you: you)
         }
         return persona.systemPrompt + "\n\n" + context
+    }
+
+    /// One-shot disruption text; Scene-first keeps bombshells in-world unless
+    /// the human already yanked the table off the rails.
+    private func grenadeProtocolText(you: String) -> String {
+        switch scenePlayMode {
+        case .free:
+            return " GRENADE PROTOCOL — MANDATORY FOR THIS LINE ONLY. The table has collapsed into polite groupthink and you are the chaos agent. You MUST violently derail the consensus: (1) reject the last shared conclusion as naive, dangerous, or boring; (2) introduce a concrete, unexpected bombshell — a secret, accusation, plot twist, inconvenient fact, or wildly reframed stakes that NOBODY has raised yet; (3) force at least one other person to defend themselves or pick a side. Do NOT hedge, do NOT say \"I somewhat disagree\", do NOT summarize common ground, do NOT continue the prior topic gently. One short spoken line, in character, that detonates the conversation and makes smooth agreement impossible."
+        case .sceneFirst:
+            return " GRENADE PROTOCOL — MANDATORY FOR THIS LINE ONLY. Detonate the stale consensus WITHOUT abandoning the established scene and stakes (unless \(you) already redirected elsewhere — then follow them). (1) Reject the last shared conclusion as naive, dangerous, or boring; (2) drop a concrete in-world bombshell — sabotage, betrayal, false sensor hit, secret order, hidden cost, or a hard tactical twist nobody raised yet; (3) force at least one other person to defend themselves or pick a side. Do NOT hedge or soft-agree. One short spoken line, in character, that detonates the conversation while still playing the scene."
+        }
     }
 
     /// "Name:" stop sequences for every OTHER participant (+ the user) so the

@@ -20,6 +20,7 @@ struct ChatView: View {
     @State private var ensembleViewMode: ViewMode = .transcript
     @State private var showsEnsembleSetup = false
     @State private var showsEnsembleCastEditor = false
+    @State private var showsDirectorsChair = false
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
     @State private var editingMessage: ChatMessage?
@@ -28,28 +29,46 @@ struct ChatView: View {
         VStack(spacing: 0) {
             topBar
             Divider().background(Theme.borderColor)
-            if subMode == .solo {
-                if viewModel.viewMode == .orb {
-                    OrbView(amplitudeSource: player.currentAmplitude)
-                        .background(Color.black)
-                } else {
-                    transcript
+            // Transcript/composer stay full-height; the Chair floats over them
+            // (sketch: ZStack overlay + glass, not a layout-pushing strip).
+            ZStack(alignment: .top) {
+                mainChatSurface
+                if subMode == .ensemble, showsDirectorsChair {
+                    DirectorsChairPanel(viewModel: ensembleViewModel) {
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            showsDirectorsChair = false
+                        }
+                    }
+                    // In-place: opacity only (no slide/fly-in). 500 ms both ways.
+                    .transition(.asymmetric(insertion: .opacity, removal: .opacity))
+                    .zIndex(10)
                 }
-                Divider().background(Theme.borderColor)
-                ChatComposerView(viewModel: viewModel)
-            } else {
-                EnsembleSurfaceView(
-                    viewModel: ensembleViewModel,
-                    player: player,
-                    viewMode: ensembleViewMode
-                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
+        .onChange(of: subMode) { _, newMode in
+            // Solo and Ensemble keep separate thinking defaults/stores;
+            // refresh the shared control when the user flips the sub-mode.
+            viewModel.refreshReasoningForChatSubMode()
+            if newMode != .ensemble {
+                showsDirectorsChair = false
             }
         }
         .onAppear {
             viewModel.startHealthChecks()
+            // Land on the mode-scoped thinking default (Ensemble → Off).
+            viewModel.refreshReasoningForChatSubMode()
             Task { isAudioMuted = await player.isMuted }
         }
-        .onDisappear { viewModel.stopSoloChatSession() }
+        .onDisappear {
+            viewModel.stopSoloChatSession()
+            // Mute is Chat-only chrome. Leaving the tab (→ Single Voice /
+            // Multi-Talk / …) must clear it or the shared player stays silent
+            // with no indicator on the other tabs.
+            isAudioMuted = false
+            Task { await player.setMuted(false) }
+        }
         .sheet(isPresented: $showsEnsembleSetup) {
             EnsembleSetupView(
                 viewModel: ensembleViewModel,
@@ -112,6 +131,30 @@ struct ChatView: View {
         }
     }
 
+    // MARK: - Main surface (under Director's Chair overlay)
+
+    @ViewBuilder
+    private var mainChatSurface: some View {
+        if subMode == .solo {
+            VStack(spacing: 0) {
+                if viewModel.viewMode == .orb {
+                    OrbView(amplitudeSource: player.currentAmplitude)
+                        .background(Color.black)
+                } else {
+                    transcript
+                }
+                Divider().background(Theme.borderColor)
+                ChatComposerView(viewModel: viewModel)
+            }
+        } else {
+            EnsembleSurfaceView(
+                viewModel: ensembleViewModel,
+                player: player,
+                viewMode: ensembleViewMode
+            )
+        }
+    }
+
     // MARK: Top bar
 
     private var topBar: some View {
@@ -137,6 +180,11 @@ struct ChatView: View {
                 isExternallyLocked: subMode == .ensemble
                     && ensembleViewModel.isRunning
             )
+
+            // Ensemble-only: live run knobs without leaving the conversation.
+            if subMode == .ensemble {
+                DirectorsChairToggleButton(isOpen: $showsDirectorsChair)
+            }
 
             Spacer()
 
@@ -281,7 +329,7 @@ struct ChatView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             .buttonStyle(.plain)
-            .help("Edit cast voices & delivery")
+            .help("Edit cast, voices, scene & mood")
             .accessibilityIdentifier("ensemble.editCast")
         }
 

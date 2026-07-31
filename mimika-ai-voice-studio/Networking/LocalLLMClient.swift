@@ -63,8 +63,9 @@ actor LocalLLMClient {
 
     // MARK: - Models
 
-    /// GET /v1/models — returns the list of model IDs known to the endpoint.
-    /// Doubles as a connection probe: if this succeeds, the endpoint is reachable.
+    /// GET /v1/models — catalog of model IDs known to the endpoint.
+    /// On LM Studio this includes *downloaded* models, not only loaded ones.
+    /// Prefer `listServingModels()` for connection health.
     func listModels() async throws -> [String] {
         let url = baseURL.appendingPathComponent("v1/models")
         var req = URLRequest(url: url)
@@ -84,13 +85,135 @@ actor LocalLLMClient {
         }
     }
 
-    /// GET /api/v1/models — authoritative LM Studio capabilities for one model.
-    func modelCapabilities(for model: String) async throws -> ModelCapabilities {
-        try await modelMetadata(for: model).capabilities
+    /// Models that can actually serve chat right now.
+    ///
+    /// LM Studio: only entries with non-empty `loaded_instances` (catalog-only
+    /// models are ignored so the Connected pill can’t false-positive).
+    /// Other OpenAI-compatible servers: falls back to `listModels()`.
+    func listServingModels() async throws -> [String] {
+        do {
+            let response = try await fetchLMStudioModels()
+            return response.servingModelIDs()
+        } catch let error as ClientError {
+            switch error {
+            case .httpError(let status, _) where status == 404 || status == 405:
+                return try await listModels()
+            case .decodeFailed:
+                return try await listModels()
+            default:
+                throw error
+            }
+        } catch {
+            // Network / transport — try OpenAI list once; surface that error.
+            return try await listModels()
+        }
     }
 
-    /// GET /api/v1/models — capabilities plus public reasoning controls.
-    func modelMetadata(for model: String) async throws -> ModelCapabilityMetadata {
+    /// Downloaded / known models for the picker (may include unloaded ones).
+    /// LM Studio: catalog keys from `/api/v1/models`. Else OpenAI `/v1/models`.
+    func listCatalogModels() async throws -> [String] {
+        do {
+            let response = try await fetchLMStudioModels()
+            let catalog = response.catalogModelIDs()
+            return catalog.isEmpty ? try await listModels() : catalog
+        } catch let error as ClientError {
+            switch error {
+            case .httpError(let status, _) where status == 404 || status == 405:
+                return try await listModels()
+            case .decodeFailed:
+                return try await listModels()
+            default:
+                throw error
+            }
+        } catch {
+            return try await listModels()
+        }
+    }
+
+    /// POST `/api/v1/models/load` — load a catalog model into memory (LM Studio).
+    /// Long timeout: large models can take minutes.
+    @discardableResult
+    func loadModel(_ model: String, contextLength: Int? = nil) async throws -> String {
+        let url = baseURL.appendingPathComponent("api/v1/models/load")
+        var request = URLRequest(url: url, timeoutInterval: 600)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["model": model]
+        if let contextLength, contextLength > 0 {
+            body["context_length"] = contextLength
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClientError.httpError(status: -1, body: nil)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ClientError.httpError(
+                status: http.statusCode,
+                body: String(data: data, encoding: .utf8)
+            )
+        }
+        // Prefer instance_id from JSON; fall back to requested model key.
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let id = obj["instance_id"] as? String, !id.isEmpty { return id }
+            if let id = obj["model_instance_id"] as? String, !id.isEmpty { return id }
+        }
+        return model
+    }
+
+    /// POST `/api/v1/models/unload` — free a loaded instance (LM Studio).
+    func unloadModel(instanceID: String) async throws {
+        let url = baseURL.appendingPathComponent("api/v1/models/unload")
+        var request = URLRequest(url: url, timeoutInterval: 60)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["instance_id": instanceID]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClientError.httpError(status: -1, body: nil)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ClientError.httpError(
+                status: http.statusCode,
+                body: String(data: data, encoding: .utf8)
+            )
+        }
+    }
+
+    /// Ensure `model` is loaded for chat. On LM Studio: unload other instances,
+    /// then load the target. On other servers: no-op if the id is in the catalog.
+    /// Returns the effective serving id when known.
+    @discardableResult
+    func switchToModel(_ model: String, contextLength: Int? = nil) async throws -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ClientError.invalidURL("empty model id")
+        }
+        // LM Studio path: full catalog + load state.
+        if let snapshot = try? await fetchLMStudioModels() {
+            if snapshot.isServing(trimmed) {
+                return trimmed
+            }
+            // Free other loads so we don't stack multi-GB models.
+            for instanceID in snapshot.loadedInstanceIDs() {
+                try? await unloadModel(instanceID: instanceID)
+            }
+            return try await loadModel(trimmed, contextLength: contextLength)
+        }
+        // Non-LM Studio: OpenAI-compat hosts usually load by name on first chat.
+        let catalog = try await listModels()
+        guard catalog.contains(where: {
+            $0 == trimmed || $0.hasSuffix(trimmed) || trimmed.hasSuffix($0)
+        }) else {
+            throw ClientError.modelMetadataUnavailable(trimmed)
+        }
+        return trimmed
+    }
+
+    /// GET /api/v1/models — full LM Studio catalog + load state.
+    func fetchLMStudioModels() async throws -> LMStudioModelsResponse {
         let url = baseURL.appendingPathComponent("api/v1/models")
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = "GET"
@@ -105,30 +228,82 @@ actor LocalLLMClient {
             )
         }
         do {
-            let decoded = try JSONDecoder().decode(LMStudioModelsResponse.self, from: data)
-            guard
-                let entry = decoded.models.first(where: {
-                    $0.key == model || $0.loadedInstances.contains { $0.id == model }
-                }),
-                let metadata = entry.capabilities
-            else {
-                throw ClientError.modelMetadataUnavailable(model)
-            }
-            var result: ModelCapabilities = []
-            if metadata.vision { result.insert(.vision) }
-            if metadata.trainedForToolUse { result.insert(.tools) }
-            if metadata.reasoning?.indicatesSupport == true {
-                result.insert(.reasoning)
-            }
-            return ModelCapabilityMetadata(
-                capabilities: result,
-                reasoning: metadata.reasoning?.configuration
-            )
-        } catch let error as ClientError {
-            throw error
+            return try JSONDecoder().decode(LMStudioModelsResponse.self, from: data)
         } catch {
             throw ClientError.decodeFailed("\(error)")
         }
+    }
+
+    /// GET /api/v1/models — authoritative LM Studio capabilities for one model.
+    func modelCapabilities(for model: String) async throws -> ModelCapabilities {
+        try await modelMetadata(for: model).capabilities
+    }
+
+    /// GET /api/v1/models — capabilities plus public reasoning controls.
+    func modelMetadata(for model: String) async throws -> ModelCapabilityMetadata {
+        let decoded = try await fetchLMStudioModels()
+        guard
+            let entry = decoded.models.first(where: {
+                $0.key == model || $0.loadedInstances.contains { $0.id == model }
+            }),
+            let metadata = entry.capabilities
+        else {
+            throw ClientError.modelMetadataUnavailable(model)
+        }
+        var result: ModelCapabilities = []
+        if metadata.vision { result.insert(.vision) }
+        if metadata.trainedForToolUse { result.insert(.tools) }
+        if metadata.reasoning?.indicatesSupport == true {
+            result.insert(.reasoning)
+        }
+        // Loaded instance n_ctx is the true server ceiling for this session.
+        // Architecture max is the model’s published ceiling (often much higher).
+        let architectureMax = entry.maxContextLength.flatMap { $0 > 0 ? $0 : nil }
+        let loaded = entry.loadedContextLength(for: model)
+        let contextLimit = loaded ?? entry.resolvedContextLength
+        return ModelCapabilityMetadata(
+            capabilities: result,
+            reasoning: metadata.reasoning?.configuration,
+            contextLength: contextLimit,
+            architectureMaxContextLength: architectureMax
+        )
+    }
+
+    /// Compact, user-facing connection failure — no raw JSON or URL dumps.
+    nonisolated static func friendlyConnectionError(_ error: Error) -> String {
+        if let client = error as? ClientError {
+            switch client {
+            case .invalidURL:
+                return "invalid URL"
+            case .httpError(let status, _):
+                if status < 0 { return "unreachable" }
+                if status == 404 { return "endpoint not found" }
+                return "server error"
+            case .decodeFailed:
+                return "unexpected response"
+            case .modelMetadataUnavailable:
+                return "model not available"
+            case .visionUnavailable:
+                return "vision unavailable"
+            case .imagePayloadTooLarge:
+                return "image too large"
+            case .cancelled:
+                return "cancelled"
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut:
+                return "timed out"
+            case .notConnectedToInternet, .networkConnectionLost:
+                return "offline"
+            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return "unreachable"
+            default:
+                return "unreachable"
+            }
+        }
+        return "no connection"
     }
 
     // MARK: - Chat streaming

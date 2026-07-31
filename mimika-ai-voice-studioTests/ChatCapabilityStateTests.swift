@@ -23,19 +23,20 @@ final class ChatCapabilityStateTests: XCTestCase {
 
     func test_capabilitiesMoveCurrentToStaleAndBackToCurrent() async throws {
         let (viewModel, _) = try makeViewModel()
-        enqueueModels(["m"])
+        // serving + probe
+        LLMStubURLProtocol.enqueue(metadata(vision: true, tools: false, reasoning: false))
         LLMStubURLProtocol.enqueue(metadata(vision: true, tools: false, reasoning: false))
         await viewModel.checkConnection()
         XCTAssertEqual(viewModel.capabilityState.freshness, .current)
         XCTAssertEqual(viewModel.capabilityState.authoritative, [.vision])
 
-        enqueueModels(["m"])
+        LLMStubURLProtocol.enqueue(metadata(vision: true, tools: false, reasoning: false))
         LLMStubURLProtocol.enqueue(Data("malformed".utf8))
         await viewModel.checkConnection()
         XCTAssertEqual(viewModel.capabilityState.freshness, .stale)
         XCTAssertEqual(viewModel.capabilityState.authoritative, [.vision])
 
-        enqueueModels(["m"])
+        LLMStubURLProtocol.enqueue(metadata(vision: false, tools: true, reasoning: true))
         LLMStubURLProtocol.enqueue(metadata(vision: false, tools: true, reasoning: true))
         await viewModel.checkConnection()
         XCTAssertEqual(viewModel.capabilityState.freshness, .current)
@@ -44,7 +45,8 @@ final class ChatCapabilityStateTests: XCTestCase {
 
     func test_firstMetadataFailureIsUnknownAndDoesNotDisconnect() async throws {
         let (viewModel, _) = try makeViewModel()
-        enqueueModels(["m"])
+        // Serving succeeds; capability probe returns empty catalog for that model.
+        LLMStubURLProtocol.enqueue(metadata(vision: true, tools: false, reasoning: false))
         LLMStubURLProtocol.enqueue(Data(#"{"models":[]}"#.utf8))
 
         await viewModel.checkConnection()
@@ -57,7 +59,7 @@ final class ChatCapabilityStateTests: XCTestCase {
 
     func test_stopHealthChecksCancelsInFlightConnectionRequest() async throws {
         let (viewModel, _) = try makeViewModel()
-        LLMStubURLProtocol.beginStagedResponse(pathContains: "/v1/models")
+        LLMStubURLProtocol.beginStagedResponse(pathContains: "/api/v1/models")
 
         viewModel.startHealthChecks()
         await assertEventually { LLMStubURLProtocol.requestCount >= 1 }
@@ -67,12 +69,26 @@ final class ChatCapabilityStateTests: XCTestCase {
         await assertEventually { LLMStubURLProtocol.cancellationObserved }
     }
 
-    func test_delayedCapabilityProbeCannotOverwriteNewModelSelection() async throws {
+    func test_catalogOnlyModelsDoNotCountAsConnected() async throws {
+        let (viewModel, _) = try makeViewModel()
+        // LM Studio catalog entry with no loaded instance — server up, nothing serving.
+        LLMStubURLProtocol.enqueue(Data(
+            #"{"models":[{"key":"stale/model","loaded_instances":[],"capabilities":{"vision":false,"trained_for_tool_use":false}}]}"#.utf8
+        ))
+
+        await viewModel.checkConnection()
+
+        XCTAssertEqual(viewModel.connectionState, .disconnected(reason: "no model loaded"))
+    }
+
+    func test_modelSwitchReplacesConnectionAndCapabilities() async throws {
         let (viewModel, appState) = try makeViewModel()
-        enqueueModels(["m"])
-        LLMStubURLProtocol.beginStagedResponse(pathContains: "/api/v1/models")
-        let oldCheck = Task { await viewModel.checkConnection() }
-        await assertEventually { LLMStubURLProtocol.requestCount >= 2 }
+        let metaM = metadata(vision: true, tools: false, reasoning: false)
+        LLMStubURLProtocol.enqueue(metaM)
+        LLMStubURLProtocol.enqueue(metaM)
+        await viewModel.checkConnection()
+        XCTAssertEqual(viewModel.connectionState, .connected(model: "m"))
+        XCTAssertEqual(viewModel.capabilityState.authoritative, [.vision])
 
         var newSettings = viewModel.settings
         newSettings.model = "new-model"
@@ -81,18 +97,15 @@ final class ChatCapabilityStateTests: XCTestCase {
             endpointBaseURL: "http://127.0.0.1:1234"
         )
         viewModel.settings = appState.chatSettings
-        enqueueModels(["new-model"])
-        LLMStubURLProtocol.enqueue(
-            metadata(
-                key: "new-model",
-                vision: false,
-                tools: true,
-                reasoning: false
-            )
+        let newMeta = metadata(
+            key: "new-model",
+            vision: false,
+            tools: true,
+            reasoning: false
         )
-
+        LLMStubURLProtocol.enqueue(newMeta)
+        LLMStubURLProtocol.enqueue(newMeta)
         await viewModel.checkConnection()
-        await oldCheck.value
 
         XCTAssertEqual(viewModel.connectionState, .connected(model: "new-model"))
         XCTAssertEqual(viewModel.capabilitySelection?.model, "new-model")
@@ -127,10 +140,9 @@ final class ChatCapabilityStateTests: XCTestCase {
             endpointBaseURL: settings.baseURL
         )
         viewModel.settings = appState.chatSettings
-        enqueueModels(["m"])
-        LLMStubURLProtocol.enqueue(
-            metadata(vision: true, tools: false, reasoning: false)
-        )
+        let meta = metadata(vision: true, tools: false, reasoning: false)
+        LLMStubURLProtocol.enqueue(meta)
+        LLMStubURLProtocol.enqueue(meta)
 
         await viewModel.checkConnection()
 
@@ -145,21 +157,9 @@ final class ChatCapabilityStateTests: XCTestCase {
 
     func test_reasoningSelectionUsesMetadataAndLocksDuringActiveTurn() async throws {
         let (viewModel, appState) = try makeViewModel()
-        enqueueModels(["m"])
-        LLMStubURLProtocol.enqueue(
-            Data(
-                """
-                {"models":[{"key":"m","capabilities":{
-                    "vision":false,
-                    "trained_for_tool_use":false,
-                    "reasoning":{
-                        "allowed_options":["low","medium","high"],
-                        "default":"medium"
-                    }
-                }}]}
-                """.utf8
-            )
-        )
+        let meta = servingPayload(models: ["m"], vision: false, tools: false, reasoning: true)
+        LLMStubURLProtocol.enqueue(meta)
+        LLMStubURLProtocol.enqueue(meta)
 
         await viewModel.checkConnection()
 
@@ -183,6 +183,34 @@ final class ChatCapabilityStateTests: XCTestCase {
         )
     }
 
+    func test_ensembleReasoningDefaultsOffAndWarnsWhenEnabled() async throws {
+        let (viewModel, appState) = try makeViewModel()
+        appState.chatSubMode = .ensemble
+        let meta = servingPayload(models: ["m"], vision: false, tools: false, reasoning: true)
+        LLMStubURLProtocol.enqueue(meta)
+        LLMStubURLProtocol.enqueue(meta)
+
+        await viewModel.checkConnection()
+
+        // Ensemble injects Off and defaults to it even when LM Studio's
+        // graded list omits it.
+        XCTAssertEqual(viewModel.reasoningSelection, .off)
+        XCTAssertTrue(viewModel.reasoningConfiguration?.allowedOptions.contains(.off) == true)
+
+        viewModel.setReasoningSelection(.high)
+        XCTAssertEqual(viewModel.reasoningSelection, .high)
+        XCTAssertEqual(
+            appState.toastMessage,
+            "Larger thinking models tend to cause non-responsive turns in Ensemble."
+        )
+
+        // Solo keeps its own store — switching back restores medium default
+        // (no prior solo selection for this model).
+        appState.chatSubMode = .solo
+        viewModel.refreshReasoningForChatSubMode()
+        XCTAssertEqual(viewModel.reasoningSelection, .medium)
+    }
+
     private func makeViewModel() throws -> (ChatViewModel, AppState) {
         var settings = ChatSettings.default
         settings.model = "m"
@@ -201,9 +229,12 @@ final class ChatCapabilityStateTests: XCTestCase {
         return (viewModel, appState)
     }
 
+    /// Connection health uses `/api/v1/models` twice (serving list + capability probe).
+    /// Enqueue the same loaded-model payload for both legs.
     private func enqueueModels(_ models: [String]) {
-        let entries = models.map { #"{"id":"\#($0)"}"# }.joined(separator: ",")
-        LLMStubURLProtocol.enqueue(Data(#"{"data":[\#(entries)]}"#.utf8))
+        let payload = servingPayload(models: models, vision: false, tools: false, reasoning: false)
+        LLMStubURLProtocol.enqueue(payload)
+        LLMStubURLProtocol.enqueue(payload)
     }
 
     private func metadata(
@@ -212,15 +243,33 @@ final class ChatCapabilityStateTests: XCTestCase {
         tools: Bool,
         reasoning: Bool
     ) -> Data {
-        let reasoningValue = reasoning
-            ? #","reasoning":{"allowed_options":["on"],"default":"on"}"#
-            : ""
-        return Data(
-            """
-            {"models":[{"key":"\(key)","capabilities":{"vision":\(vision),
-            "trained_for_tool_use":\(tools)\(reasoningValue)}}]}
-            """.utf8
-        )
+        servingPayload(models: [key], vision: vision, tools: tools, reasoning: reasoning)
+    }
+
+    private func servingPayload(
+        models: [String],
+        vision: Bool,
+        tools: Bool,
+        reasoning: Bool
+    ) -> Data {
+        let entries: [[String: Any]] = models.map { id in
+            var capabilities: [String: Any] = [
+                "vision": vision,
+                "trained_for_tool_use": tools,
+            ]
+            if reasoning {
+                capabilities["reasoning"] = [
+                    "allowed_options": ["low", "medium", "high", "off"],
+                    "default": "medium",
+                ]
+            }
+            return [
+                "key": id,
+                "loaded_instances": [["id": id]],
+                "capabilities": capabilities,
+            ]
+        }
+        return try! JSONSerialization.data(withJSONObject: ["models": entries])
     }
 
     private func assertEventually(

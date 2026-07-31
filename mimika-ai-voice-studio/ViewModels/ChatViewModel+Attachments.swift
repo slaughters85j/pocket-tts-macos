@@ -296,9 +296,11 @@ extension ChatViewModel {
             status = .speaking(sentenceIndex: sentenceIndex)
 
             let voiceID = settings.ttsVoiceID
-            let speakable = TextNormalizer.stripStageDirections(
-                sentence,
-                stripBracketedTags: settings.activeBackend == .pocketTTS
+            let speakable = TextNormalizer.stripEmojis(
+                TextNormalizer.stripStageDirections(
+                    sentence,
+                    stripBracketedTags: settings.activeBackend == .pocketTTS
+                )
             )
             guard !speakable.isEmpty else { continue }
             let stream = engine.synthesize(

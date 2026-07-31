@@ -56,21 +56,34 @@ final class PersonaWriter {
         switch config.kind {
         case .local:
             do {
-                let models = try await makeClient().listModels()
-                availableModels = models
+                let client = makeClient()
+                // Picker shows downloaded catalog; connection pill uses loaded only.
+                async let catalogTask = client.listCatalogModels()
+                async let servingTask = client.listServingModels()
+                let catalog = try await catalogTask
+                let serving = try await servingTask
+                availableModels = catalog.isEmpty ? serving : catalog
                 // Default the pick to the chat model if it's available, else first.
-                if selectedModel.isEmpty || !models.contains(selectedModel) {
-                    if !appState.chatSettings.model.isEmpty, models.contains(appState.chatSettings.model) {
+                if selectedModel.isEmpty || !availableModels.contains(selectedModel) {
+                    if !appState.chatSettings.model.isEmpty,
+                       availableModels.contains(appState.chatSettings.model) {
                         selectedModel = appState.chatSettings.model
+                    } else if let firstLoaded = serving.first {
+                        selectedModel = firstLoaded
                     } else {
-                        selectedModel = models.first ?? ""
+                        selectedModel = availableModels.first ?? ""
                     }
                 }
-                connectionState = models.isEmpty
-                    ? .disconnected(reason: "no models loaded")
-                    : .connected(model: selectedModel)
+                if serving.isEmpty {
+                    connectionState = .disconnected(reason: "no model loaded")
+                } else {
+                    let live = serving.first(where: { $0 == selectedModel })
+                        ?? serving.first
+                        ?? selectedModel
+                    connectionState = .connected(model: live)
+                }
             } catch {
-                connectionState = .disconnected(reason: shortError(error))
+                connectionState = .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
             }
         case .anthropic:
             // The cloud path has no local model picker — the model is chosen in

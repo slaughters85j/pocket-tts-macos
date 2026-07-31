@@ -198,6 +198,28 @@ final class EnsembleLoopTests: XCTestCase {
                        "too few turns")
     }
 
+    func test_issueDirective_armsPendingAndRequiresText() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let ava = Persona(name: "Ava", voiceID: "cosette", systemPrompt: "You are Ava.",
+                          samplingPreset: .spirited)
+        let worf = Persona(name: "Worf", voiceID: "marius", systemPrompt: "You are Worf.")
+        vm.cast = [ava, worf]
+
+        XCTAssertFalse(vm.issueDirective(id: ava.id, instruction: "   "),
+                       "empty instruction is refused")
+        XCTAssertNil(vm.pendingDirective)
+
+        XCTAssertTrue(vm.issueDirective(
+            id: ava.id,
+            instruction: "Stop the emoji bits and get back to the sensor anomaly."
+        ))
+        XCTAssertEqual(vm.pendingDirective?.speakerID, ava.id)
+        XCTAssertTrue(
+            vm.pendingDirective?.instruction.contains("sensor anomaly") == true,
+            vm.pendingDirective?.instruction ?? ""
+        )
+    }
+
     // MARK: - Export (Phase 6)
 
     func test_formatMultiTalkScript_tagsByLabelSkipsEmpty() {
@@ -217,6 +239,25 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(script.contains("{Dana Scully} Show me evidence."))
         XCTAssertFalse(script.contains("{You}"), "the empty user turn is skipped")
         XCTAssertEqual(script.split(separator: "\n").count, 2)
+    }
+
+    func test_formatMultiTalkScript_stripsEmojis() {
+        let a = UUID()
+        let turns = [
+            EnsembleTurn(
+                speakerID: a,
+                speakerName: "Ava",
+                content: "Oh boy, it's getting real wild in here! 😂 Fox, deal me one more round 🔥!"
+            ),
+        ]
+        let script = EnsembleViewModel.formatMultiTalkScript(
+            turns: turns,
+            label: { _ in "Ava" },
+            stripBrackets: true
+        )
+        XCTAssertFalse(script.contains("😂"))
+        XCTAssertFalse(script.contains("🔥"))
+        XCTAssertTrue(script.contains("{Ava} Oh boy, it's getting real wild in here! Fox, deal me one more round!"))
     }
 
     func test_exportLabels_disambiguatesDuplicateNames() throws {
@@ -288,6 +329,105 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertNotNil(userRef, "the user is a distinct export speaker")
         XCTAssertFalse(["javert", "jean"].contains(userRef!.voiceID),
                        "the user's export voice must be distinct from every cast voice (no shared-voice tag collision)")
+    }
+
+    func test_effectiveCastForTurnOrder_includesUserWhenEnabled() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let picard = Persona(name: "Picard", voiceID: "javert", systemPrompt: "")
+        vm.cast = [picard]
+        vm.userPeer.name = "You"
+        vm.userPeer.modelName = "Guest"
+        vm.setIncludeUserInTurnOrder(true)
+        XCTAssertFalse(vm.includeUserInTurnOrder, "requires a real character name")
+        XCTAssertEqual(vm.effectiveCastForTurnOrder().count, 1)
+
+        vm.userPeer.name = "Milton"
+        vm.userPeer.modelName = "Milton"
+        vm.setIncludeUserInTurnOrder(true)
+        XCTAssertTrue(vm.includeUserInTurnOrder)
+        let roster = vm.effectiveCastForTurnOrder()
+        XCTAssertEqual(roster.count, 2)
+        XCTAssertEqual(roster.last?.id, EnsembleViewModel.userTurnSpeakerID)
+        XCTAssertEqual(roster.last?.name, "Milton")
+    }
+
+    func test_softDumpBrief_includesSceneCastAndRecentLines() {
+        let dropped = [
+            EnsembleTurn(speakerID: UUID(), speakerName: "Picard", content: "Shields to maximum."),
+            EnsembleTurn(speakerID: UUID(), speakerName: "Riker", content: "Aye, Captain — rerouting power."),
+            EnsembleTurn.sceneBeat("ignored in samples"),
+        ]
+        let brief = EnsembleViewModel.buildSoftDumpBrief(
+            droppedTurns: dropped,
+            scene: "bridge under fire",
+            mood: "tense",
+            castNames: ["Picard", "Riker", "Worf"]
+        )
+        XCTAssertTrue(brief.contains("bridge under fire"), brief)
+        XCTAssertTrue(brief.contains("Picard"), brief)
+        XCTAssertTrue(brief.contains("Shields to maximum"), brief)
+        XCTAssertTrue(brief.contains("Director compacted context") || brief.contains("compacted"), brief)
+    }
+
+    func test_softDumpContext_keepsTranscriptButShrinksModelWindow() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let a = Persona(name: "Ada", voiceID: "v", systemPrompt: "")
+        vm.cast = [a]
+        vm.verbatimWindow = 4
+        vm.scene = "lab"
+        for i in 0..<12 {
+            vm.turns.append(EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "Line \(i)."))
+        }
+        XCTAssertTrue(vm.softDumpContext())
+        XCTAssertEqual(vm.turns.count, 12, "full transcript must remain for export/UI")
+        XCTAssertEqual(vm.summarizedUpTo, 8)
+        XCTAssertFalse(vm.rollingSummary.isEmpty)
+        XCTAssertTrue(vm.rollingSummary.contains("lab") || vm.rollingSummary.contains("Line"),
+                      vm.rollingSummary)
+        // Model-facing window should be the last 4 lines (+ brief of earlier).
+        let msgs = vm.messagesForPersona(a)
+        let joined = msgs.map(\.content).joined(separator: "\n")
+        XCTAssertTrue(joined.contains("Line 11"), joined)
+        XCTAssertTrue(
+            joined.contains("Earlier in the conversation") || joined.contains("compacted") || joined.contains("Director"),
+            joined
+        )
+    }
+
+    func test_exportLabels_bootedSpeakersKeepOwnTagsAndVoices() throws {
+        // Boot removes from live cast but past turns keep the UUID. Export must
+        // still map those lines to the booted name/voice — not "You"/alba.
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let riker = Persona(name: "Cmdr. Riker", voiceID: "jean", systemPrompt: "")
+        let picard = Persona(name: "Picard", voiceID: "javert", systemPrompt: "")
+        let worf = Persona(name: "Worf", voiceID: "marius", systemPrompt: "")
+        vm.cast = [picard, worf]          // riker already booted out of live cast
+        vm.departedSpeakers = [riker]
+        vm.userPeer.name = "Milton"
+        vm.userPeer.modelName = "Milton"
+        vm.turns = [
+            EnsembleTurn(speakerID: riker.id, speakerName: "Cmdr. Riker", content: "Shields up."),
+            EnsembleTurn(speakerID: picard.id, speakerName: "Picard", content: "Make it so."),
+            EnsembleTurn(speakerID: nil, speakerName: "Milton", content: "I'm here."),
+            EnsembleTurn(speakerID: worf.id, speakerName: "Worf", content: "Aye."),
+        ]
+        let labels = vm.exportLabels()
+        let script = EnsembleViewModel.formatMultiTalkScript(
+            turns: vm.turns, label: labels.label, stripBrackets: false
+        )
+        XCTAssertTrue(script.contains("{Cmdr. Riker} Shields up."), script)
+        XCTAssertTrue(script.contains("{Picard} Make it so."), script)
+        XCTAssertTrue(script.contains("{Milton} I'm here."), script)
+        XCTAssertTrue(script.contains("{Worf} Aye."), script)
+        XCTAssertFalse(script.contains("{You}"), "booted lines must not collapse onto the user tag")
+        XCTAssertFalse(script.contains("{Alba}"), "booted lines must not collapse onto default stock")
+        let rikerRef = labels.speakers.first { $0.name == "Cmdr. Riker" }
+        XCTAssertEqual(rikerRef?.voiceID, "jean")
+        let userRef = labels.speakers.first { $0.name == "Milton" }
+        XCTAssertNotNil(userRef)
+        XCTAssertNotEqual(userRef?.voiceID, "jean")
+        XCTAssertNotEqual(userRef?.voiceID, "javert")
+        XCTAssertNotEqual(userRef?.voiceID, "marius")
     }
 
     func test_formatTranscriptMarkdown_realNames_preservesContentAndHeader() throws {
