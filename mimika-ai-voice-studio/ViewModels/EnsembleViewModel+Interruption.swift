@@ -48,20 +48,17 @@ extension EnsembleViewModel {
         Task { await startListening() }
     }
 
-    /// Cut any generating/speaking turn NOW and restart the loop so an armed
-    /// Boot / Direct does not wait out the current monologue.
-    /// Parked / idle / step gates use `kickIfParked` instead.
+    /// Prefer the next Boot / Direct without tearing down the whole loop.
+    ///
+    /// Mid-line: soft-cancel only the current speaker's runner (keep `loopTask`
+    /// alive). Hard-cancelling the loop raced `isLooping` and could stall the
+    /// cast entirely. Parked / idle: `kickIfParked` starts a turn as before.
     func forceImmediateDirectorAction() {
         switch runState {
         case .generating, .speaking:
-            interruptForBargeIn()
-            truncateInFlightTurn()
-            currentSpeakerID = nil
-            // Invited-user wait is not mid-cast speech — leave that path alone.
-            if awaitingInvitedUserTurn { return }
-            runState = .idle
-            // resumeCast no-ops when the cast/engine can't run.
-            resumeCast()
+            // Soft cut — loop continues into the next pick (boot target / direct).
+            pendingSoftCut = true
+            runnerCancelForSoftCut()
         default:
             kickIfParked()
         }

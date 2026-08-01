@@ -162,6 +162,10 @@ final class EnsembleViewModel {
     /// Set by the runner's onError; read after a turn to stop the loop and
     /// preserve the surfaced `.error` state instead of clobbering it.
     private var lastTurnFailed = false
+    /// Soft-cut the in-flight speaker (Boot / Direct armed mid-line): cancel the
+    /// runner only — keep `loopTask` alive so the loop picks the forced speaker
+    /// next. Hard loop cancel was racing `isLooping` and could kill the run.
+    var pendingSoftCut = false
     /// One-shot guard so the surface auto-loads the last saved cast exactly once
     /// on first appear (and never clobbers an in-progress conversation later).
     private var didAttemptAutoLoad = false
@@ -611,7 +615,14 @@ final class EnsembleViewModel {
     /// Cut the loop + the in-flight turn + the player — used by barge-in. Kept
     /// here so `loopTask`/`runner` stay private to this file.
     func interruptForBargeIn() {
+        pendingSoftCut = false
         loopTask?.cancel()
+        runner.cancel()
+    }
+
+    /// Cancel only the in-flight LLM/TTS turn (Boot / Direct soft-cut). Does
+    /// **not** cancel `loopTask` — the loop picks the forced speaker next.
+    func runnerCancelForSoftCut() {
         runner.cancel()
     }
 
@@ -758,16 +769,17 @@ final class EnsembleViewModel {
                 runState = .awaitingStep
                 return
             }
-            // After a Boot, the Scene beat is already on the transcript — skip the
-            // inter-turn breath so the next speaker reacts immediately.
-            if turns.last?.isSceneBeat == true {
-                continue
-            }
-            // Voiced: the speech already paced the turn, so just a short breath.
-            // Text-only: a reading-paced gap so a human can keep up.
-            let gap = voicedPlayback
-                ? paceDelay
-                : Self.interTurnDelay(for: turns.last?.content ?? "")
+            // After a Boot, shorten (don't zero) the breath so reactions land
+            // soon without slamming the next model call into a cold cancel.
+            let afterBoot = turns.last?.isSceneBeat == true
+            let gap: Duration = {
+                if afterBoot {
+                    return voicedPlayback ? .milliseconds(200) : .milliseconds(150)
+                }
+                return voicedPlayback
+                    ? paceDelay
+                    : Self.interTurnDelay(for: turns.last?.content ?? "")
+            }()
             try? await Task.sleep(for: gap)
         }
         // Don't clobber a surfaced error — a failed turn stops the loop and
@@ -951,6 +963,8 @@ final class EnsembleViewModel {
                 self.turns[i].spokenSentences = index   // count of sentences fully HEARD
             },
             onError: { [weak self] error in
+                // Soft-cut cancels the runner intentionally — not a fatal turn error.
+                guard self?.pendingSoftCut != true else { return }
                 self?.runState = .error(self?.shortError(error) ?? "error")
                 self?.lastTurnFailed = true
             }
@@ -960,6 +974,17 @@ final class EnsembleViewModel {
         // finalized (truncated, or left partial) — don't clobber it with the
         // full generated text.
         if Task.isCancelled { return }
+
+        // Soft-cut (Boot/Direct armed while someone else was mid-line): keep the
+        // loop running, truncate what was heard, leave Boot/Direct armed for the
+        // next pick. Do not finalize an incomplete exit here.
+        if pendingSoftCut {
+            pendingSoftCut = false
+            applySoftCut(to: turnID)
+            currentSpeakerID = nil
+            lastTurnFailed = false
+            return
+        }
 
         // Clean multi-speaker leakage + a self-prefix, then store the result.
         // Drop the turn if it ends up empty (garbage / no-output / errored).
@@ -979,6 +1004,27 @@ final class EnsembleViewModel {
         // Direct: one-shot — clear only after a successful directed line.
         if direction != nil, !lastTurnFailed, !cleaned.isEmpty {
             pendingDirective = nil
+        }
+    }
+
+    /// Truncate the in-flight turn after a soft runner cancel (heard sentences
+    /// kept + cut-off; empty turns dropped). Same rules as barge-in truncate.
+    private func applySoftCut(to turnID: UUID) {
+        guard let idx = turns.firstIndex(where: { $0.id == turnID }) else { return }
+        let turn = turns[idx]
+        if voicedPlayback {
+            if let kept = Self.truncatedSpokenText(
+                content: turn.content, playedSentences: turn.spokenSentences
+            ) {
+                turns[idx].content = kept
+                turns[idx].wasCutOff = true
+            } else {
+                turns.remove(at: idx)
+            }
+        } else if turn.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            turns.remove(at: idx)
+        } else {
+            turns[idx].wasCutOff = true
         }
     }
 
