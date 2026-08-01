@@ -235,6 +235,7 @@ extension EnsembleViewModel {
 
     /// Arm a one-shot exit for `speakerID`: they speak next with the reason,
     /// then leave the cast. Remaining speakers get a public departure note.
+    /// Cuts any in-flight line immediately so the exit does not wait.
     @discardableResult
     func bootCastMember(id: UUID, reason: String) -> Bool {
         guard cast.count > CastPackageBuilder.minCastSize else {
@@ -246,9 +247,9 @@ extension EnsembleViewModel {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingBoot = PendingBoot(speakerID: id, reason: trimmed)
         showNotice(trimmed.isEmpty
-                   ? "Boot armed — \(name) exits on their next line"
+                   ? "Boot armed — \(name) exits now"
                    : "Boot armed — \(name): \(trimmed)")
-        kickIfParked()
+        forceImmediateDirectorAction()
         return true
     }
 
@@ -257,6 +258,7 @@ extension EnsembleViewModel {
     /// Arm a one-shot cast-specific direction: that speaker is forced next with
     /// the instruction injected and Strict sampling so compliance is likelier.
     /// Unlike Boot they stay in the cast. Instruction must be non-empty.
+    /// Cuts any in-flight line immediately so the note lands on the next pick.
     @discardableResult
     func issueDirective(id: UUID, instruction: String) -> Bool {
         guard cast.contains(where: { $0.id == id }) else { return false }
@@ -268,7 +270,7 @@ extension EnsembleViewModel {
         let name = cast.first(where: { $0.id == id })?.name ?? "Speaker"
         pendingDirective = PendingDirective(speakerID: id, instruction: trimmed)
         showNotice("Direction armed — \(name)")
-        kickIfParked()
+        forceImmediateDirectorAction()
         return true
     }
 

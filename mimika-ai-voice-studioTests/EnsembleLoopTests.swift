@@ -232,6 +232,31 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(text.contains("CHANGE what you say"), text)
     }
 
+    func test_bootProtocolText_leadsWithExitAndReason() {
+        let text = EnsembleViewModel.bootProtocolText(
+            personaName: "Worf",
+            reason: "A plasma conduit explodes and kills him."
+        )
+        XCTAssertTrue(text.hasPrefix("=== BOOT"), text)
+        XCTAssertTrue(text.contains("HIGHEST PRIORITY"), text)
+        XCTAssertTrue(text.contains("Worf"), text)
+        XCTAssertTrue(text.contains("EXIT"), text)
+        XCTAssertTrue(text.contains("plasma conduit"), text)
+    }
+
+    func test_appendBootNote_mergesIntoLastUserMessage() {
+        var messages = [ChatMessage(role: .user, content: "Picard: Report.")]
+        EnsembleViewModel.appendBootNote(
+            to: &messages,
+            personaName: "Worf",
+            reason: "He is vaporized."
+        )
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages[0].content.contains("Picard: Report."))
+        XCTAssertTrue(messages[0].content.contains("BOOT"))
+        XCTAssertTrue(messages[0].content.contains("vaporized"))
+    }
+
     func test_appendDirectorNote_mergesIntoLastUserMessage() {
         var messages = [
             ChatMessage(role: .user, content: "Picard: Make it so."),

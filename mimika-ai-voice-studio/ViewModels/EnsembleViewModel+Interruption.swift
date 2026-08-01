@@ -48,10 +48,29 @@ extension EnsembleViewModel {
         Task { await startListening() }
     }
 
+    /// Cut any generating/speaking turn NOW and restart the loop so an armed
+    /// Boot / Direct does not wait out the current monologue.
+    /// Parked / idle / step gates use `kickIfParked` instead.
+    func forceImmediateDirectorAction() {
+        switch runState {
+        case .generating, .speaking:
+            interruptForBargeIn()
+            truncateInFlightTurn()
+            currentSpeakerID = nil
+            // Invited-user wait is not mid-cast speech — leave that path alone.
+            if awaitingInvitedUserTurn { return }
+            runState = .idle
+            // resumeCast no-ops when the cast/engine can't run.
+            resumeCast()
+        default:
+            kickIfParked()
+        }
+    }
+
     /// Drop-in-flight-sentence rule (#6): keep the fully-spoken sentences of the
     /// interrupted turn, drop the one mid-drain, mark it cut off — or remove the
     /// turn entirely if nothing landed cleanly.
-    private func truncateInFlightTurn() {
+    func truncateInFlightTurn() {
         // Only truncate the turn that's actively in flight — identified by the
         // current speaker. Between turns `turns.last` is already complete and
         // must not be cut.

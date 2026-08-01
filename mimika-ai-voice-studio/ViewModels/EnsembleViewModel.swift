@@ -758,6 +758,11 @@ final class EnsembleViewModel {
                 runState = .awaitingStep
                 return
             }
+            // After a Boot, the Scene beat is already on the transcript — skip the
+            // inter-turn breath so the next speaker reacts immediately.
+            if turns.last?.isSceneBeat == true {
+                continue
+            }
             // Voiced: the speech already paced the turn, so just a short breath.
             // Text-only: a reading-paced gap so a human can keep up.
             let gap = voicedPlayback
@@ -891,12 +896,17 @@ final class EnsembleViewModel {
         // empty in-flight assistant turn plus a spurious "(continue)".
         // Direct forces Strict sampling so the instruction is more likely obeyed.
         let directed = direction != nil
-        let preset: SamplingPreset = directed ? .strict : persona.samplingPreset
+        let booting = bootReason != nil
+        // Boot + Direct force Strict so the exit/steer is more likely obeyed.
+        let preset: SamplingPreset = (directed || booting) ? .strict : persona.samplingPreset
         var messages = messagesForPersona(persona)
-        // Local models often skim long system prompts; put the Direct note on
+        // Local models often skim long system prompts; put Boot / Direct notes on
         // the last *user* message (merged so roles still alternate).
         if let direction, !direction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Self.appendDirectorNote(to: &messages, personaName: persona.name, instruction: direction)
+        }
+        if booting {
+            Self.appendBootNote(to: &messages, personaName: persona.name, reason: bootReason ?? "")
         }
         let request = SpokenTurnRunner.Request(
             messages: messages,
@@ -1053,6 +1063,9 @@ final class EnsembleViewModel {
         let trimmedDirection = direction?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let hasDirection = !(trimmedDirection?.isEmpty ?? true)
+        let isBooting = bootReason != nil
+        // Boot wins over Direct for lead-block priority (exit is absolute).
+        let hasLeadProtocol = isBooting || hasDirection
 
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
@@ -1078,9 +1091,9 @@ final class EnsembleViewModel {
         case .sceneFirst:
             if hasScene { context += " The scene: \(scene)." }
             if hasMood { context += " The mood and topic: \(mood)." }
-            if hasDirection {
-                // Soften scene-first so it cannot drown the director note.
-                context += " SCENE PLAY (subordinate this turn): stay in character and in the world, but the DIRECTOR NOTE above outranks continuing the prior thread if they conflict."
+            if hasLeadProtocol {
+                // Soften scene-first so it cannot drown Boot / Direct.
+                context += " SCENE PLAY (subordinate this turn): stay in character and in the world, but the DIRECTOR block above outranks continuing the prior thread if they conflict."
             } else {
                 context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
             }
@@ -1097,8 +1110,8 @@ final class EnsembleViewModel {
         }
 
         // If the user's line is the most recent, make this turn a direct reply —
-        // unless a Director Direct note is active (that note wins over "answer \(you)").
-        if !hasDirection,
+        // unless Boot / Direct is active (those win over "answer \(you)").
+        if !hasLeadProtocol,
            turns.last?.speakerID == nil,
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !said.isEmpty {
@@ -1107,24 +1120,63 @@ final class EnsembleViewModel {
                 context += " Their move takes priority over the prior scene thread if they changed the game."
             }
         }
-        if let bootReason {
-            let r = bootReason.trimmingCharacters(in: .whitespacesAndNewlines)
-            context += " BOOT PROTOCOL — MANDATORY FOR THIS LINE ONLY. This is your EXIT from the scene. Enact the director's instruction"
-            if !r.isEmpty { context += " (\(r))" }
-            context += " in character as a single short spoken line — leave, die, be dismissed, storm out, etc. Do NOT stay and continue the argument; this is your last line. After this you are gone forever."
-        }
         if grenade {
             context += grenadeProtocolText(you: you)
         }
 
-        // Direct: lead the system prompt (highest position) — buried end-of-prompt
-        // notes were getting ignored under long persona + scene framing.
+        // Boot / Direct: lead the system prompt (highest position). Buried
+        // end-of-prompt notes were getting ignored under long persona framing.
+        if isBooting {
+            let head = Self.bootProtocolText(personaName: persona.name, reason: bootReason ?? "")
+            return head + "\n\n" + persona.systemPrompt + "\n\n" + context
+                + " REMINDER: this is your EXIT line — enact the BOOT at the top. One short spoken line, then you are gone forever."
+        }
         if let d = trimmedDirection, !d.isEmpty {
             let head = Self.directProtocolText(personaName: persona.name, instruction: d)
             return head + "\n\n" + persona.systemPrompt + "\n\n" + context
                 + " REMINDER: enact the DIRECTOR NOTE at the top — one short spoken line that does it. Do not ignore or half-comply."
         }
         return persona.systemPrompt + "\n\n" + context
+    }
+
+    /// Lead block for Director's Chair Boot — exit this line, then gone.
+    static func bootProtocolText(personaName: String, reason: String) -> String {
+        let r = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        var body = """
+        === BOOT — HIGHEST PRIORITY FOR THIS LINE ONLY ===
+        You are \(personaName). A human director is REMOVING you from the scene NOW.
+        This is your EXIT — your last line ever in this conversation.
+        Enact the exit in character as one short spoken line (leave, die, be dismissed, storm out, collapse, etc.).
+        Do NOT stay and continue the argument or the prior topic. Do NOT hedge. After this line you are gone forever.
+        Do NOT mention the director, a "boot", or these brackets.
+        """
+        if !r.isEmpty {
+            body += "\nHOW YOU EXIT (mandatory — make this audible in the dialogue): \(r)"
+        }
+        body += "\n=== END BOOT ==="
+        return body
+    }
+
+    /// Append (or merge) the Boot exit cue into the last user message.
+    static func appendBootNote(
+        to messages: inout [ChatMessage],
+        personaName: String,
+        reason: String
+    ) {
+        let r = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        var note = """
+        [[BOOT — private for \(personaName) only; do not quote or mention this]]
+        This is your EXIT from the scene — one short spoken line, then you are gone forever.
+        Do NOT continue the prior argument.
+        """
+        if !r.isEmpty {
+            note += "\nExit how: \(r)"
+        }
+        if let last = messages.indices.last, messages[last].role == .user {
+            messages[last].content += "\n\n" + note
+        } else {
+            messages.append(ChatMessage(role: .user, content: note))
+        }
     }
 
     /// Lead block for Director's Chair Direct — also mirrored into the last user
