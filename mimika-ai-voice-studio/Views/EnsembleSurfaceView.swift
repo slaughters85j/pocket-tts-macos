@@ -101,6 +101,9 @@ struct EnsembleSurfaceView: View {
                 if turn.wasGrenade {
                     grenadeHitBadge
                 }
+                if turn.wasDirected {
+                    directHitBadge
+                }
                 Spacer(minLength: Theme.space2)
                 if let preset = turn.samplingPreset {
                     presetBadge(preset, tint: color(for: turn))
@@ -114,11 +117,17 @@ struct EnsembleSurfaceView: View {
         .padding(Theme.space3)
         .background(Theme.bgSecondary)
         .overlay(
-            // Subtle warm edge when this line was the grenade hit.
+            // Warm edge for grenade; accent edge for Direct (grenade wins if both).
             RoundedRectangle(cornerRadius: Theme.radius)
-                .strokeBorder(turn.wasGrenade ? Theme.warningFG.opacity(0.45) : Color.clear, lineWidth: 1)
+                .strokeBorder(turnHighlightBorder(turn), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func turnHighlightBorder(_ turn: EnsembleTurn) -> Color {
+        if turn.wasGrenade { return Theme.warningFG.opacity(0.45) }
+        if turn.wasDirected { return Theme.accent.opacity(0.55) }
+        return Color.clear
     }
 
     /// Marks which cast member the armed grenade landed on.
@@ -135,6 +144,22 @@ struct EnsembleSurfaceView: View {
         .background(Theme.warningFG.opacity(0.16))
         .clipShape(Capsule())
         .accessibilityLabel("Grenade landed on this speaker")
+    }
+
+    /// Marks a line that carried a Director's Chair Direct note.
+    private var directHitBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "megaphone.fill")
+                .font(.system(size: 9, weight: .bold))
+            Text("Direct")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        .foregroundStyle(Theme.accent)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Theme.accent.opacity(0.16))
+        .clipShape(Capsule())
+        .accessibilityLabel("Director Direct landed on this speaker")
     }
 
     /// Translucent preset badge in a turn's top-right — the sampling preset the

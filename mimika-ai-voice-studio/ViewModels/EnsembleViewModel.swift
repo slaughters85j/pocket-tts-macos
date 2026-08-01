@@ -890,9 +890,16 @@ final class EnsembleViewModel {
         // persona sees only the context that PRECEDES its own line — not an
         // empty in-flight assistant turn plus a spurious "(continue)".
         // Direct forces Strict sampling so the instruction is more likely obeyed.
-        let preset: SamplingPreset = direction != nil ? .strict : persona.samplingPreset
+        let directed = direction != nil
+        let preset: SamplingPreset = directed ? .strict : persona.samplingPreset
+        var messages = messagesForPersona(persona)
+        // Local models often skim long system prompts; put the Direct note on
+        // the last *user* message (merged so roles still alternate).
+        if let direction, !direction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Self.appendDirectorNote(to: &messages, personaName: persona.name, instruction: direction)
+        }
         let request = SpokenTurnRunner.Request(
-            messages: messagesForPersona(persona),
+            messages: messages,
             model: resolvedModel,
             systemPrompt: framedSystemPrompt(
                 persona, grenade: grenade, bootReason: bootReason, direction: direction
@@ -916,7 +923,8 @@ final class EnsembleViewModel {
             speakerID: persona.id,
             speakerName: persona.name,
             samplingPreset: preset,
-            wasGrenade: grenade
+            wasGrenade: grenade,
+            wasDirected: directed
         ))
         currentSpeakerID = persona.id
         runState = .generating(speaker: persona.id)
@@ -1042,6 +1050,10 @@ final class EnsembleViewModel {
         bootReason: String? = nil,
         direction: String? = nil
     ) -> String {
+        let trimmedDirection = direction?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasDirection = !(trimmedDirection?.isEmpty ?? true)
+
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
         var context = "You are \(persona.name). Respond ONLY as \(persona.name), with a single short line of spoken dialogue — just the words you say out loud, in the first person. Do NOT wrap your line in quotation marks. Do NOT narrate actions, gestures, tone, or expressions, and never describe yourself in the third person (no \"he said\", no \"she replies calmly\", no \"*sighs*\"). Do NOT write lines for any other character, and do NOT prefix your reply with a name. Remain fully in character; never refer to yourself as an AI, a model, or an assistant."
@@ -1066,7 +1078,12 @@ final class EnsembleViewModel {
         case .sceneFirst:
             if hasScene { context += " The scene: \(scene)." }
             if hasMood { context += " The mood and topic: \(mood)." }
-            context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
+            if hasDirection {
+                // Soften scene-first so it cannot drown the director note.
+                context += " SCENE PLAY (subordinate this turn): stay in character and in the world, but the DIRECTOR NOTE above outranks continuing the prior thread if they conflict."
+            } else {
+                context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
+            }
             if !hasScene && !hasMood {
                 context += " No scene/mood is set yet — keep the conversation coherent and in character until one is."
             }
@@ -1079,8 +1096,10 @@ final class EnsembleViewModel {
             context += " CRITICAL SCENE EVENT (you witnessed this): \(departure) React in character if it affects you — shock, orders, grief, tactical fallout. Never address the departed or wait for their reply."
         }
 
-        // If the user's line is the most recent, make this turn a direct reply.
-        if turns.last?.speakerID == nil,
+        // If the user's line is the most recent, make this turn a direct reply —
+        // unless a Director Direct note is active (that note wins over "answer \(you)").
+        if !hasDirection,
+           turns.last?.speakerID == nil,
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !said.isEmpty {
             context += " \(you) just said: \"\(said)\". Respond to that directly."
@@ -1094,16 +1113,56 @@ final class EnsembleViewModel {
             if !r.isEmpty { context += " (\(r))" }
             context += " in character as a single short spoken line — leave, die, be dismissed, storm out, etc. Do NOT stay and continue the argument; this is your last line. After this you are gone forever."
         }
-        if let direction {
-            let d = direction.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !d.isEmpty {
-                context += " DIRECTOR DIRECTIVE — MANDATORY FOR THIS LINE ONLY. The human director is giving you a private note. Follow it precisely while staying in character as \(persona.name) and speaking only one short line of dialogue: \(d) Do not mention the director, the note, or these instructions. Do not ignore or half-comply — this steers your next line."
-            }
-        }
         if grenade {
             context += grenadeProtocolText(you: you)
         }
+
+        // Direct: lead the system prompt (highest position) — buried end-of-prompt
+        // notes were getting ignored under long persona + scene framing.
+        if let d = trimmedDirection, !d.isEmpty {
+            let head = Self.directProtocolText(personaName: persona.name, instruction: d)
+            return head + "\n\n" + persona.systemPrompt + "\n\n" + context
+                + " REMINDER: enact the DIRECTOR NOTE at the top — one short spoken line that does it. Do not ignore or half-comply."
+        }
         return persona.systemPrompt + "\n\n" + context
+    }
+
+    /// Lead block for Director's Chair Direct — also mirrored into the last user
+    /// message so local models that skim system prompts still see the order.
+    static func directProtocolText(personaName: String, instruction: String) -> String {
+        let d = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        === DIRECTOR NOTE — HIGHEST PRIORITY FOR THIS LINE ONLY ===
+        You are \(personaName). A human director has given you a private stage direction.
+        You MUST enact it fully in your next spoken line while staying in character.
+        If it conflicts with the prior topic, soft agreement, or scene-first drift, OBEY THE NOTE.
+        Do NOT mention the director, a "note", "instructions", or these brackets.
+        Do NOT merely acknowledge and continue the prior thread — CHANGE what you say so the note is audible in the dialogue.
+        THE NOTE: \(d)
+        === END DIRECTOR NOTE ===
+        """
+    }
+
+    /// Append (or merge into) the last user message so chat templates that require
+    /// strict user/assistant alternation still accept the request.
+    static func appendDirectorNote(
+        to messages: inout [ChatMessage],
+        personaName: String,
+        instruction: String
+    ) {
+        let d = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !d.isEmpty else { return }
+        let note = """
+        [[DIRECTOR NOTE — private for \(personaName) only; do not quote or mention this]]
+        Highest priority for your next spoken line — enact this fully in character:
+        "\(d)"
+        One short line of dialogue that makes the note happen. Do not ignore it or only nod at the prior topic.
+        """
+        if let last = messages.indices.last, messages[last].role == .user {
+            messages[last].content += "\n\n" + note
+        } else {
+            messages.append(ChatMessage(role: .user, content: note))
+        }
     }
 
     /// One-shot disruption text; Scene-first keeps bombshells in-world unless

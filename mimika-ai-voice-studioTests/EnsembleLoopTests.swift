@@ -220,6 +220,49 @@ final class EnsembleLoopTests: XCTestCase {
         )
     }
 
+    func test_directProtocolText_leadsWithInstructionAndPriority() {
+        let text = EnsembleViewModel.directProtocolText(
+            personaName: "Worf",
+            instruction: "Accuse Picard of hiding the sensor reading."
+        )
+        XCTAssertTrue(text.hasPrefix("=== DIRECTOR NOTE"), text)
+        XCTAssertTrue(text.contains("HIGHEST PRIORITY"), text)
+        XCTAssertTrue(text.contains("Worf"), text)
+        XCTAssertTrue(text.contains("Accuse Picard of hiding the sensor reading."), text)
+        XCTAssertTrue(text.contains("CHANGE what you say"), text)
+    }
+
+    func test_appendDirectorNote_mergesIntoLastUserMessage() {
+        var messages = [
+            ChatMessage(role: .user, content: "Picard: Make it so."),
+            ChatMessage(role: .assistant, content: "Aye, Captain."),
+            ChatMessage(role: .user, content: "Data: Fascinating."),
+        ]
+        EnsembleViewModel.appendDirectorNote(
+            to: &messages,
+            personaName: "Worf",
+            instruction: "Challenge the last conclusion."
+        )
+        XCTAssertEqual(messages.count, 3, "must merge into last user — not add a second user turn")
+        XCTAssertEqual(messages.last?.role, .user)
+        XCTAssertTrue(messages.last?.content.contains("Data: Fascinating.") == true)
+        XCTAssertTrue(messages.last?.content.contains("Challenge the last conclusion.") == true)
+        XCTAssertTrue(messages.last?.content.contains("DIRECTOR NOTE") == true)
+
+        var trailingAssistant = [
+            ChatMessage(role: .user, content: "Hi."),
+            ChatMessage(role: .assistant, content: "Hello."),
+        ]
+        EnsembleViewModel.appendDirectorNote(
+            to: &trailingAssistant,
+            personaName: "Ava",
+            instruction: "Pivot to the weather."
+        )
+        XCTAssertEqual(trailingAssistant.count, 3)
+        XCTAssertEqual(trailingAssistant.last?.role, .user)
+        XCTAssertTrue(trailingAssistant.last?.content.contains("Pivot to the weather.") == true)
+    }
+
     // MARK: - Export (Phase 6)
 
     func test_formatMultiTalkScript_tagsByLabelSkipsEmpty() {
