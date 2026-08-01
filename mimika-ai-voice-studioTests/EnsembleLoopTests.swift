@@ -565,4 +565,39 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertEqual(body["top_k"] as? Int, 100)
         XCTAssertEqual(try XCTUnwrap(body["repeat_penalty"] as? Double), 1.2, accuracy: 0.0001)
     }
+
+    // MARK: - Multi-character quick pick
+
+    func test_userCharacterRoster_addSelectAndDedupe() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        XCTAssertTrue(vm.userCharacterRoster.isEmpty)
+        XCTAssertTrue(vm.addUserCharacter("Milton"))
+        XCTAssertEqual(vm.userPeer.name, "Milton")
+        XCTAssertEqual(vm.userPeer.modelName, "Milton")
+        XCTAssertEqual(vm.userCharacterRoster, ["Milton"])
+
+        XCTAssertTrue(vm.addUserCharacter("Odo"))
+        XCTAssertEqual(vm.userPeer.name, "Odo")
+        XCTAssertEqual(vm.userCharacterRoster, ["Odo", "Milton"])
+
+        // Case-insensitive dedupe selects existing, no second row.
+        XCTAssertTrue(vm.addUserCharacter("  milton  "))
+        XCTAssertEqual(vm.userPeer.name, "Milton")
+        XCTAssertEqual(vm.userCharacterRoster, ["Milton", "Odo"])
+
+        XCTAssertFalse(vm.addUserCharacter("   "), "empty name rejected")
+        XCTAssertEqual(vm.userPeer.name, "Milton")
+    }
+
+    func test_seedUserCharacterRoster_skipsDefaultYou() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        vm.userPeer = UserPeer() // You / Guest
+        vm.seedUserCharacterRosterFromActivePeer()
+        XCTAssertTrue(vm.userCharacterRoster.isEmpty)
+
+        vm.userPeer.name = "Sisko"
+        vm.userPeer.modelName = "Sisko"
+        vm.seedUserCharacterRosterFromActivePeer()
+        XCTAssertEqual(vm.userCharacterRoster, ["Sisko"])
+    }
 }

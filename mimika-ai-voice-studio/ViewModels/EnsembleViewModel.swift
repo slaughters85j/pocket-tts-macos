@@ -32,6 +32,11 @@ final class EnsembleViewModel {
     var turns: [EnsembleTurn] = []
     var cast: [Persona] = []
     var userPeer = UserPeer()
+    /// Quick-pick names the human can speak as mid-conversation. Seeded from
+    /// Cast & Settings (`userPeer`); green-+ adds more. Selecting one overrides
+    /// the active peer name (and the saved cast). Session roster — not its own
+    /// SwiftData entity; the active name still persists via `userPeerName`.
+    var userCharacterRoster: [String] = []
     var scene: String = ""
     var mood: String = ""
 
@@ -349,6 +354,7 @@ final class EnsembleViewModel {
         let trimmedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         userPeer.name = trimmedName.isEmpty ? "You" : trimmedName
         userPeer.modelName = trimmedName.isEmpty ? "Guest" : trimmedName
+        seedUserCharacterRosterFromActivePeer()
         turns = []
         rollingSummary = ""
         summarizedUpTo = 0
@@ -421,6 +427,7 @@ final class EnsembleViewModel {
             userPeer.name = saved.userPeerName
             userPeer.modelName = saved.userPeerName
         }
+        seedUserCharacterRosterFromActivePeer()
         turns = []
         rollingSummary = ""
         summarizedUpTo = 0

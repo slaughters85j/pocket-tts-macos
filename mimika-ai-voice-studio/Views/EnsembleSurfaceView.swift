@@ -380,6 +380,8 @@ struct EnsembleSurfaceView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityIdentifier("ensemble.composer.yourTurnBanner")
             }
+            // Multi-character: speak as cast YOU name or any alias added mid-chat.
+            EnsembleCharacterPickerBar(viewModel: viewModel)
             if case let .unavailable(msg) = viewModel.dictation {
                 Text(msg).font(Theme.fontXS).foregroundStyle(Theme.warningFG)
             }

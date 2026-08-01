@@ -72,10 +72,14 @@ extension EnsembleViewModel {
 
     // MARK: - User peer name (Cast & Settings)
 
+    /// Cap on quick-pick character aliases kept in the composer roster.
+    static let maxUserCharacterRoster = 16
+
     /// Set how the cast addresses the human. Empty → display "You" / model
     /// "Guest" (same convention as the New Cast wizard). Mirrors display into
     /// `modelName` when the user picks a real proper noun so the LLM never
-    /// sees the pronoun "You" as a speaker label.
+    /// sees the pronoun "You" as a speaker label. Also keeps the composer
+    /// character picker in sync.
     func updateUserPeerName(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -86,10 +90,64 @@ extension EnsembleViewModel {
         } else {
             userPeer.name = trimmed
             userPeer.modelName = trimmed
+            rememberUserCharacter(trimmed)
         }
         guard let ctx = appState.modelContext, let saved = currentSavedCast(ctx) else { return }
         saved.userPeerName = userPeer.name
         EnsembleStore.update(ctx, cast: saved)
+    }
+
+    // MARK: - Multi-character quick pick (composer)
+
+    /// Switch the active human identity to a name already on the roster
+    /// (or any string). Overrides Cast & Settings and persists to the cast.
+    func selectUserCharacter(_ name: String) {
+        updateUserPeerName(name)
+    }
+
+    /// Add a new character name, make it active, and remember it on the
+    /// picker. Empty / whitespace-only fails. Case-insensitive duplicates
+    /// just select the existing entry.
+    @discardableResult
+    func addUserCharacter(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if let existing = userCharacterRoster.first(where: {
+            $0.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            selectUserCharacter(existing)
+            return true
+        }
+        rememberUserCharacter(trimmed)
+        selectUserCharacter(trimmed)
+        return true
+    }
+
+    /// Seed the picker from the active peer (cast load / new cast). Real
+    /// proper nouns only — skips the default "You" pronoun.
+    func seedUserCharacterRosterFromActivePeer() {
+        let n = userPeer.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !n.isEmpty, n != "You" else { return }
+        rememberUserCharacter(n)
+    }
+
+    /// Insert `name` at the front of the roster if missing; drop oldest when
+    /// over the cap. Does not change the active peer.
+    private func rememberUserCharacter(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "You" else { return }
+        if let idx = userCharacterRoster.firstIndex(where: {
+            $0.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            // Promote to front so recent picks stay visible first.
+            let kept = userCharacterRoster.remove(at: idx)
+            userCharacterRoster.insert(kept, at: 0)
+            return
+        }
+        userCharacterRoster.insert(trimmed, at: 0)
+        if userCharacterRoster.count > Self.maxUserCharacterRoster {
+            userCharacterRoster = Array(userCharacterRoster.prefix(Self.maxUserCharacterRoster))
+        }
     }
 
     // MARK: - Roster add / remove (WP-CAST-1)

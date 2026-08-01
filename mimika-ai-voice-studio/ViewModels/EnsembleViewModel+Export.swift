@@ -316,6 +316,7 @@ extension EnsembleViewModel {
             userPeer.name = peer
             userPeer.modelName = peer
         }
+        seedUserCharacterRosterFromActivePeer()
         if let raw = package.cast.turnModeRaw, let mode = TurnMode(rawValue: raw) {
             turnOrder = mode
         }
