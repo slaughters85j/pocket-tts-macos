@@ -55,12 +55,14 @@ struct EnsembleCharacterPickerBar: View {
 
     // MARK: - Menu
 
-    /// Menu of remembered names; always includes the current active peer so the
-    /// label stays honest even if the roster was empty (default "You").
+    /// Menu of remembered names. Always leads with **You** (the Cast & Settings
+    /// empty default: display "You" / model "Guest"), then aliases, then any
+    /// active name that isn't already listed.
     private var characterMenu: some View {
         Menu {
             ForEach(menuNames, id: \.self) { name in
                 Button {
+                    // Empty string restores the Cast & Settings null default.
                     viewModel.selectUserCharacter(name == "You" ? "" : name)
                 } label: {
                     HStack {
@@ -94,9 +96,15 @@ struct EnsembleCharacterPickerBar: View {
         .help("Switch which character name you speak as")
     }
 
-    /// Roster first, then active name if missing (e.g. default "You").
+    /// **You** always first (Cast & Settings empty), then roster aliases, then
+    /// the active peer if it isn't already in the list.
     private var menuNames: [String] {
-        var names = viewModel.userCharacterRoster
+        var names: [String] = ["You"]
+        for name in viewModel.userCharacterRoster {
+            if !names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+                names.append(name)
+            }
+        }
         let active = viewModel.userPeer.name
         if !names.contains(where: { $0.caseInsensitiveCompare(active) == .orderedSame }) {
             names.append(active)
