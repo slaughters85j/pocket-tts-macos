@@ -46,7 +46,8 @@ struct ChatComposerView: View {
     @ViewBuilder
     private var statusMessages: some View {
         if case let .disconnected(reason) = viewModel.connectionState {
-            Text("Can't reach the LLM endpoint (\(reason)). Open App Settings (⌘,) or start your local LLM.")
+            let clean = LocalLLMClient.sanitizedConnectionReason(reason)
+            Text("Can't reach the LLM endpoint (\(clean)). Open App Settings (⌘,) or start your local LLM.")
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.warningFG)
         }

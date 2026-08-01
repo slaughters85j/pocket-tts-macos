@@ -301,9 +301,17 @@ final class EnsembleViewModel {
     }
 
     /// Avoid redundant `@Observable` publishes on a 1s poll.
+    /// Always sanitize disconnect reasons so the Ensemble toolbar pill never
+    /// stores a raw NSError dump (even if a caller forgets friendlyConnectionError).
     private func setConnectionStateIfChanged(_ next: ConnectionState) {
-        guard connectionState != next else { return }
-        connectionState = next
+        let cleaned: ConnectionState
+        if case let .disconnected(reason) = next {
+            cleaned = .disconnected(reason: LocalLLMClient.sanitizedConnectionReason(reason))
+        } else {
+            cleaned = next
+        }
+        guard connectionState != cleaned else { return }
+        connectionState = cleaned
     }
 
     // MARK: - Default cast (Phase 1 hardcoded)
@@ -1136,7 +1144,16 @@ final class EnsembleViewModel {
     }
 
     private func shortError(_ error: Error) -> String {
+        let ns = error as NSError
+        if error is URLError
+            || ns.domain == NSURLErrorDomain
+            || error is LocalLLMClient.ClientError {
+            return LocalLLMClient.friendlyConnectionError(error)
+        }
         let s = String(describing: error)
+        if s.contains("Error Domain=") || s.contains("UserInfo=") {
+            return LocalLLMClient.friendlyConnectionError(error)
+        }
         return s.count > 80 ? String(s.prefix(80)) + "…" : s
     }
 }

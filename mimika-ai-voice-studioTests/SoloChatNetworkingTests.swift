@@ -118,6 +118,12 @@ final class SoloChatNetworkingTests: XCTestCase {
         XCTAssertFalse(decoded.isServing("qwen3"))
     }
 
+    func test_isLikelyEmbeddingModel() {
+        XCTAssertTrue(LocalLLMClient.isLikelyEmbeddingModel("text-embedding-nomic-embed-text-v1.5"))
+        XCTAssertTrue(LocalLLMClient.isLikelyEmbeddingModel("nomic-embed-text"))
+        XCTAssertFalse(LocalLLMClient.isLikelyEmbeddingModel("froggeric/qwen3.5-35b-a3b-uncensored-fernflower"))
+    }
+
     func test_catalogAndServingIDs_separateLoadedFromDownloaded() throws {
         let json = Data(
             """
@@ -146,6 +152,46 @@ final class SoloChatNetworkingTests: XCTestCase {
         XCTAssertEqual(friendly, "server error")
         XCTAssertFalse(friendly.contains("stack"))
         XCTAssertFalse(friendly.contains("{"))
+    }
+
+    func test_friendlyConnectionError_mapsNSURLErrorCannotConnect() {
+        // URLSession often delivers NSError, not a clean URLError bridge.
+        let ns = NSError(
+            domain: NSURLErrorDomain,
+            code: URLError.cannotConnectToHost.rawValue,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Could not connect to the server.",
+                "NSUnderlyingError": NSError(
+                    domain: "kCFErrorDomainCFNetwork",
+                    code: 61,
+                    userInfo: nil
+                ),
+            ]
+        )
+        let friendly = LocalLLMClient.friendlyConnectionError(ns)
+        XCTAssertEqual(friendly, "unreachable")
+        XCTAssertFalse(friendly.contains("Error Domain"))
+        XCTAssertFalse(friendly.contains("UserInfo"))
+    }
+
+    func test_sanitizedConnectionReason_stripsNSErrorDump() {
+        let dump =
+            #"Error Domain=NSURLErrorDomain Code=-1004 "Could not connect to the server." UserInfo={_kCFStreamErrorCodeKey=61}"#
+        XCTAssertEqual(
+            LocalLLMClient.sanitizedConnectionReason(dump),
+            "unreachable"
+        )
+        // Truncated pill form (lineLimit / mid-string) still must not leak.
+        let truncated =
+            #"Error Domain=NSURLErrorDomain Code=-1004 "Could not connect to the server." UserInfo=(_kCFStreamErrorCodeKey=61, NSUnder"#
+        XCTAssertEqual(
+            LocalLLMClient.sanitizedConnectionReason(truncated),
+            "unreachable"
+        )
+        XCTAssertEqual(
+            LocalLLMClient.sanitizedConnectionReason("no model loaded"),
+            "no model loaded"
+        )
     }
 
     func test_modelMetadata_preservesReasoningOptionsAndDefault() async throws {

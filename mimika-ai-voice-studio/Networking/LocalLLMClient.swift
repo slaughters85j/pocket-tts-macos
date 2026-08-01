@@ -87,25 +87,29 @@ actor LocalLLMClient {
 
     /// Models that can actually serve chat right now.
     ///
-    /// LM Studio: only entries with non-empty `loaded_instances` (catalog-only
-    /// models are ignored so the Connected pill can’t false-positive).
-    /// Other OpenAI-compatible servers: falls back to `listModels()`.
+    /// LM Studio: **only** non-empty `loaded_instances` from `/api/v1/models`.
+    /// An empty list means the server is up but nothing is loaded — we deliberately
+    /// do **not** fall back to OpenAI `/v1/models` (that endpoint lists every
+    /// downloaded model and caused false “✓ connected” results).
+    ///
+    /// Other OpenAI-compatible servers (no native LM Studio API): `/v1/models`.
     func listServingModels() async throws -> [String] {
         do {
             let response = try await fetchLMStudioModels()
+            // Native API answered — trust load state even when empty.
             return response.servingModelIDs()
         } catch let error as ClientError {
             switch error {
             case .httpError(let status, _) where status == 404 || status == 405:
+                // Not LM Studio (or old build without /api/v1/models).
                 return try await listModels()
             case .decodeFailed:
                 return try await listModels()
             default:
+                // Network / 5xx / auth: surface the failure — never invent “serving”
+                // models from the catalog.
                 throw error
             }
-        } catch {
-            // Network / transport — try OpenAI list once; surface that error.
-            return try await listModels()
         }
     }
 
@@ -125,9 +129,16 @@ actor LocalLLMClient {
             default:
                 throw error
             }
-        } catch {
-            return try await listModels()
         }
+    }
+
+    /// True for embedding-only catalog entries (not chat LLMs).
+    nonisolated static func isLikelyEmbeddingModel(_ id: String) -> Bool {
+        let l = id.lowercased()
+        return l.contains("embed")
+            || l.contains("embedding")
+            || l.contains("nomic-embed")
+            || l.contains("text-embedding")
     }
 
     /// POST `/api/v1/models/load` — load a catalog model into memory (LM Studio).
@@ -269,7 +280,10 @@ actor LocalLLMClient {
         )
     }
 
-    /// Compact, user-facing connection failure — no raw JSON or URL dumps.
+    /// Compact, user-facing connection failure — no raw JSON, NSError dumps, or URL dumps.
+    ///
+    /// URLSession often surfaces `NSError` (NSURLErrorDomain) that does not always
+    /// bridge cleanly to `URLError` via `as?`; always check the NSError domain too.
     nonisolated static func friendlyConnectionError(_ error: Error) -> String {
         if let client = error as? ClientError {
             switch client {
@@ -291,19 +305,94 @@ actor LocalLLMClient {
                 return "cancelled"
             }
         }
-        if let urlError = error as? URLError {
-            switch urlError.code {
+
+        let ns = error as NSError
+        let urlCode: URLError.Code? = {
+            if let urlError = error as? URLError { return urlError.code }
+            if ns.domain == NSURLErrorDomain { return URLError.Code(rawValue: ns.code) }
+            // Nested transport failure (common with URLSession wrappers).
+            if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+               underlying.domain == NSURLErrorDomain {
+                return URLError.Code(rawValue: underlying.code)
+            }
+            return nil
+        }()
+
+        if let code = urlCode {
+            switch code {
             case .timedOut:
                 return "timed out"
             case .notConnectedToInternet, .networkConnectionLost:
                 return "offline"
             case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
                 return "unreachable"
+            case .cancelled:
+                return "cancelled"
             default:
                 return "unreachable"
             }
         }
-        return "no connection"
+
+        // Last resort: never show "Error Domain=…" / UserInfo dumps in the UI.
+        return sanitizedConnectionReason(String(describing: error))
+    }
+
+    /// Allowed short reasons the UI may show verbatim.
+    private static let knownConnectionReasons: Set<String> = [
+        "no model loaded",
+        "no models loaded",
+        "no connection",
+        "unreachable",
+        "offline",
+        "timed out",
+        "cancelled",
+        "invalid URL",
+        "endpoint not found",
+        "server error",
+        "unexpected response",
+        "model not available",
+        "vision unavailable",
+        "image too large",
+    ]
+
+    /// Collapse raw NSError / JSON dumps into a short reason for display.
+    /// Anything that looks like a system dump becomes a plain phrase.
+    nonisolated static func sanitizedConnectionReason(_ reason: String) -> String {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "no connection" }
+        if knownConnectionReasons.contains(trimmed) { return trimmed }
+
+        let lower = trimmed.lowercased()
+        // Heuristics for dumps: NSError text, JSON, CFStream keys, long blobs.
+        let looksLikeDump =
+            trimmed.contains("Error Domain")
+            || trimmed.contains("UserInfo")
+            || trimmed.contains("NSURLError")
+            || trimmed.contains("NSError")
+            || trimmed.contains("NSUnderlying")
+            || trimmed.contains("kCFStream")
+            || trimmed.contains("CFNetwork")
+            || trimmed.contains("{")
+            || trimmed.contains("=")
+            || trimmed.contains("Code=")
+            || trimmed.count > 40
+
+        if looksLikeDump {
+            if lower.contains("timed out") || lower.contains("timeout") { return "timed out" }
+            if lower.contains("offline") || lower.contains("not connected to the internet") {
+                return "offline"
+            }
+            if lower.contains("could not connect")
+                || lower.contains("connection refused")
+                || lower.contains("cannot connect")
+                || lower.contains("couldn't connect")
+                || lower.contains("couldn’t connect") {
+                return "unreachable"
+            }
+            return "unreachable"
+        }
+        // Unknown but short/safe free-text (e.g. custom notices).
+        return trimmed
     }
 
     // MARK: - Chat streaming
