@@ -31,6 +31,7 @@
 		51F494B8D2AA25DB1E3A23B0 /* PersonaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */; };
 		5541B2D0AA6F43724ABD380C /* EnsembleSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBCAE0FB784C0AF344F9A30 /* EnsembleSurfaceView.swift */; };
 		84374F4D139241CF9223E082 /* EnsembleCharacterPickerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9565AAD3AFC4D7782FAF885 /* EnsembleCharacterPickerBar.swift */; };
+		D652342D5E8948F5BDC2F411 /* EnsembleMultiTalkVoiceMapSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6305E43509094D4880AAC215 /* EnsembleMultiTalkVoiceMapSheet.swift */; };
 		57F3B3F855047E48D0A91CF9 /* EnsembleSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BD26F9434166E6F03BF338E /* EnsembleSetupView.swift */; };
 		581200C072E8FDCBE198B8AB /* EnsembleContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825023E203638AEB5972C3D1 /* EnsembleContextTests.swift */; };
 		58B218AEE4A85946AD5386D1 /* ConductorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4455AFA696C04E5F1C41B3BB /* ConductorTests.swift */; };
@@ -361,6 +362,7 @@
 		CBAB6B97A4F0AB6AD1876144 /* PersonaContracts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaContracts.swift; sourceTree = "<group>"; };
 		CDBCAE0FB784C0AF344F9A30 /* EnsembleSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSurfaceView.swift; sourceTree = "<group>"; };
 		F9565AAD3AFC4D7782FAF885 /* EnsembleCharacterPickerBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleCharacterPickerBar.swift; sourceTree = "<group>"; };
+		6305E43509094D4880AAC215 /* EnsembleMultiTalkVoiceMapSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleMultiTalkVoiceMapSheet.swift; sourceTree = "<group>"; };
 		CE64C94E90821F9C8BEE43DA /* EnsembleViewModel+Director.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Director.swift"; sourceTree = "<group>"; };
 		D53CE5742FD2FADC0071832E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		D53CE5752FD2FADC0071832E /* SynthesisStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthesisStatus.swift; sourceTree = "<group>"; };
@@ -920,6 +922,7 @@
 				4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */,
 				CDBCAE0FB784C0AF344F9A30 /* EnsembleSurfaceView.swift */,
 				F9565AAD3AFC4D7782FAF885 /* EnsembleCharacterPickerBar.swift */,
+				6305E43509094D4880AAC215 /* EnsembleMultiTalkVoiceMapSheet.swift */,
 				2BD26F9434166E6F03BF338E /* EnsembleSetupView.swift */,
 				C39989818B12E30B025277F9 /* EnsembleCastEditorSheet.swift */,
 				4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */,
@@ -1413,6 +1416,7 @@
 				D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */,
 				5541B2D0AA6F43724ABD380C /* EnsembleSurfaceView.swift in Sources */,
 				84374F4D139241CF9223E082 /* EnsembleCharacterPickerBar.swift in Sources */,
+				D652342D5E8948F5BDC2F411 /* EnsembleMultiTalkVoiceMapSheet.swift in Sources */,
 				37D19F12A7E498FA669E37BB /* PersonaContracts.swift in Sources */,
 				4726C0A5D9D4E0CFC1848D28 /* JSONExtractor.swift in Sources */,
 				183A55DA3F22258A054ED407 /* PersonaWriter.swift in Sources */,

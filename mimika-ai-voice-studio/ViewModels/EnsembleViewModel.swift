@@ -37,6 +37,9 @@ final class EnsembleViewModel {
     /// the active peer name (and the saved cast). Session roster — not its own
     /// SwiftData entity; the active name still persists via `userPeerName`.
     var userCharacterRoster: [String] = []
+    /// Draft voice IDs for Open-in-Multi-Talk mapping (`character display name` →
+    /// voiceID). Seeded when the map sheet opens; remembered for the session.
+    var multiTalkUserVoiceDraft: [String: String] = [:]
     var scene: String = ""
     var mood: String = ""
 

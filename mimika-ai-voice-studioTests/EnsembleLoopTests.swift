@@ -229,9 +229,9 @@ final class EnsembleLoopTests: XCTestCase {
             EnsembleTurn(speakerID: nil, speakerName: "You", content: "   "),       // empty → skipped
             EnsembleTurn(speakerID: b, speakerName: "Dana", content: "Show me evidence."),
         ]
-        let label: (UUID?) -> String = { id in
-            if id == a { return "Fox Mulder" }
-            if id == b { return "Dana Scully" }
+        let label: (EnsembleTurn) -> String = { turn in
+            if turn.speakerID == a { return "Fox Mulder" }
+            if turn.speakerID == b { return "Dana Scully" }
             return "You"
         }
         let script = EnsembleViewModel.formatMultiTalkScript(turns: turns, label: label, stripBrackets: true)
@@ -278,6 +278,52 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(script.contains("{Alex} One."))
         XCTAssertTrue(script.contains("{Alex 2} Two."))
         XCTAssertTrue(script.contains("{Alex 3} Three."))
+    }
+
+    func test_exportLabels_multiUserCharacters_getDistinctTagsAndMappedVoices() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let fox = Persona(name: "Fox Mulder", voiceID: "javert", systemPrompt: "")
+        vm.cast = [fox]
+        vm.turns = [
+            EnsembleTurn(speakerID: fox.id, speakerName: "Fox Mulder", content: "Cocky."),
+            EnsembleTurn(speakerID: nil, speakerName: "John", content: "I hate that."),
+            EnsembleTurn(speakerID: nil, speakerName: "Data", content: "Fascinating."),
+            EnsembleTurn(speakerID: nil, speakerName: "John", content: "Again."),
+        ]
+        XCTAssertEqual(vm.distinctUserSpeakerNamesInTranscript(), ["John", "Data"])
+
+        let labels = vm.exportLabels(userVoiceMap: [
+            "John": "cosette",
+            "Data": "marius",
+        ])
+        let byName = Dictionary(uniqueKeysWithValues: labels.speakers.map { ($0.name, $0.voiceID) })
+        XCTAssertEqual(byName["John"], "cosette")
+        XCTAssertEqual(byName["Data"], "marius")
+        XCTAssertEqual(byName["Fox Mulder"], "javert")
+
+        let script = EnsembleViewModel.formatMultiTalkScript(
+            turns: vm.turns, label: labels.label, stripBrackets: false
+        )
+        XCTAssertTrue(script.contains("{John} I hate that."))
+        XCTAssertTrue(script.contains("{Data} Fascinating."))
+        XCTAssertTrue(script.contains("{John} Again."))
+        XCTAssertFalse(script.contains("{Alba}"), "user lines must not collapse to stock alba tag")
+    }
+
+    func test_prepareMultiTalkVoiceMap_seedsDraftPerUserName() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        vm.cast = [Persona(name: "Ava", voiceID: "javert", systemPrompt: "")]
+        vm.turns = [
+            EnsembleTurn(speakerID: nil, speakerName: "John", content: "Hi."),
+            EnsembleTurn(speakerID: nil, speakerName: "Fred", content: "Yo."),
+        ]
+        XCTAssertTrue(vm.prepareMultiTalkVoiceMap())
+        XCTAssertEqual(Set(vm.multiTalkUserVoiceDraft.keys), Set(["John", "Fred"]))
+        XCTAssertEqual(vm.multiTalkUserVoiceDraft.count, 2)
+        // Re-prepare preserves a user override.
+        vm.multiTalkUserVoiceDraft["John"] = "fantine"
+        XCTAssertTrue(vm.prepareMultiTalkVoiceMap())
+        XCTAssertEqual(vm.multiTalkUserVoiceDraft["John"], "fantine")
     }
 
     func test_resolvedModel_honorsSavedOnlyWhenLoaded() throws {

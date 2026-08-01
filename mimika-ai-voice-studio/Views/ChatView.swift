@@ -20,6 +20,7 @@ struct ChatView: View {
     @State private var ensembleViewMode: ViewMode = .transcript
     @State private var showsEnsembleSetup = false
     @State private var showsEnsembleCastEditor = false
+    @State private var showsMultiTalkVoiceMap = false
     @State private var showsDirectorsChair = false
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
@@ -82,6 +83,19 @@ struct ChatView: View {
                 viewModel: ensembleViewModel,
                 voices: voices,
                 onClose: { showsEnsembleCastEditor = false }
+            )
+        }
+        .sheet(isPresented: $showsMultiTalkVoiceMap) {
+            EnsembleMultiTalkVoiceMapSheet(
+                viewModel: ensembleViewModel,
+                voices: voices,
+                onCancel: { showsMultiTalkVoiceMap = false },
+                onConfirm: {
+                    showsMultiTalkVoiceMap = false
+                    ensembleViewModel.openInMultiTalk(
+                        userVoiceMap: ensembleViewModel.multiTalkUserVoiceDraft
+                    )
+                }
             )
         }
         .sheet(item: $viewModel.previewAttachment) { attachment in
@@ -303,13 +317,13 @@ struct ChatView: View {
             .help("Save episode to History")
             .accessibilityIdentifier("ensemble.saveHistory")
 
-            Button(action: { ensembleViewModel.openInMultiTalk() }) {
+            Button(action: openEnsembleInMultiTalk) {
                 Image(systemName: "person.2.wave.2")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.textSecondary)
             }
             .buttonStyle(.plain)
-            .help("Open episode in Multi-Talk")
+            .help("Open episode in Multi-Talk — map your character voices first")
             .accessibilityIdentifier("ensemble.openMultiTalk")
         }
 
@@ -352,6 +366,16 @@ struct ChatView: View {
         .buttonStyle(.plain)
         .help("Generate a new cast with the persona-writer")
         .accessibilityIdentifier("ensemble.newCast")
+    }
+
+    /// Map human character aliases to voices, then hand the episode to Multi-Talk.
+    /// Cast-only episodes (no user lines) skip the sheet.
+    private func openEnsembleInMultiTalk() {
+        if ensembleViewModel.prepareMultiTalkVoiceMap() {
+            showsMultiTalkVoiceMap = true
+        } else {
+            ensembleViewModel.openInMultiTalk()
+        }
     }
 
     private var ensembleStatusText: String {
