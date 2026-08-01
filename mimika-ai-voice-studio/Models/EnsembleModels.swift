@@ -135,6 +135,12 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
     /// history when the user changes a speaker's preset mid-conversation. nil for
     /// user turns. Ensemble-only — never part of the Multi-Talk export.
     var samplingPreset: SamplingPreset?
+    /// True when this turn was the one-shot grenade bombshell (next speaker after
+    /// the user armed the flame). Ensemble-only UI marker — not exported.
+    var wasGrenade: Bool
+    /// True when this turn carried a Director's Chair **Direct** instruction.
+    /// Ensemble-only UI marker — not exported.
+    var wasDirected: Bool
 
     /// Synthetic "Scene" beats (boot deaths, etc.) — not a cast member or the user.
     /// Lands in POV history as a public event the models actually read.
@@ -150,7 +156,9 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         content: String = "",
         wasCutOff: Bool = false,
         spokenSentences: Int = 0,
-        samplingPreset: SamplingPreset? = nil
+        samplingPreset: SamplingPreset? = nil,
+        wasGrenade: Bool = false,
+        wasDirected: Bool = false
     ) {
         self.id = id
         self.speakerID = speakerID
@@ -159,6 +167,8 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         self.wasCutOff = wasCutOff
         self.spokenSentences = spokenSentences
         self.samplingPreset = samplingPreset
+        self.wasGrenade = wasGrenade
+        self.wasDirected = wasDirected
     }
 
     /// Public scene announcement (boot / environmental event).

@@ -48,10 +48,26 @@ extension EnsembleViewModel {
         Task { await startListening() }
     }
 
+    /// Prefer the next Boot / Direct without tearing down the whole loop.
+    ///
+    /// Mid-line: soft-cancel only the current speaker's runner (keep `loopTask`
+    /// alive). Hard-cancelling the loop raced `isLooping` and could stall the
+    /// cast entirely. Parked / idle: `kickIfParked` starts a turn as before.
+    func forceImmediateDirectorAction() {
+        switch runState {
+        case .generating, .speaking:
+            // Soft cut — loop continues into the next pick (boot target / direct).
+            pendingSoftCut = true
+            runnerCancelForSoftCut()
+        default:
+            kickIfParked()
+        }
+    }
+
     /// Drop-in-flight-sentence rule (#6): keep the fully-spoken sentences of the
     /// interrupted turn, drop the one mid-drain, mark it cut off — or remove the
     /// turn entirely if nothing landed cleanly.
-    private func truncateInFlightTurn() {
+    func truncateInFlightTurn() {
         // Only truncate the turn that's actively in flight — identified by the
         // current speaker. Between turns `turns.last` is already complete and
         // must not be cut.

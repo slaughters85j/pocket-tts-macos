@@ -32,6 +32,14 @@ final class EnsembleViewModel {
     var turns: [EnsembleTurn] = []
     var cast: [Persona] = []
     var userPeer = UserPeer()
+    /// Quick-pick names the human can speak as mid-conversation. Seeded from
+    /// Cast & Settings (`userPeer`); green-+ adds more. Selecting one overrides
+    /// the active peer name (and the saved cast). Session roster — not its own
+    /// SwiftData entity; the active name still persists via `userPeerName`.
+    var userCharacterRoster: [String] = []
+    /// Draft voice IDs for Open-in-Multi-Talk mapping (`character display name` →
+    /// voiceID). Seeded when the map sheet opens; remembered for the session.
+    var multiTalkUserVoiceDraft: [String: String] = [:]
     var scene: String = ""
     var mood: String = ""
 
@@ -154,6 +162,10 @@ final class EnsembleViewModel {
     /// Set by the runner's onError; read after a turn to stop the loop and
     /// preserve the surfaced `.error` state instead of clobbering it.
     private var lastTurnFailed = false
+    /// Soft-cut the in-flight speaker (Boot / Direct armed mid-line): cancel the
+    /// runner only — keep `loopTask` alive so the loop picks the forced speaker
+    /// next. Hard loop cancel was racing `isLooping` and could kill the run.
+    var pendingSoftCut = false
     /// One-shot guard so the surface auto-loads the last saved cast exactly once
     /// on first appear (and never clobbers an in-progress conversation later).
     private var didAttemptAutoLoad = false
@@ -301,9 +313,17 @@ final class EnsembleViewModel {
     }
 
     /// Avoid redundant `@Observable` publishes on a 1s poll.
+    /// Always sanitize disconnect reasons so the Ensemble toolbar pill never
+    /// stores a raw NSError dump (even if a caller forgets friendlyConnectionError).
     private func setConnectionStateIfChanged(_ next: ConnectionState) {
-        guard connectionState != next else { return }
-        connectionState = next
+        let cleaned: ConnectionState
+        if case let .disconnected(reason) = next {
+            cleaned = .disconnected(reason: LocalLLMClient.sanitizedConnectionReason(reason))
+        } else {
+            cleaned = next
+        }
+        guard connectionState != cleaned else { return }
+        connectionState = cleaned
     }
 
     // MARK: - Default cast (Phase 1 hardcoded)
@@ -341,6 +361,7 @@ final class EnsembleViewModel {
         let trimmedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         userPeer.name = trimmedName.isEmpty ? "You" : trimmedName
         userPeer.modelName = trimmedName.isEmpty ? "Guest" : trimmedName
+        seedUserCharacterRosterFromActivePeer()
         turns = []
         rollingSummary = ""
         summarizedUpTo = 0
@@ -413,6 +434,7 @@ final class EnsembleViewModel {
             userPeer.name = saved.userPeerName
             userPeer.modelName = saved.userPeerName
         }
+        seedUserCharacterRosterFromActivePeer()
         turns = []
         rollingSummary = ""
         summarizedUpTo = 0
@@ -593,7 +615,14 @@ final class EnsembleViewModel {
     /// Cut the loop + the in-flight turn + the player — used by barge-in. Kept
     /// here so `loopTask`/`runner` stay private to this file.
     func interruptForBargeIn() {
+        pendingSoftCut = false
         loopTask?.cancel()
+        runner.cancel()
+    }
+
+    /// Cancel only the in-flight LLM/TTS turn (Boot / Direct soft-cut). Does
+    /// **not** cancel `loopTask` — the loop picks the forced speaker next.
+    func runnerCancelForSoftCut() {
         runner.cancel()
     }
 
@@ -740,11 +769,17 @@ final class EnsembleViewModel {
                 runState = .awaitingStep
                 return
             }
-            // Voiced: the speech already paced the turn, so just a short breath.
-            // Text-only: a reading-paced gap so a human can keep up.
-            let gap = voicedPlayback
-                ? paceDelay
-                : Self.interTurnDelay(for: turns.last?.content ?? "")
+            // After a Boot, shorten (don't zero) the breath so reactions land
+            // soon without slamming the next model call into a cold cancel.
+            let afterBoot = turns.last?.isSceneBeat == true
+            let gap: Duration = {
+                if afterBoot {
+                    return voicedPlayback ? .milliseconds(200) : .milliseconds(150)
+                }
+                return voicedPlayback
+                    ? paceDelay
+                    : Self.interTurnDelay(for: turns.last?.content ?? "")
+            }()
             try? await Task.sleep(for: gap)
         }
         // Don't clobber a surfaced error — a failed turn stops the loop and
@@ -872,9 +907,21 @@ final class EnsembleViewModel {
         // persona sees only the context that PRECEDES its own line — not an
         // empty in-flight assistant turn plus a spurious "(continue)".
         // Direct forces Strict sampling so the instruction is more likely obeyed.
-        let preset: SamplingPreset = direction != nil ? .strict : persona.samplingPreset
+        let directed = direction != nil
+        let booting = bootReason != nil
+        // Boot + Direct force Strict so the exit/steer is more likely obeyed.
+        let preset: SamplingPreset = (directed || booting) ? .strict : persona.samplingPreset
+        var messages = messagesForPersona(persona)
+        // Local models often skim long system prompts; put Boot / Direct notes on
+        // the last *user* message (merged so roles still alternate).
+        if let direction, !direction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Self.appendDirectorNote(to: &messages, personaName: persona.name, instruction: direction)
+        }
+        if booting {
+            Self.appendBootNote(to: &messages, personaName: persona.name, reason: bootReason ?? "")
+        }
         let request = SpokenTurnRunner.Request(
-            messages: messagesForPersona(persona),
+            messages: messages,
             model: resolvedModel,
             systemPrompt: framedSystemPrompt(
                 persona, grenade: grenade, bootReason: bootReason, direction: direction
@@ -893,8 +940,14 @@ final class EnsembleViewModel {
         )
 
         let turnID = UUID()
-        turns.append(EnsembleTurn(id: turnID, speakerID: persona.id, speakerName: persona.name,
-                                  samplingPreset: preset))
+        turns.append(EnsembleTurn(
+            id: turnID,
+            speakerID: persona.id,
+            speakerName: persona.name,
+            samplingPreset: preset,
+            wasGrenade: grenade,
+            wasDirected: directed
+        ))
         currentSpeakerID = persona.id
         runState = .generating(speaker: persona.id)
 
@@ -910,6 +963,8 @@ final class EnsembleViewModel {
                 self.turns[i].spokenSentences = index   // count of sentences fully HEARD
             },
             onError: { [weak self] error in
+                // Soft-cut cancels the runner intentionally — not a fatal turn error.
+                guard self?.pendingSoftCut != true else { return }
                 self?.runState = .error(self?.shortError(error) ?? "error")
                 self?.lastTurnFailed = true
             }
@@ -919,6 +974,17 @@ final class EnsembleViewModel {
         // finalized (truncated, or left partial) — don't clobber it with the
         // full generated text.
         if Task.isCancelled { return }
+
+        // Soft-cut (Boot/Direct armed while someone else was mid-line): keep the
+        // loop running, truncate what was heard, leave Boot/Direct armed for the
+        // next pick. Do not finalize an incomplete exit here.
+        if pendingSoftCut {
+            pendingSoftCut = false
+            applySoftCut(to: turnID)
+            currentSpeakerID = nil
+            lastTurnFailed = false
+            return
+        }
 
         // Clean multi-speaker leakage + a self-prefix, then store the result.
         // Drop the turn if it ends up empty (garbage / no-output / errored).
@@ -938,6 +1004,27 @@ final class EnsembleViewModel {
         // Direct: one-shot — clear only after a successful directed line.
         if direction != nil, !lastTurnFailed, !cleaned.isEmpty {
             pendingDirective = nil
+        }
+    }
+
+    /// Truncate the in-flight turn after a soft runner cancel (heard sentences
+    /// kept + cut-off; empty turns dropped). Same rules as barge-in truncate.
+    private func applySoftCut(to turnID: UUID) {
+        guard let idx = turns.firstIndex(where: { $0.id == turnID }) else { return }
+        let turn = turns[idx]
+        if voicedPlayback {
+            if let kept = Self.truncatedSpokenText(
+                content: turn.content, playedSentences: turn.spokenSentences
+            ) {
+                turns[idx].content = kept
+                turns[idx].wasCutOff = true
+            } else {
+                turns.remove(at: idx)
+            }
+        } else if turn.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            turns.remove(at: idx)
+        } else {
+            turns[idx].wasCutOff = true
         }
     }
 
@@ -1019,6 +1106,13 @@ final class EnsembleViewModel {
         bootReason: String? = nil,
         direction: String? = nil
     ) -> String {
+        let trimmedDirection = direction?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasDirection = !(trimmedDirection?.isEmpty ?? true)
+        let isBooting = bootReason != nil
+        // Boot wins over Direct for lead-block priority (exit is absolute).
+        let hasLeadProtocol = isBooting || hasDirection
+
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
         var context = "You are \(persona.name). Respond ONLY as \(persona.name), with a single short line of spoken dialogue — just the words you say out loud, in the first person. Do NOT wrap your line in quotation marks. Do NOT narrate actions, gestures, tone, or expressions, and never describe yourself in the third person (no \"he said\", no \"she replies calmly\", no \"*sighs*\"). Do NOT write lines for any other character, and do NOT prefix your reply with a name. Remain fully in character; never refer to yourself as an AI, a model, or an assistant."
@@ -1043,7 +1137,12 @@ final class EnsembleViewModel {
         case .sceneFirst:
             if hasScene { context += " The scene: \(scene)." }
             if hasMood { context += " The mood and topic: \(mood)." }
-            context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
+            if hasLeadProtocol {
+                // Soften scene-first so it cannot drown Boot / Direct.
+                context += " SCENE PLAY (subordinate this turn): stay in character and in the world, but the DIRECTOR block above outranks continuing the prior thread if they conflict."
+            } else {
+                context += " SCENE-FIRST PLAY: your line should move this situation forward (an order, report, objection, reveal, or in-world action). Stay in character and in the world; avoid soft agreement loops and pure digressions that abandon the scene. Banter and heat are fine when they still serve the scene. CRITICAL: if \(you) deliberately redirects (a wild card, a new game, a personal beat), play *that* — never nanny or refuse \(you) back onto the original rails."
+            }
             if !hasScene && !hasMood {
                 context += " No scene/mood is set yet — keep the conversation coherent and in character until one is."
             }
@@ -1056,8 +1155,10 @@ final class EnsembleViewModel {
             context += " CRITICAL SCENE EVENT (you witnessed this): \(departure) React in character if it affects you — shock, orders, grief, tactical fallout. Never address the departed or wait for their reply."
         }
 
-        // If the user's line is the most recent, make this turn a direct reply.
-        if turns.last?.speakerID == nil,
+        // If the user's line is the most recent, make this turn a direct reply —
+        // unless Boot / Direct is active (those win over "answer \(you)").
+        if !hasLeadProtocol,
+           turns.last?.speakerID == nil,
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !said.isEmpty {
             context += " \(you) just said: \"\(said)\". Respond to that directly."
@@ -1065,22 +1166,101 @@ final class EnsembleViewModel {
                 context += " Their move takes priority over the prior scene thread if they changed the game."
             }
         }
-        if let bootReason {
-            let r = bootReason.trimmingCharacters(in: .whitespacesAndNewlines)
-            context += " BOOT PROTOCOL — MANDATORY FOR THIS LINE ONLY. This is your EXIT from the scene. Enact the director's instruction"
-            if !r.isEmpty { context += " (\(r))" }
-            context += " in character as a single short spoken line — leave, die, be dismissed, storm out, etc. Do NOT stay and continue the argument; this is your last line. After this you are gone forever."
-        }
-        if let direction {
-            let d = direction.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !d.isEmpty {
-                context += " DIRECTOR DIRECTIVE — MANDATORY FOR THIS LINE ONLY. The human director is giving you a private note. Follow it precisely while staying in character as \(persona.name) and speaking only one short line of dialogue: \(d) Do not mention the director, the note, or these instructions. Do not ignore or half-comply — this steers your next line."
-            }
-        }
         if grenade {
             context += grenadeProtocolText(you: you)
         }
+
+        // Boot / Direct: lead the system prompt (highest position). Buried
+        // end-of-prompt notes were getting ignored under long persona framing.
+        if isBooting {
+            let head = Self.bootProtocolText(personaName: persona.name, reason: bootReason ?? "")
+            return head + "\n\n" + persona.systemPrompt + "\n\n" + context
+                + " REMINDER: this is your EXIT line — enact the BOOT at the top. One short spoken line, then you are gone forever."
+        }
+        if let d = trimmedDirection, !d.isEmpty {
+            let head = Self.directProtocolText(personaName: persona.name, instruction: d)
+            return head + "\n\n" + persona.systemPrompt + "\n\n" + context
+                + " REMINDER: enact the DIRECTOR NOTE at the top — one short spoken line that does it. Do not ignore or half-comply."
+        }
         return persona.systemPrompt + "\n\n" + context
+    }
+
+    /// Lead block for Director's Chair Boot — exit this line, then gone.
+    static func bootProtocolText(personaName: String, reason: String) -> String {
+        let r = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        var body = """
+        === BOOT — HIGHEST PRIORITY FOR THIS LINE ONLY ===
+        You are \(personaName). A human director is REMOVING you from the scene NOW.
+        This is your EXIT — your last line ever in this conversation.
+        Enact the exit in character as one short spoken line (leave, die, be dismissed, storm out, collapse, etc.).
+        Do NOT stay and continue the argument or the prior topic. Do NOT hedge. After this line you are gone forever.
+        Do NOT mention the director, a "boot", or these brackets.
+        """
+        if !r.isEmpty {
+            body += "\nHOW YOU EXIT (mandatory — make this audible in the dialogue): \(r)"
+        }
+        body += "\n=== END BOOT ==="
+        return body
+    }
+
+    /// Append (or merge) the Boot exit cue into the last user message.
+    static func appendBootNote(
+        to messages: inout [ChatMessage],
+        personaName: String,
+        reason: String
+    ) {
+        let r = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        var note = """
+        [[BOOT — private for \(personaName) only; do not quote or mention this]]
+        This is your EXIT from the scene — one short spoken line, then you are gone forever.
+        Do NOT continue the prior argument.
+        """
+        if !r.isEmpty {
+            note += "\nExit how: \(r)"
+        }
+        if let last = messages.indices.last, messages[last].role == .user {
+            messages[last].content += "\n\n" + note
+        } else {
+            messages.append(ChatMessage(role: .user, content: note))
+        }
+    }
+
+    /// Lead block for Director's Chair Direct — also mirrored into the last user
+    /// message so local models that skim system prompts still see the order.
+    static func directProtocolText(personaName: String, instruction: String) -> String {
+        let d = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        === DIRECTOR NOTE — HIGHEST PRIORITY FOR THIS LINE ONLY ===
+        You are \(personaName). A human director has given you a private stage direction.
+        You MUST enact it fully in your next spoken line while staying in character.
+        If it conflicts with the prior topic, soft agreement, or scene-first drift, OBEY THE NOTE.
+        Do NOT mention the director, a "note", "instructions", or these brackets.
+        Do NOT merely acknowledge and continue the prior thread — CHANGE what you say so the note is audible in the dialogue.
+        THE NOTE: \(d)
+        === END DIRECTOR NOTE ===
+        """
+    }
+
+    /// Append (or merge into) the last user message so chat templates that require
+    /// strict user/assistant alternation still accept the request.
+    static func appendDirectorNote(
+        to messages: inout [ChatMessage],
+        personaName: String,
+        instruction: String
+    ) {
+        let d = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !d.isEmpty else { return }
+        let note = """
+        [[DIRECTOR NOTE — private for \(personaName) only; do not quote or mention this]]
+        Highest priority for your next spoken line — enact this fully in character:
+        "\(d)"
+        One short line of dialogue that makes the note happen. Do not ignore it or only nod at the prior topic.
+        """
+        if let last = messages.indices.last, messages[last].role == .user {
+            messages[last].content += "\n\n" + note
+        } else {
+            messages.append(ChatMessage(role: .user, content: note))
+        }
     }
 
     /// One-shot disruption text; Scene-first keeps bombshells in-world unless
@@ -1136,7 +1316,16 @@ final class EnsembleViewModel {
     }
 
     private func shortError(_ error: Error) -> String {
+        let ns = error as NSError
+        if error is URLError
+            || ns.domain == NSURLErrorDomain
+            || error is LocalLLMClient.ClientError {
+            return LocalLLMClient.friendlyConnectionError(error)
+        }
         let s = String(describing: error)
+        if s.contains("Error Domain=") || s.contains("UserInfo=") {
+            return LocalLLMClient.friendlyConnectionError(error)
+        }
         return s.count > 80 ? String(s.prefix(80)) + "…" : s
     }
 }

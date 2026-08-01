@@ -116,9 +116,16 @@ extension ChatViewModel {
     }
 
     /// Avoid redundant `@Observable` publishes on a 1s poll.
+    /// Sanitize disconnect reasons at write time (toolbar + composer share this state).
     private func setConnectionStateIfChanged(_ next: ConnectionState) {
-        guard connectionState != next else { return }
-        connectionState = next
+        let cleaned: ConnectionState
+        if case let .disconnected(reason) = next {
+            cleaned = .disconnected(reason: LocalLLMClient.sanitizedConnectionReason(reason))
+        } else {
+            cleaned = next
+        }
+        guard connectionState != cleaned else { return }
+        connectionState = cleaned
     }
 
     /// Probe authoritative LM Studio metadata with stale-result protection.

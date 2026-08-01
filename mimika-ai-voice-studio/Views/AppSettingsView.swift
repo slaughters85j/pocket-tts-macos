@@ -41,7 +41,11 @@ struct AppSettingsView: View {
     /// Currently loaded/serving ids (for ✓ markers + connection truth).
     @State private var loadedModels: [String] = []
     @State private var modelLoadError: String? = nil
-    @State private var isLoadingModel = false
+    @State private var modelLoadStatus: ModelLoadStatus = .idle
+    /// Bumps when the user picks a new model so a slower prior load is abandoned.
+    @State private var modelLoadGeneration: Int = 0
+    /// When true, programmatic model assignment (refresh) must not trigger load.
+    @State private var suppressModelAutoLoad = false
     @State private var probeState: ProbeState = .idle
     @State private var personaConfig = PersonaProviderStore.load()
     @State private var anthropicKey = PersonaProviderStore.anthropicAPIKey()
@@ -70,6 +74,22 @@ struct AppSettingsView: View {
         case fail(String)
     }
 
+    /// In-flight / result of loading a picker selection into LM Studio.
+    enum ModelLoadStatus: Equatable {
+        case idle
+        case loading(String)
+        case verifying(String)
+        case loaded(String)
+        case failed(String, reason: String)
+
+        var isBusy: Bool {
+            switch self {
+            case .loading, .verifying: return true
+            default: return false
+            }
+        }
+    }
+
     var body: some View {
         ModalContainer(title: "App Settings", onClose: cancel) {
             VStack(alignment: .leading, spacing: Theme.space4) {
@@ -90,6 +110,18 @@ struct AppSettingsView: View {
             .frame(maxWidth: 560)
         }
         .task { await loadModels() }
+        .onChange(of: workingCopy.model) { _, newModel in
+            guard !suppressModelAutoLoad else { return }
+            let trimmed = newModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            // Already live — don't re-hit the load API.
+            if loadedModels.contains(where: { idsRoughlyMatch($0, trimmed) }) {
+                modelLoadStatus = .loaded(trimmed)
+                modelLoadError = nil
+                return
+            }
+            Task { await loadSelectedModel(userPicked: trimmed) }
+        }
     }
 
     // MARK: - Sections
@@ -126,6 +158,7 @@ struct AppSettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .disabled(modelLoadStatus.isBusy)
                 .accessibilityIdentifier("appSettings.modelPicker")
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -134,38 +167,17 @@ struct AppSettingsView: View {
                         .font(.system(size: 13))
                 }
                 .buttonStyle(.plain)
+                .disabled(modelLoadStatus.isBusy)
                 .help("Refresh downloaded catalog + loaded status")
                 .accessibilityIdentifier("appSettings.refreshModels")
             }
 
-            HStack(spacing: Theme.space2) {
-                Button(action: { Task { await loadSelectedModel() } }) {
-                    if isLoadingModel {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Text(isSelectedModelLoaded ? "Loaded" : "Load in LM Studio")
-                            .font(Theme.fontXS)
-                            .foregroundStyle(isSelectedModelLoaded ? Theme.textSecondary : Theme.accent)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(
-                    workingCopy.model.isEmpty
-                        || isLoadingModel
-                        || isSelectedModelLoaded
-                )
-                .help(
-                    isSelectedModelLoaded
-                        ? "This model is already loaded"
-                        : "Unload other models and load the selection in LM Studio"
-                )
-                .accessibilityIdentifier("appSettings.loadModel")
+            modelLoadStatusRow
 
-                Text(catalogStatusCaption)
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-            }
+            Text(catalogStatusCaption)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
 
             if let modelLoadError {
                 Text(modelLoadError)
@@ -211,8 +223,68 @@ struct AppSettingsView: View {
         return "\(catalog) downloaded · \(loaded) loaded"
     }
 
+    /// Live load progress under the picker — only shows success after re-query.
+    @ViewBuilder
+    private var modelLoadStatusRow: some View {
+        switch modelLoadStatus {
+        case .idle:
+            EmptyView()
+        case let .loading(id):
+            HStack(spacing: Theme.space2) {
+                ProgressView().controlSize(.mini)
+                Text("Loading \(shortModelName(id))…")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.warningFG)
+                Text("This can take a minute for large models.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .accessibilityIdentifier("appSettings.modelLoading")
+        case let .verifying(id):
+            HStack(spacing: Theme.space2) {
+                ProgressView().controlSize(.mini)
+                Text("Verifying \(shortModelName(id)) is ready…")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.warningFG)
+            }
+            .accessibilityIdentifier("appSettings.modelVerifying")
+        case let .loaded(id):
+            HStack(spacing: Theme.space2) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Theme.successFG)
+                    .font(.system(size: 12))
+                Text("Loaded — \(shortModelName(id))")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.successFG)
+            }
+            .accessibilityIdentifier("appSettings.modelLoaded")
+        case let .failed(id, reason):
+            HStack(spacing: Theme.space2) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Theme.errorFG)
+                    .font(.system(size: 12))
+                Text("Failed to load \(shortModelName(id)) — \(reason)")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.errorFG)
+                    .lineLimit(2)
+                Button("Retry") {
+                    Task { await loadSelectedModel(userPicked: id) }
+                }
+                .buttonStyle(.plain)
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.accent)
+                .disabled(modelLoadStatus.isBusy)
+            }
+            .accessibilityIdentifier("appSettings.modelLoadFailed")
+        }
+    }
+
     private func modelPickerLabel(for id: String) -> String {
         loadedModels.contains(where: { idsRoughlyMatch($0, id) }) ? "● \(id)" : id
+    }
+
+    private func shortModelName(_ id: String) -> String {
+        id.split(separator: "/").last.map(String.init) ?? id
     }
 
     private func idsRoughlyMatch(_ a: String, _ b: String) -> Bool {
@@ -468,11 +540,16 @@ struct AppSettingsView: View {
     }
 
     private func saveAndClose() {
-        // Best-effort: ensure the preferred model is loaded before dismissing so
-        // the Connected pill and chat turn don't lag on a catalog-only pick.
+        // Best-effort: finish a pending load before dismiss if the pick isn't live yet.
         Task {
-            if !workingCopy.model.isEmpty, !isSelectedModelLoaded {
-                await loadSelectedModel()
+            if !workingCopy.model.isEmpty, !isSelectedModelLoaded, !modelLoadStatus.isBusy {
+                await loadSelectedModel(userPicked: workingCopy.model)
+            }
+            // If still loading, wait for this generation to settle (cap ~2 min UI wait).
+            var spins = 0
+            while modelLoadStatus.isBusy, spins < 120 {
+                try? await Task.sleep(for: .seconds(1))
+                spins += 1
             }
             await MainActor.run {
                 onSave(workingCopy, workingBaseURL)
@@ -496,7 +573,7 @@ struct AppSettingsView: View {
             async let servingTask = client.listServingModels()
             let catalog = try await catalogTask
             let serving = try await servingTask
-            availableModels = catalog
+            availableModels = Self.preferChatModelsFirst(catalog)
             loadedModels = serving
 
             if catalog.isEmpty {
@@ -504,49 +581,104 @@ struct AppSettingsView: View {
                 return
             }
             if serving.isEmpty {
-                modelLoadError = "Server reachable — no model loaded (pick one and Load)"
+                modelLoadError = "Server reachable — no model loaded (pick one from the list)"
+            } else {
+                modelLoadError = nil
             }
             // Prefer keeping the saved pick if it's still in the catalog.
-            // Only auto-jump to a loaded model when the saved pick is empty/missing.
-            if workingCopy.model.isEmpty || !catalog.contains(where: { idsRoughlyMatch($0, workingCopy.model) }) {
-                if let firstLoaded = serving.first {
+            // Only auto-jump when empty/missing — never jump to an embedding model
+            // when a chat LLM is available. Suppress auto-load for programmatic sets.
+            suppressModelAutoLoad = true
+            defer { suppressModelAutoLoad = false }
+            if workingCopy.model.isEmpty
+                || !catalog.contains(where: { idsRoughlyMatch($0, workingCopy.model) }) {
+                if let firstLoaded = serving.first(where: { !LocalLLMClient.isLikelyEmbeddingModel($0) })
+                    ?? serving.first {
                     workingCopy.model = firstLoaded
-                } else if let first = catalog.first {
-                    workingCopy.model = first
+                    modelLoadStatus = .loaded(firstLoaded)
+                } else if let firstChat = catalog.first(where: { !LocalLLMClient.isLikelyEmbeddingModel($0) })
+                    ?? catalog.first {
+                    workingCopy.model = firstChat
+                    // Not loaded — user can pick another; don't auto-load on refresh.
+                    modelLoadStatus = .idle
                 }
+            } else if isSelectedModelLoaded {
+                modelLoadStatus = .loaded(workingCopy.model)
             }
         } catch {
             modelLoadError = LocalLLMClient.friendlyConnectionError(error)
         }
     }
 
-    /// Unload others + load the picker selection in LM Studio (no-op if already loaded).
-    private func loadSelectedModel() async {
-        let model = workingCopy.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !model.isEmpty else { return }
+    /// Unload others + load `model` in LM Studio, then **poll** until the serving
+    /// list confirms it (or we time out). Status UI stays honest the whole way.
+    private func loadSelectedModel(userPicked model: String) async {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         guard let url = URL(string: workingBaseURL) else {
             modelLoadError = "Invalid URL"
+            modelLoadStatus = .failed(trimmed, reason: "invalid URL")
             return
         }
-        isLoadingModel = true
+
+        modelLoadGeneration += 1
+        let generation = modelLoadGeneration
         modelLoadError = nil
-        defer { isLoadingModel = false }
+        modelLoadStatus = .loading(trimmed)
+        probeState = .probing
+
         let client = LocalLLMClient(baseURL: url)
+
+        // Already live — verify once and finish.
+        if let serving = try? await client.listServingModels(),
+           serving.contains(where: { idsRoughlyMatch($0, trimmed) }) {
+            guard generation == modelLoadGeneration else { return }
+            loadedModels = serving
+            modelLoadStatus = .loaded(trimmed)
+            probeState = .ok(trimmed)
+            return
+        }
+
         do {
-            _ = try await client.switchToModel(model)
-            // Refresh loaded set after a successful switch.
-            loadedModels = (try? await client.listServingModels()) ?? loadedModels
-            if !loadedModels.contains(where: { idsRoughlyMatch($0, model) }) {
-                // Some hosts return instance ids different from catalog keys.
-                loadedModels = Array(Set(loadedModels + [model]))
+            _ = try await client.switchToModel(trimmed)
+            guard generation == modelLoadGeneration else { return }
+            modelLoadStatus = .verifying(trimmed)
+
+            // Poll load state — load API can return before the instance is listed.
+            let deadline = Date().addingTimeInterval(120)
+            var lastServing: [String] = []
+            while Date() < deadline {
+                guard generation == modelLoadGeneration else { return }
+                let serving = try await client.listServingModels()
+                lastServing = serving
+                loadedModels = serving
+                if serving.contains(where: { idsRoughlyMatch($0, trimmed) }) {
+                    modelLoadStatus = .loaded(trimmed)
+                    probeState = .ok(trimmed)
+                    modelLoadError = nil
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1))
             }
-            probeState = .ok(model)
+
+            guard generation == modelLoadGeneration else { return }
+            let reason = lastServing.isEmpty
+                ? "timed out waiting for load"
+                : "load finished but model not listed as loaded"
+            modelLoadStatus = .failed(trimmed, reason: reason)
+            probeState = .fail(reason)
+            modelLoadError = reason
         } catch {
-            modelLoadError = "Couldn't load model — \(LocalLLMClient.friendlyConnectionError(error))"
-            probeState = .fail(LocalLLMClient.friendlyConnectionError(error))
+            guard generation == modelLoadGeneration else { return }
+            let reason = LocalLLMClient.friendlyConnectionError(error)
+            modelLoadStatus = .failed(trimmed, reason: reason)
+            modelLoadError = "Couldn't load model — \(reason)"
+            probeState = .fail(reason)
         }
     }
 
+    /// Prove the server is reachable **and** has a model loaded for chat.
+    /// Does not treat the downloaded catalog as “connected.”
     private func testConnection() async {
         probeState = .probing
         guard let url = URL(string: workingBaseURL) else {
@@ -555,26 +687,65 @@ struct AppSettingsView: View {
         }
         let client = LocalLLMClient(baseURL: url)
         do {
-            // Refresh both lists while testing.
             async let catalogTask = client.listCatalogModels()
             async let servingTask = client.listServingModels()
             let catalog = try await catalogTask
             let serving = try await servingTask
-            availableModels = catalog
+            availableModels = Self.preferChatModelsFirst(catalog)
             loadedModels = serving
-            if let prefer = serving.first(where: { idsRoughlyMatch($0, workingCopy.model) })
-                ?? serving.first {
-                probeState = .ok(prefer)
+
+            let chatLoaded = serving.filter { !LocalLLMClient.isLikelyEmbeddingModel($0) }
+            let selected = workingCopy.model.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Selected model must be loaded — not “some other model is loadable.”
+            if !selected.isEmpty {
+                if serving.contains(where: { idsRoughlyMatch($0, selected) }) {
+                    if LocalLLMClient.isLikelyEmbeddingModel(selected) {
+                        probeState = .fail("embedding model loaded — pick a chat LLM")
+                        modelLoadError = "Selected model is for embeddings, not chat"
+                    } else {
+                        probeState = .ok(selected)
+                        modelLoadError = nil
+                    }
+                    return
+                }
+                if serving.isEmpty {
+                    probeState = .fail("no model loaded")
+                    modelLoadError = "Server reachable — no model loaded (pick one from the list)"
+                } else {
+                    let live = chatLoaded.first ?? serving.first ?? "?"
+                    probeState = .fail("selected model not loaded")
+                    modelLoadError = "Loaded: \(live) — pick that model, or wait for your selection to finish loading"
+                }
+                return
+            }
+
+            if let live = chatLoaded.first {
+                suppressModelAutoLoad = true
+                workingCopy.model = live
+                suppressModelAutoLoad = false
+                modelLoadStatus = .loaded(live)
+                probeState = .ok(live)
                 modelLoadError = nil
+            } else if !serving.isEmpty {
+                probeState = .fail("no chat model loaded")
+                modelLoadError = "Only embedding model(s) loaded — pick a chat LLM"
             } else if catalog.isEmpty {
                 probeState = .fail("no models")
             } else {
                 probeState = .fail("no model loaded")
-                modelLoadError = "Server reachable — no model loaded (pick one and Load)"
+                modelLoadError = "Server reachable — no model loaded (pick one from the list)"
             }
         } catch {
             probeState = .fail(LocalLLMClient.friendlyConnectionError(error))
         }
+    }
+
+    /// Chat LLMs first in the picker; embeddings last.
+    private static func preferChatModelsFirst(_ ids: [String]) -> [String] {
+        let chat = ids.filter { !LocalLLMClient.isLikelyEmbeddingModel($0) }
+        let embed = ids.filter { LocalLLMClient.isLikelyEmbeddingModel($0) }
+        return chat + embed
     }
 }
 

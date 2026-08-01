@@ -21,6 +21,8 @@ struct EnsembleSurfaceView: View {
     @State private var controlFlash: ControlFlash?
     @State private var controlFlashToken = 0
     @State private var showGrenadeInfo = false
+    /// Drives the attention shake on the grenade flame (armed or collapse nudge).
+    @State private var grenadeShakeTick = false
 
     /// A short, self-dismissing message shown centered in the controls bar.
     private struct ControlFlash {
@@ -48,6 +50,12 @@ struct EnsembleSurfaceView: View {
         .onAppear {
             viewModel.startHealthChecks()
             viewModel.autoLoadLastCastIfFresh()
+        }
+        .onChange(of: viewModel.pendingGrenade) { _, armed in
+            if armed { triggerGrenadeShake(pulses: 4) }
+        }
+        .onChange(of: viewModel.agreementCollapsed) { _, collapsed in
+            if collapsed, !viewModel.pendingGrenade { triggerGrenadeShake(pulses: 2) }
         }
     }
 
@@ -90,6 +98,12 @@ struct EnsembleSurfaceView: View {
                 Text(turn.speakerName)
                     .font(Theme.fontXS).bold()
                     .foregroundStyle(color(for: turn))
+                if turn.wasGrenade {
+                    grenadeHitBadge
+                }
+                if turn.wasDirected {
+                    directHitBadge
+                }
                 Spacer(minLength: Theme.space2)
                 if let preset = turn.samplingPreset {
                     presetBadge(preset, tint: color(for: turn))
@@ -102,7 +116,50 @@ struct EnsembleSurfaceView: View {
         }
         .padding(Theme.space3)
         .background(Theme.bgSecondary)
+        .overlay(
+            // Warm edge for grenade; accent edge for Direct (grenade wins if both).
+            RoundedRectangle(cornerRadius: Theme.radius)
+                .strokeBorder(turnHighlightBorder(turn), lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+    }
+
+    private func turnHighlightBorder(_ turn: EnsembleTurn) -> Color {
+        if turn.wasGrenade { return Theme.warningFG.opacity(0.45) }
+        if turn.wasDirected { return Theme.accent.opacity(0.55) }
+        return Color.clear
+    }
+
+    /// Marks which cast member the armed grenade landed on.
+    private var grenadeHitBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 9, weight: .bold))
+            Text("Grenade")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        .foregroundStyle(Theme.warningFG)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Theme.warningFG.opacity(0.16))
+        .clipShape(Capsule())
+        .accessibilityLabel("Grenade landed on this speaker")
+    }
+
+    /// Marks a line that carried a Director's Chair Direct note.
+    private var directHitBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "megaphone.fill")
+                .font(.system(size: 9, weight: .bold))
+            Text("Direct")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        .foregroundStyle(Theme.accent)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Theme.accent.opacity(0.16))
+        .clipShape(Capsule())
+        .accessibilityLabel("Director Direct landed on this speaker")
     }
 
     /// Translucent preset badge in a turn's top-right — the sampling preset the
@@ -147,24 +204,60 @@ struct EnsembleSurfaceView: View {
     }
 
     /// Always-available disruption: arms a one-shot "break the consensus" on the
-    /// next turn. It lights up when the agreement-collapse detector fires — a
-    /// nudge, not a gate, so you can reach for it any time the chat goes flat.
+    /// next turn. Larger + shakes when collapse is detected or already armed so
+    /// it's hard to miss; stays lit while `pendingGrenade` waits for a speaker.
     private var grenadeButton: some View {
         let nudge = viewModel.agreementCollapsed
+        let armed = viewModel.pendingGrenade
+        let hot = nudge || armed
         return Button(action: armGrenade) {
-            Image(systemName: "flame.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(nudge ? .white : Theme.textSecondary)
-                .padding(.horizontal, Theme.space2)
-                .padding(.vertical, Theme.space1)
-                .background(nudge ? Theme.warningFG : Color.clear)
-                .clipShape(Capsule())
+            HStack(spacing: 4) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: armed || nudge ? 18 : 16, weight: .semibold))
+                    .symbolEffect(.bounce, value: grenadeShakeTick)
+                if armed {
+                    Text("ARMED")
+                        .font(.system(size: 9, weight: .bold))
+                }
+            }
+            .foregroundStyle(hot ? .white : Theme.textSecondary)
+            .padding(.horizontal, Theme.space2)
+            .padding(.vertical, Theme.space1)
+            .background(hot ? Theme.warningFG : Theme.warningFG.opacity(0.18))
+            .clipShape(Capsule())
+            .scaleEffect(grenadeShakeTick ? 1.12 : 1.0)
+            .rotationEffect(.degrees(grenadeShakeTick ? -8 : 0))
+            .animation(
+                .spring(response: 0.18, dampingFraction: 0.35),
+                value: grenadeShakeTick
+            )
         }
         .buttonStyle(.plain)
-        .help(nudge
-              ? "The cast is nodding along — throw a grenade to detonate the consensus"
-              : "Throw a grenade — force the next speaker to drop a bombshell")
+        .disabled(armed) // already waiting for next speaker
+        .opacity(armed ? 0.95 : 1)
+        .help(armed
+              ? "Grenade armed — the next cast member will detonate the consensus"
+              : (nudge
+                 ? "The cast is nodding along — throw a grenade to detonate the consensus"
+                 : "Throw a grenade — force the next speaker to drop a bombshell"))
         .accessibilityIdentifier("ensemble.grenade")
+        .accessibilityValue(armed ? "Armed" : (nudge ? "Suggested" : "Ready"))
+    }
+
+    /// Pulse the flame so arming / collapse is noticeable.
+    private func triggerGrenadeShake(pulses: Int) {
+        Task { @MainActor in
+            for _ in 0..<pulses {
+                withAnimation(.spring(response: 0.16, dampingFraction: 0.32)) {
+                    grenadeShakeTick = true
+                }
+                try? await Task.sleep(for: .milliseconds(140))
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.55)) {
+                    grenadeShakeTick = false
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
     }
 
     /// Yellow info affordance next to the grenade — a tappable explainer so the
@@ -201,11 +294,14 @@ struct EnsembleSurfaceView: View {
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
 
-    /// Arm the grenade + flash a confirmation (the throw is otherwise silent).
+    /// Arm the grenade + multi-channel confirmation (flash + shake + toast).
     private func armGrenade() {
+        guard !viewModel.pendingGrenade else { return }
         viewModel.throwGrenade()
-        flash(ControlFlash(text: "Grenade armed — next line is a bombshell",
-                           systemImage: "flame.fill", tint: Theme.warningFG))
+        triggerGrenadeShake(pulses: 5)
+        flash(ControlFlash(text: "Grenade armed — next speaker drops a bombshell",
+                           systemImage: "flame.fill", tint: Theme.warningFG),
+              seconds: 4.0)
     }
 
     /// Pause + flash. pause() defers to the END of the current turn (it just
@@ -218,12 +314,12 @@ struct EnsembleSurfaceView: View {
 
     /// Show a transient control-bar message that auto-dismisses (token-guarded so
     /// a newer flash isn't cleared early by an older one's timer).
-    private func flash(_ f: ControlFlash) {
+    private func flash(_ f: ControlFlash, seconds: Double = 2.5) {
         controlFlashToken += 1
         let token = controlFlashToken
         withAnimation(.easeOut(duration: 0.2)) { controlFlash = f }
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.5))
+            try? await Task.sleep(for: .seconds(seconds))
             if token == controlFlashToken {
                 withAnimation(.easeIn(duration: 0.4)) { controlFlash = nil }
             }
@@ -309,6 +405,8 @@ struct EnsembleSurfaceView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityIdentifier("ensemble.composer.yourTurnBanner")
             }
+            // Multi-character: speak as cast YOU name or any alias added mid-chat.
+            EnsembleCharacterPickerBar(viewModel: viewModel)
             if case let .unavailable(msg) = viewModel.dictation {
                 Text(msg).font(Theme.fontXS).foregroundStyle(Theme.warningFG)
             }

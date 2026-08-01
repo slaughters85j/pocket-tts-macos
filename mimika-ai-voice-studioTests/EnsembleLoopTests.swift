@@ -220,6 +220,74 @@ final class EnsembleLoopTests: XCTestCase {
         )
     }
 
+    func test_directProtocolText_leadsWithInstructionAndPriority() {
+        let text = EnsembleViewModel.directProtocolText(
+            personaName: "Worf",
+            instruction: "Accuse Picard of hiding the sensor reading."
+        )
+        XCTAssertTrue(text.hasPrefix("=== DIRECTOR NOTE"), text)
+        XCTAssertTrue(text.contains("HIGHEST PRIORITY"), text)
+        XCTAssertTrue(text.contains("Worf"), text)
+        XCTAssertTrue(text.contains("Accuse Picard of hiding the sensor reading."), text)
+        XCTAssertTrue(text.contains("CHANGE what you say"), text)
+    }
+
+    func test_bootProtocolText_leadsWithExitAndReason() {
+        let text = EnsembleViewModel.bootProtocolText(
+            personaName: "Worf",
+            reason: "A plasma conduit explodes and kills him."
+        )
+        XCTAssertTrue(text.hasPrefix("=== BOOT"), text)
+        XCTAssertTrue(text.contains("HIGHEST PRIORITY"), text)
+        XCTAssertTrue(text.contains("Worf"), text)
+        XCTAssertTrue(text.contains("EXIT"), text)
+        XCTAssertTrue(text.contains("plasma conduit"), text)
+    }
+
+    func test_appendBootNote_mergesIntoLastUserMessage() {
+        var messages = [ChatMessage(role: .user, content: "Picard: Report.")]
+        EnsembleViewModel.appendBootNote(
+            to: &messages,
+            personaName: "Worf",
+            reason: "He is vaporized."
+        )
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages[0].content.contains("Picard: Report."))
+        XCTAssertTrue(messages[0].content.contains("BOOT"))
+        XCTAssertTrue(messages[0].content.contains("vaporized"))
+    }
+
+    func test_appendDirectorNote_mergesIntoLastUserMessage() {
+        var messages = [
+            ChatMessage(role: .user, content: "Picard: Make it so."),
+            ChatMessage(role: .assistant, content: "Aye, Captain."),
+            ChatMessage(role: .user, content: "Data: Fascinating."),
+        ]
+        EnsembleViewModel.appendDirectorNote(
+            to: &messages,
+            personaName: "Worf",
+            instruction: "Challenge the last conclusion."
+        )
+        XCTAssertEqual(messages.count, 3, "must merge into last user — not add a second user turn")
+        XCTAssertEqual(messages.last?.role, .user)
+        XCTAssertTrue(messages.last?.content.contains("Data: Fascinating.") == true)
+        XCTAssertTrue(messages.last?.content.contains("Challenge the last conclusion.") == true)
+        XCTAssertTrue(messages.last?.content.contains("DIRECTOR NOTE") == true)
+
+        var trailingAssistant = [
+            ChatMessage(role: .user, content: "Hi."),
+            ChatMessage(role: .assistant, content: "Hello."),
+        ]
+        EnsembleViewModel.appendDirectorNote(
+            to: &trailingAssistant,
+            personaName: "Ava",
+            instruction: "Pivot to the weather."
+        )
+        XCTAssertEqual(trailingAssistant.count, 3)
+        XCTAssertEqual(trailingAssistant.last?.role, .user)
+        XCTAssertTrue(trailingAssistant.last?.content.contains("Pivot to the weather.") == true)
+    }
+
     // MARK: - Export (Phase 6)
 
     func test_formatMultiTalkScript_tagsByLabelSkipsEmpty() {
@@ -229,9 +297,9 @@ final class EnsembleLoopTests: XCTestCase {
             EnsembleTurn(speakerID: nil, speakerName: "You", content: "   "),       // empty → skipped
             EnsembleTurn(speakerID: b, speakerName: "Dana", content: "Show me evidence."),
         ]
-        let label: (UUID?) -> String = { id in
-            if id == a { return "Fox Mulder" }
-            if id == b { return "Dana Scully" }
+        let label: (EnsembleTurn) -> String = { turn in
+            if turn.speakerID == a { return "Fox Mulder" }
+            if turn.speakerID == b { return "Dana Scully" }
             return "You"
         }
         let script = EnsembleViewModel.formatMultiTalkScript(turns: turns, label: label, stripBrackets: true)
@@ -278,6 +346,52 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(script.contains("{Alex} One."))
         XCTAssertTrue(script.contains("{Alex 2} Two."))
         XCTAssertTrue(script.contains("{Alex 3} Three."))
+    }
+
+    func test_exportLabels_multiUserCharacters_getDistinctTagsAndMappedVoices() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let fox = Persona(name: "Fox Mulder", voiceID: "javert", systemPrompt: "")
+        vm.cast = [fox]
+        vm.turns = [
+            EnsembleTurn(speakerID: fox.id, speakerName: "Fox Mulder", content: "Cocky."),
+            EnsembleTurn(speakerID: nil, speakerName: "John", content: "I hate that."),
+            EnsembleTurn(speakerID: nil, speakerName: "Data", content: "Fascinating."),
+            EnsembleTurn(speakerID: nil, speakerName: "John", content: "Again."),
+        ]
+        XCTAssertEqual(vm.distinctUserSpeakerNamesInTranscript(), ["John", "Data"])
+
+        let labels = vm.exportLabels(userVoiceMap: [
+            "John": "cosette",
+            "Data": "marius",
+        ])
+        let byName = Dictionary(uniqueKeysWithValues: labels.speakers.map { ($0.name, $0.voiceID) })
+        XCTAssertEqual(byName["John"], "cosette")
+        XCTAssertEqual(byName["Data"], "marius")
+        XCTAssertEqual(byName["Fox Mulder"], "javert")
+
+        let script = EnsembleViewModel.formatMultiTalkScript(
+            turns: vm.turns, label: labels.label, stripBrackets: false
+        )
+        XCTAssertTrue(script.contains("{John} I hate that."))
+        XCTAssertTrue(script.contains("{Data} Fascinating."))
+        XCTAssertTrue(script.contains("{John} Again."))
+        XCTAssertFalse(script.contains("{Alba}"), "user lines must not collapse to stock alba tag")
+    }
+
+    func test_prepareMultiTalkVoiceMap_seedsDraftPerUserName() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        vm.cast = [Persona(name: "Ava", voiceID: "javert", systemPrompt: "")]
+        vm.turns = [
+            EnsembleTurn(speakerID: nil, speakerName: "John", content: "Hi."),
+            EnsembleTurn(speakerID: nil, speakerName: "Fred", content: "Yo."),
+        ]
+        XCTAssertTrue(vm.prepareMultiTalkVoiceMap())
+        XCTAssertEqual(Set(vm.multiTalkUserVoiceDraft.keys), Set(["John", "Fred"]))
+        XCTAssertEqual(vm.multiTalkUserVoiceDraft.count, 2)
+        // Re-prepare preserves a user override.
+        vm.multiTalkUserVoiceDraft["John"] = "fantine"
+        XCTAssertTrue(vm.prepareMultiTalkVoiceMap())
+        XCTAssertEqual(vm.multiTalkUserVoiceDraft["John"], "fantine")
     }
 
     func test_resolvedModel_honorsSavedOnlyWhenLoaded() throws {
@@ -564,5 +678,40 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(body["top_p"] as? Double), 0.98, accuracy: 0.0001)
         XCTAssertEqual(body["top_k"] as? Int, 100)
         XCTAssertEqual(try XCTUnwrap(body["repeat_penalty"] as? Double), 1.2, accuracy: 0.0001)
+    }
+
+    // MARK: - Multi-character quick pick
+
+    func test_userCharacterRoster_addSelectAndDedupe() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        XCTAssertTrue(vm.userCharacterRoster.isEmpty)
+        XCTAssertTrue(vm.addUserCharacter("Milton"))
+        XCTAssertEqual(vm.userPeer.name, "Milton")
+        XCTAssertEqual(vm.userPeer.modelName, "Milton")
+        XCTAssertEqual(vm.userCharacterRoster, ["Milton"])
+
+        XCTAssertTrue(vm.addUserCharacter("Odo"))
+        XCTAssertEqual(vm.userPeer.name, "Odo")
+        XCTAssertEqual(vm.userCharacterRoster, ["Odo", "Milton"])
+
+        // Case-insensitive dedupe selects existing, no second row.
+        XCTAssertTrue(vm.addUserCharacter("  milton  "))
+        XCTAssertEqual(vm.userPeer.name, "Milton")
+        XCTAssertEqual(vm.userCharacterRoster, ["Milton", "Odo"])
+
+        XCTAssertFalse(vm.addUserCharacter("   "), "empty name rejected")
+        XCTAssertEqual(vm.userPeer.name, "Milton")
+    }
+
+    func test_seedUserCharacterRoster_skipsDefaultYou() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        vm.userPeer = UserPeer() // You / Guest
+        vm.seedUserCharacterRosterFromActivePeer()
+        XCTAssertTrue(vm.userCharacterRoster.isEmpty)
+
+        vm.userPeer.name = "Sisko"
+        vm.userPeer.modelName = "Sisko"
+        vm.seedUserCharacterRosterFromActivePeer()
+        XCTAssertEqual(vm.userCharacterRoster, ["Sisko"])
     }
 }

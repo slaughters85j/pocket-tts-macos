@@ -209,9 +209,18 @@ final class ChatViewModel {
         }
     }
 
-    /// Shorten transport errors for compact inline status.
+    /// Shorten transport errors for compact inline status — never dump NSError domains.
     func shortError(_ error: Error) -> String {
+        let ns = error as NSError
+        if error is URLError
+            || ns.domain == NSURLErrorDomain
+            || error is LocalLLMClient.ClientError {
+            return LocalLLMClient.friendlyConnectionError(error)
+        }
         let value = String(describing: error)
+        if value.contains("Error Domain=") || value.contains("UserInfo=") {
+            return LocalLLMClient.friendlyConnectionError(error)
+        }
         return value.count > 120 ? String(value.prefix(120)) + "…" : value
     }
 
