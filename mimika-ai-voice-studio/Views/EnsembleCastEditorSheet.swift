@@ -21,6 +21,9 @@ struct EnsembleCastEditorSheet: View {
     @State private var editTarget: PersonaEditTarget?
     /// Index pending removal confirmation (nil = no alert).
     @State private var personaToRemove: Int?
+    /// Local draft for YOU name — committed only on Done so intermediate
+    /// keystrokes do not pollute the Speaking-as roster or SwiftData.
+    @State private var draftUserPeerName: String = ""
 
     /// Identifiable wrapper driving the persona-editor `.sheet(item:)`.
     /// Carries a SNAPSHOT of the persona's editable fields so the sheet
@@ -59,7 +62,7 @@ struct EnsembleCastEditorSheet: View {
     private static let importExportOrange = Color(red: 0.85, green: 0.45, blue: 0.12)
 
     var body: some View {
-        ModalContainer(title: "Cast & Settings", onClose: onClose) {
+        ModalContainer(title: "Cast & Settings", onClose: discardAndClose) {
             VStack(alignment: .leading, spacing: Theme.space3) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.space4) {
@@ -82,6 +85,9 @@ struct EnsembleCastEditorSheet: View {
                 }
             }
             .frame(minWidth: 460, minHeight: 400)
+        }
+        .onAppear {
+            draftUserPeerName = viewModel.userPeer.name == "You" ? "" : viewModel.userPeer.name
         }
         .sheet(item: $editTarget) { target in
             EnsemblePersonaEditorSheet(
@@ -165,27 +171,29 @@ struct EnsembleCastEditorSheet: View {
     /// Optional proper noun for the human peer (same idea as New Cast wizard).
     /// Empty keeps display "You" / model "Guest". A real name is required later
     /// for Director's Chair "include me in turn order" (User turn).
+    /// Edits stay in `draftUserPeerName` until Done — not every keystroke.
     private var userPeerSection: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
             Text("YOU").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
-            Text("Optional character name — how the cast addresses you when you jump in. Leave blank for “You”.")
+            Text("Optional character name — how the cast addresses you when you jump in. Leave blank for “You”. Saved when you press Done.")
                 .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
-            TextField("Assign yourself a character…", text: userPeerNameBinding)
+            TextField("Assign yourself a character…", text: $draftUserPeerName)
                 .textFieldStyle(.roundedBorder)
                 .font(Theme.fontSM)
                 .accessibilityIdentifier("ensemble.castEditor.userPeerName")
         }
     }
 
-    private var userPeerNameBinding: Binding<String> {
-        Binding(
-            get: {
-                // Show empty when still on the default display pronoun so the
-                // field placeholder reads as "optional".
-                viewModel.userPeer.name == "You" ? "" : viewModel.userPeer.name
-            },
-            set: { viewModel.updateUserPeerName($0) }
-        )
+    /// Apply the YOU name draft + dismiss. X / Escape leave the draft uncommitted.
+    private func commitAndClose() {
+        viewModel.updateUserPeerName(draftUserPeerName)
+        onClose()
+    }
+
+    /// Dismiss without writing the YOU name (live cast voice/preset edits
+    /// already applied — only the character-name field is deferred).
+    private func discardAndClose() {
+        onClose()
     }
 
     @ViewBuilder
@@ -306,12 +314,13 @@ struct EnsembleCastEditorSheet: View {
     }
 
     private var doneButton: some View {
-        Button(action: onClose) {
+        Button(action: commitAndClose) {
             Text("Done").font(Theme.fontSMBold).foregroundStyle(.white)
                 .padding(.horizontal, Theme.space4).padding(.vertical, Theme.space2)
                 .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: Theme.radius))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ensemble.castEditor.done")
     }
 
     // MARK: - Bindings
