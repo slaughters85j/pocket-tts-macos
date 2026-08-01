@@ -57,6 +57,15 @@ extension EnsembleViewModel {
     /// consensus. Kicks a turn if the loop is parked so it happens now.
     func throwGrenade() {
         pendingGrenade = true
+        // App-level toast so arming is hard to miss (control-bar flash is brief).
+        showNotice("Grenade armed — next speaker drops a bombshell")
+        appState.toastMessage = "Grenade armed — next line detonates the consensus"
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3.5))
+            if appState.toastMessage?.hasPrefix("Grenade armed") == true {
+                appState.toastMessage = nil
+            }
+        }
         kickIfParked()
     }
 
