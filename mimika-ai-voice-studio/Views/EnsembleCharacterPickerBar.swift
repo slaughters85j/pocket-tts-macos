@@ -19,6 +19,9 @@ struct EnsembleCharacterPickerBar: View {
     @State private var draft = ""
     @FocusState private var draftFocused: Bool
 
+    /// Rough width for a ~15-character proper name at `fontSM` (plus field padding).
+    private static let nameFieldWidth: CGFloat = 148
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space1) {
             HStack(spacing: Theme.space2) {
@@ -33,8 +36,7 @@ struct EnsembleCharacterPickerBar: View {
 
                 characterMenu
 
-                Spacer(minLength: Theme.space2)
-
+                // Keep + glued to the picker (not trailing-aligned).
                 if !isAdding {
                     addButton
                 }
@@ -45,6 +47,7 @@ struct EnsembleCharacterPickerBar: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeOut(duration: 0.15), value: isAdding)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ensemble.composer.characterPicker")
@@ -128,6 +131,7 @@ struct EnsembleCharacterPickerBar: View {
                 .padding(.horizontal, Theme.space3)
                 .padding(.vertical, Theme.space2)
                 .themeInputField()
+                .frame(width: Self.nameFieldWidth)
                 .focused($draftFocused)
                 .onSubmit { commitAdd() }
                 .accessibilityIdentifier("ensemble.composer.addCharacterField")
@@ -150,6 +154,7 @@ struct EnsembleCharacterPickerBar: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("ensemble.composer.addCharacterCancel")
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var canCommit: Bool {
