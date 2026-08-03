@@ -79,6 +79,38 @@ final class EnsembleContextTests: XCTestCase {
         assertStrictAlternation(msgs)
     }
 
+    func test_renderPOV_userImageAttachments_landOnCoalescedUserMessage() {
+        let data = Persona(name: "Data", voiceID: "v", systemPrompt: "")
+        let attachment = ChatImageAttachment(
+            id: UUID(),
+            filename: "scene.png",
+            mimeType: "image/png",
+            data: Data([0x89, 0x50, 0x4E, 0x47]),
+            pixelWidth: 8,
+            pixelHeight: 8,
+            fingerprint: "test-fp-ensemble-img",
+            thumbnailData: Data([0x01]),
+            previewData: Data([0x02])
+        )
+        let turns = [
+            EnsembleTurn(speakerID: data.id, speakerName: "Data", content: "I observe."),
+            EnsembleTurn(
+                speakerID: nil,
+                speakerName: "Guest",
+                content: "Look at this.",
+                attachments: [attachment]
+            ),
+        ]
+        let msgs = EnsembleViewModel.renderPOV(turns: turns, for: data, window: 16)
+        let userMsgs = msgs.filter { $0.role == .user }
+        XCTAssertFalse(userMsgs.isEmpty)
+        let withImages = userMsgs.first { !$0.attachments.isEmpty }
+        XCTAssertNotNil(withImages, "human images must ride on a user-role message")
+        XCTAssertEqual(withImages?.attachments.count, 1)
+        XCTAssertEqual(withImages?.attachments.first?.filename, "scene.png")
+        XCTAssertTrue(withImages?.content.contains("Guest:") == true, withImages?.content ?? "")
+    }
+
     func test_renderPOV_prependsRollingSummary() {
         let ada = persona("Ada")
         let turns = [EnsembleTurn(speakerID: ada.id, speakerName: "Ada", content: "Hi.")]

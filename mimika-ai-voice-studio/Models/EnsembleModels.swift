@@ -141,6 +141,9 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
     /// True when this turn carried a Director's Chair **Direct** instruction.
     /// Ensemble-only UI marker — not exported.
     var wasDirected: Bool
+    /// Session-only images the human attached to this user turn (same types as
+    /// Solo Chat). Never part of Multi-Talk / History text export.
+    var attachments: [ChatImageAttachment]
 
     /// Synthetic "Scene" beats (boot deaths, etc.) — not a cast member or the user.
     /// Lands in POV history as a public event the models actually read.
@@ -158,7 +161,8 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         spokenSentences: Int = 0,
         samplingPreset: SamplingPreset? = nil,
         wasGrenade: Bool = false,
-        wasDirected: Bool = false
+        wasDirected: Bool = false,
+        attachments: [ChatImageAttachment] = []
     ) {
         self.id = id
         self.speakerID = speakerID
@@ -169,6 +173,7 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         self.samplingPreset = samplingPreset
         self.wasGrenade = wasGrenade
         self.wasDirected = wasDirected
+        self.attachments = attachments
     }
 
     /// Public scene announcement (boot / environmental event).

@@ -34,11 +34,19 @@ extension EnsembleViewModel {
         // user interjects after a persona, or any time two other speakers go
         // back-to-back — makes those templates reject the whole prompt with a
         // "roles must alternate" error (the bug that flashed Data's turn).
+        // Human image attachments ride on that coalesced user message so the
+        // LocalLLMClient multimodal path sees them (same as Solo Chat).
         var userBlock: [String] = []
+        var userAttachments: [ChatImageAttachment] = []
         func flushUserBlock() {
-            guard !userBlock.isEmpty else { return }
-            out.append(ChatMessage(role: .user, content: userBlock.joined(separator: "\n")))
+            guard !userBlock.isEmpty || !userAttachments.isEmpty else { return }
+            out.append(ChatMessage(
+                role: .user,
+                content: userBlock.joined(separator: "\n"),
+                attachments: userAttachments
+            ))
             userBlock.removeAll(keepingCapacity: true)
+            userAttachments.removeAll(keepingCapacity: true)
         }
 
         if !rollingSummary.isEmpty {
@@ -55,9 +63,21 @@ extension EnsembleViewModel {
                 out.append(ChatMessage(role: .assistant, content: content))
             } else {
                 // Another persona OR the user — a name-prefixed external line.
-                var line = "\(turn.speakerName): \(turn.content)"
-                if turn.wasCutOff { line += " [cut off]" }
-                userBlock.append(line)
+                // Image-only human turns still emit a label so the cast knows
+                // who shared the picture when text is empty.
+                let body = turn.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !body.isEmpty {
+                    var line = "\(turn.speakerName): \(turn.content)"
+                    if turn.wasCutOff { line += " [cut off]" }
+                    userBlock.append(line)
+                } else if turn.speakerID == nil, !turn.attachments.isEmpty {
+                    userBlock.append("\(turn.speakerName): [shared \(turn.attachments.count) image\(turn.attachments.count == 1 ? "" : "s")]")
+                } else if turn.wasCutOff {
+                    userBlock.append("\(turn.speakerName): [cut off]")
+                }
+                if turn.speakerID == nil, !turn.attachments.isEmpty {
+                    userAttachments.append(contentsOf: turn.attachments)
+                }
             }
         }
         flushUserBlock()
