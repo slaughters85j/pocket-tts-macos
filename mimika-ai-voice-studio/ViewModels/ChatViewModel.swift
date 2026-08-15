@@ -52,6 +52,9 @@ final class ChatViewModel {
         return saved == "transcript" ? .transcript : .orb
     }()
     var settings: ChatSettings
+    /// JSON thread currently backing this Solo session (nil = not yet created).
+    var currentThreadID: UUID?
+    var threadBrowser: ChatThreadBrowser?
 
     // MARK: Dependencies
 

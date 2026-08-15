@@ -31,6 +31,7 @@ extension ChatViewModel {
         deferredVisionRecovery = false
         lastAutomaticVisionRecoveryKey = nil
         status = .idle
+        beginFreshSoloThread()
     }
 
     /// Update one transcript message while preserving role and attachments.

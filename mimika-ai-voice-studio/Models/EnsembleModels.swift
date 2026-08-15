@@ -21,7 +21,7 @@ import Foundation
 // the system prompt that defines the character, the per-agent LLM temperature,
 // and a turn-selection weight (talkativeness dial).
 
-nonisolated struct Persona: Identifiable, Equatable, Sendable {
+nonisolated struct Persona: Identifiable, Equatable, Codable, Sendable {
     let id: UUID
     var name: String
     var voiceID: String
@@ -58,7 +58,7 @@ nonisolated struct Persona: Identifiable, Equatable, Sendable {
 // params. Stored on EnsemblePersona as its rawValue; surfaced as a segmented
 // picker in setup.
 
-nonisolated enum SamplingPreset: String, CaseIterable, Sendable {
+nonisolated enum SamplingPreset: String, CaseIterable, Codable, Sendable {
     case strict
     case relaxed
     case spirited
@@ -105,7 +105,7 @@ nonisolated enum SamplingPreset: String, CaseIterable, Sendable {
 // The human participant, modeled as a peer (not the hub) so the loop renders
 // their turns the same way it renders any other named speaker.
 
-nonisolated struct UserPeer: Equatable, Sendable {
+nonisolated struct UserPeer: Equatable, Codable, Sendable {
     /// Display name — the transcript speaker tag. Defaults to the second-person
     /// "You" (right for the UI; used by the transcript, export, and history).
     var name: String = "You"
@@ -120,7 +120,7 @@ nonisolated struct UserPeer: Equatable, Sendable {
 // One entry in the canonical, app-side transcript — the source of truth for
 // both POV rendering and audio export. `speakerID == nil` means the user.
 
-nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
+nonisolated struct EnsembleTurn: Identifiable, Equatable, Codable, Sendable {
     let id: UUID
     var speakerID: UUID?
     var speakerName: String
@@ -174,6 +174,39 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
         self.wasGrenade = wasGrenade
         self.wasDirected = wasDirected
         self.attachments = attachments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, speakerID, speakerName, content
+        case wasCutOff, spokenSentences, samplingPreset
+        case wasGrenade, wasDirected
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        speakerID = try c.decodeIfPresent(UUID.self, forKey: .speakerID)
+        speakerName = try c.decode(String.self, forKey: .speakerName)
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        wasCutOff = try c.decodeIfPresent(Bool.self, forKey: .wasCutOff) ?? false
+        spokenSentences = try c.decodeIfPresent(Int.self, forKey: .spokenSentences) ?? 0
+        samplingPreset = try c.decodeIfPresent(SamplingPreset.self, forKey: .samplingPreset)
+        wasGrenade = try c.decodeIfPresent(Bool.self, forKey: .wasGrenade) ?? false
+        wasDirected = try c.decodeIfPresent(Bool.self, forKey: .wasDirected) ?? false
+        attachments = []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(speakerID, forKey: .speakerID)
+        try c.encode(speakerName, forKey: .speakerName)
+        try c.encode(content, forKey: .content)
+        try c.encode(wasCutOff, forKey: .wasCutOff)
+        try c.encode(spokenSentences, forKey: .spokenSentences)
+        try c.encodeIfPresent(samplingPreset, forKey: .samplingPreset)
+        try c.encode(wasGrenade, forKey: .wasGrenade)
+        try c.encode(wasDirected, forKey: .wasDirected)
     }
 
     /// Public scene announcement (boot / environmental event).

@@ -25,27 +25,38 @@ struct ChatView: View {
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
     @State private var editingMessage: ChatMessage?
+    @State private var threadBrowser = ChatThreadBrowser()
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Divider().background(Theme.borderColor)
-            // Transcript/composer stay full-height; the Chair floats over them
-            // (sketch: ZStack overlay + glass, not a layout-pushing strip).
-            ZStack(alignment: .top) {
-                mainChatSurface
-                if subMode == .ensemble, showsDirectorsChair {
-                    DirectorsChairPanel(viewModel: ensembleViewModel) {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            showsDirectorsChair = false
-                        }
-                    }
-                    // In-place: opacity only (no slide/fly-in). 500 ms both ways.
-                    .transition(.asymmetric(insertion: .opacity, removal: .opacity))
-                    .zIndex(10)
-                }
+        HStack(spacing: 0) {
+            if !threadBrowser.isCollapsed {
+                ChatThreadSidebar(
+                    browser: threadBrowser,
+                    onSelect: openThread,
+                    onDeleted: detachIfDeleted
+                )
+                Divider().background(Theme.borderColor)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                topBar
+                Divider().background(Theme.borderColor)
+                // Transcript/composer stay full-height; the Chair floats over them
+                // (sketch: ZStack overlay + glass, not a layout-pushing strip).
+                ZStack(alignment: .top) {
+                    mainChatSurface
+                    if subMode == .ensemble, showsDirectorsChair {
+                        DirectorsChairPanel(viewModel: ensembleViewModel) {
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                showsDirectorsChair = false
+                            }
+                        }
+                        // In-place: opacity only (no slide/fly-in). 500 ms both ways.
+                        .transition(.asymmetric(insertion: .opacity, removal: .opacity))
+                        .zIndex(10)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
         .onChange(of: subMode) { _, newMode in
@@ -55,11 +66,13 @@ struct ChatView: View {
             if newMode != .ensemble {
                 showsDirectorsChair = false
             }
+            attachThreads(for: newMode)
         }
         .onAppear {
             viewModel.startHealthChecks()
             // Land on the mode-scoped thinking default (Ensemble → Off).
             viewModel.refreshReasoningForChatSubMode()
+            attachThreads(for: subMode)
             Task { isAudioMuted = await player.isMuted }
         }
         .onDisappear {
@@ -173,6 +186,19 @@ struct ChatView: View {
 
     private var topBar: some View {
         HStack(spacing: Theme.space3) {
+            Button {
+                threadBrowser.isCollapsed.toggle()
+            } label: {
+                Image(systemName: threadBrowser.isCollapsed
+                      ? "sidebar.left"
+                      : "sidebar.leading")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help(threadBrowser.isCollapsed ? "Show threads" : "Hide threads")
+            .accessibilityIdentifier("chat.threads.toggle")
+
             Picker("", selection: $subMode) {
                 Text("Solo").tag(ChatSubMode.solo)
                 Text("Ensemble").tag(ChatSubMode.ensemble)
@@ -347,14 +373,14 @@ struct ChatView: View {
             .accessibilityIdentifier("ensemble.editCast")
         }
 
-        if ensembleViewModel.hasSavedCast {
+        if ensembleViewModel.hasSavedCast || threadBrowser.selectedID != nil {
             Button(action: { ensembleViewModel.reuseLastCast() }) {
                 Label("Reuse Last", systemImage: "clock.arrow.circlepath")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.accent)
             }
             .buttonStyle(.plain)
-            .help("Reload your most recent cast")
+            .help(reuseLastHelp)
             .accessibilityIdentifier("ensemble.reuseLast")
         }
 
@@ -366,6 +392,40 @@ struct ChatView: View {
         .buttonStyle(.plain)
         .help("Generate a new cast with the persona-writer")
         .accessibilityIdentifier("ensemble.newCast")
+    }
+
+    private var reuseLastHelp: String {
+        let scene = ensembleViewModel.scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let names = ensembleViewModel.cast.map(\.name).joined(separator: ", ")
+        if scene.isEmpty && names.isEmpty {
+            return "Restart this cast in a new thread — the current thread stays as history"
+        }
+        if scene.isEmpty {
+            return "Restart — \(names)"
+        }
+        return "Restart — \(names). Scene: \(scene)"
+    }
+
+    private func attachThreads(for mode: ChatSubMode) {
+        if mode == .solo {
+            viewModel.attachThreadBrowser(threadBrowser)
+        } else {
+            ensembleViewModel.attachThreadBrowser(threadBrowser)
+        }
+    }
+
+    private func detachIfDeleted(_ entry: ChatThreadIndexEntry) {
+        viewModel.detachIfShowing(entry.id)
+        ensembleViewModel.detachIfShowing(entry.id)
+    }
+
+    private func openThread(_ entry: ChatThreadIndexEntry) {
+        switch entry.kind {
+        case .solo:
+            viewModel.loadSoloThread(id: entry.id)
+        case .ensemble:
+            ensembleViewModel.loadEnsembleThread(id: entry.id)
+        }
     }
 
     /// Map human character aliases to voices, then hand the episode to Multi-Talk.

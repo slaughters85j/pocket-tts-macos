@@ -182,6 +182,7 @@ extension ChatViewModel {
             )
         )
         messages.append(ChatMessage(id: assistantMessageID, role: .assistant))
+        noteSoloThreadActivity()
 
         let turn = ActiveChatTurn(
             userMessageID: userMessageID,
@@ -346,6 +347,7 @@ extension ChatViewModel {
         activeTurn = nil
         if case .generating = status { status = .idle }
         if case .speaking = status { status = .idle }
+        noteSoloThreadActivity()
 
         if deferredVisionRecovery {
             deferredVisionRecovery = false

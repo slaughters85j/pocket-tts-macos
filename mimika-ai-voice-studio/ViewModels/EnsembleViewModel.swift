@@ -137,6 +137,9 @@ final class EnsembleViewModel {
     /// SwiftData id of the loaded cast — so post-creation voice/preset edits
     /// persist back to the right saved cast.
     var currentCastID: UUID?
+    /// JSON thread currently backing this Ensemble session.
+    var currentThreadID: UUID?
+    var threadBrowser: ChatThreadBrowser?
     /// Transient confirmation shown after an explicit "Reuse Last".
     var castLoadedNotice: String?
     private var noticeToken: UUID?
@@ -404,6 +407,7 @@ final class EnsembleViewModel {
         lastDepartureNote = nil
         departedSpeakers = []
         persistCast(scene: scene, mood: mood, confirmed: confirmed)
+        beginEnsembleThread(title: scene.isEmpty ? "New ensemble" : scene)
     }
 
     private func persistCast(scene: String, mood: String, confirmed: [ConfirmedPersona]) {
@@ -479,16 +483,34 @@ final class EnsembleViewModel {
         return true
     }
 
-    /// Reuse the last cast AND show a transient confirmation — the explicit
-    /// "Reuse Last" button path (auto-load stays silent).
+    /// Reuse the last / selected-thread cast AND show a confirmation listing
+    /// members + scene. Always opens a *new* thread so the source is frozen.
     func reuseLastCast() {
-        if loadLastCast() { announceCastLoaded() }
+        flushEnsembleThreadSave()
+        let snapshot = selectedThreadCastSnapshot()
+        if let snapshot {
+            applyCastSnapshot(snapshot, resetTurns: true)
+        } else if !loadLastCast() {
+            return
+        }
+        // Detach so the new file cannot overwrite the source thread.
+        currentThreadID = nil
+        beginEnsembleThread(
+            title: scene.isEmpty ? "New ensemble" : scene,
+            snapshot: currentCastSnapshot(turns: [])
+        )
+        announceCastLoaded()
     }
 
-    /// Show a transient "loaded" confirmation listing the cast, then clear it.
+    /// Show a transient "loaded" confirmation listing the cast + scene.
     private func announceCastLoaded() {
         let names = cast.map(\.name).joined(separator: ", ")
-        showNotice(names.isEmpty ? "Last cast loaded." : "Last cast loaded — \(names)")
+        let sceneBit = scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        var line = names.isEmpty ? "Last cast loaded." : "Last cast loaded — \(names)"
+        if !sceneBit.isEmpty {
+            line += " · \(sceneBit)"
+        }
+        showNotice(line)
     }
 
     /// Show a transient confirmation banner, auto-cleared after a few seconds.
@@ -722,6 +744,7 @@ final class EnsembleViewModel {
             content: text,
             attachments: images
         ))
+        noteEnsembleThreadActivity()
         return true
     }
 
@@ -1039,6 +1062,9 @@ final class EnsembleViewModel {
             turns[i].content = cleaned
         }
         currentSpeakerID = nil
+        if !cleaned.isEmpty {
+            noteEnsembleThreadActivity()
+        }
 
         // Boot: after a successful exit line, remove them and arm a note for the table.
         // Failed/empty turns keep `pendingBoot` so the next pick retries.

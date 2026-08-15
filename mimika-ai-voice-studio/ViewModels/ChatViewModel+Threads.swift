@@ -1,0 +1,139 @@
+//
+//  ChatViewModel+Threads.swift
+//  mimika-ai-voice-studio
+//
+//  Solo Chat persist / load / new-thread against ChatThreadStore.
+//
+
+import Foundation
+
+extension ChatViewModel {
+
+    // MARK: - Lifecycle
+
+    /// Bind the shared sidebar and show Solo rows.
+    func attachThreadBrowser(_ browser: ChatThreadBrowser) {
+        threadBrowser = browser
+        browser.kind = .solo
+        browser.reload()
+    }
+
+    /// Create a thread on first real content; debounce-save afterwards.
+    func noteSoloThreadActivity() {
+        if currentThreadID == nil {
+            var record = ChatThreadStore.create(
+                kind: .solo,
+                title: soloThreadTitle(from: messages)
+            )
+            record.soloMessages = messages
+            record = ChatThreadStore.save(record)
+            currentThreadID = record.id
+            threadBrowser?.applySaved(record)
+            requestSoloThemeIfNeeded()
+        } else {
+            scheduleSoloThreadSave()
+        }
+    }
+
+    /// Detach the live session so the next send starts a new thread.
+    func beginFreshSoloThread() {
+        flushSoloThreadSave()
+        currentThreadID = nil
+        threadBrowser?.select(nil)
+    }
+
+    /// Drop live state if the open thread was deleted from the sidebar.
+    func detachIfShowing(_ id: UUID) {
+        guard currentThreadID == id else { return }
+        currentThreadID = nil
+        messages.removeAll()
+        pendingAttachments = []
+        previewAttachment = nil
+        status = .idle
+    }
+
+    /// Persist then restore a Solo thread's transcript.
+    func loadSoloThread(id: UUID) {
+        guard activeTurn == nil else {
+            showToast("Please wait until the model finishes responding.")
+            return
+        }
+        flushSoloThreadSave()
+        guard let record = ChatThreadStore.load(id: id, kind: .solo) else {
+            showToast("Couldn't open that thread")
+            return
+        }
+        messages = record.soloMessages
+        pendingAttachments = []
+        previewAttachment = nil
+        showsVisionRecovery = false
+        currentThreadID = record.id
+        threadBrowser?.select(record.id)
+        status = .idle
+    }
+
+    // MARK: - Save
+
+    private func scheduleSoloThreadSave() {
+        flushSoloThreadSave()
+    }
+
+    private func flushSoloThreadSave() {
+        guard let id = currentThreadID else { return }
+        var record = ChatThreadStore.load(id: id, kind: .solo)
+            ?? ChatThreadRecord(id: id, kind: .solo)
+        record.soloMessages = messages
+        record.title = soloThreadTitle(from: messages)
+        record.pinned = threadBrowser?.entries.first(where: { $0.id == id })?.pinned ?? record.pinned
+        record = ChatThreadStore.save(record)
+        threadBrowser?.applySaved(record)
+        requestSoloThemeIfNeeded()
+    }
+
+    private func soloThreadTitle(from messages: [ChatMessage]) -> String {
+        let first = messages.first {
+            $0.role == .user
+                && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first, !first.isEmpty else { return "New chat" }
+        return String(first.prefix(48))
+    }
+
+    // MARK: - Theme
+
+    private func requestSoloThemeIfNeeded() {
+        guard let id = currentThreadID else { return }
+        let existing = threadBrowser?.entries.first(where: { $0.id == id })?.theme ?? ""
+        guard existing.isEmpty else { return }
+        let usable = messages.filter {
+            $0.role != .system
+                && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard usable.count >= 2 else { return }
+        let source = ChatThreadStore.themeSourceText(from: messages)
+        let model = soloThemeModel
+        guard !model.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let raw = try await makeClient().completeChat(
+                    messages: [ChatMessage(role: .user, content: source)],
+                    model: model,
+                    systemPrompt: ChatThreadStore.themeSystemPrompt,
+                    temperature: 0.3
+                )
+                let theme = ChatThreadStore.cleanedTheme(raw)
+                guard !theme.isEmpty, self.currentThreadID == id else { return }
+                ChatThreadStore.updateTheme(id: id, kind: .solo, theme: theme)
+                self.threadBrowser?.reload()
+            } catch {
+                // Theme is decorative — never block the session.
+            }
+        }
+    }
+
+    private var soloThemeModel: String {
+        if case let .connected(model) = connectionState { return model }
+        return settings.model
+    }
+}
