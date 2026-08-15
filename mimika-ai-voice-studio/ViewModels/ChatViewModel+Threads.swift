@@ -37,6 +37,7 @@ extension ChatViewModel {
 
     /// Detach the live session so the next send starts a new thread.
     func beginFreshSoloThread() {
+        threadSaveTask?.cancel()
         flushSoloThreadSave()
         currentThreadID = nil
         threadBrowser?.select(nil)
@@ -75,7 +76,12 @@ extension ChatViewModel {
     // MARK: - Save
 
     private func scheduleSoloThreadSave() {
-        flushSoloThreadSave()
+        threadSaveTask?.cancel()
+        threadSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            self.flushSoloThreadSave()
+        }
     }
 
     private func flushSoloThreadSave() {

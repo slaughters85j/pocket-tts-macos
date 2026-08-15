@@ -35,8 +35,13 @@ final class ChatThreadBrowser {
     }
 
     func applySaved(_ record: ChatThreadRecord) {
-        selectedID = record.id
-        reload()
+        let entry = record.indexEntry
+        if let i = entries.firstIndex(where: { $0.id == entry.id }) {
+            if entries[i] != entry { entries[i] = entry }
+        } else {
+            entries.insert(entry, at: 0)
+        }
+        selectedID = entry.id
     }
 
     func togglePinned(_ entry: ChatThreadIndexEntry) {

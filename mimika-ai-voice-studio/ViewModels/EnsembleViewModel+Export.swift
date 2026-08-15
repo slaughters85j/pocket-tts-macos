@@ -368,6 +368,7 @@ extension EnsembleViewModel {
             throw CastImportError.emptyPersonas
         }
         stop()
+        detachAfterFlushingCurrentThread()
         let available = availableVoiceIDs()
         var remapped = 0
         let sorted = package.personas.sorted { $0.sortOrder < $1.sortOrder }
@@ -436,6 +437,10 @@ extension EnsembleViewModel {
 
         persistImportedCast(package: package, resolved: resolved)
         refreshContextFillEstimate()
+        beginEnsembleThread(
+            title: scene.isEmpty ? "Imported cast" : scene,
+            snapshot: currentCastSnapshot(turns: [])
+        )
 
         var noticeParts: [String] = []
         if remapped > 0 {

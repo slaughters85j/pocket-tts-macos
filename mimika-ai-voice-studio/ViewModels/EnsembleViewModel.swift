@@ -140,6 +140,7 @@ final class EnsembleViewModel {
     /// JSON thread currently backing this Ensemble session.
     var currentThreadID: UUID?
     var threadBrowser: ChatThreadBrowser?
+    var threadSaveTask: Task<Void, Never>?
     /// Transient confirmation shown after an explicit "Reuse Last".
     var castLoadedNotice: String?
     private var noticeToken: UUID?
@@ -380,6 +381,7 @@ final class EnsembleViewModel {
     func applyGeneratedCast(scene: String, mood: String, userName: String, confirmed: [ConfirmedPersona]) {
         guard !confirmed.isEmpty else { return }
         stop()
+        detachAfterFlushingCurrentThread()
         self.scene = scene
         self.mood = mood
         let trimmedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)

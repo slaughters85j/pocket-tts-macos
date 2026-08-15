@@ -217,7 +217,9 @@ enum ChatThreadStore {
     }
 
     private static let encoder: JSONEncoder = {
-        CastPackageBuilder.jsonEncoder()
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        return enc
     }()
 
     private static let decoder: JSONDecoder = {

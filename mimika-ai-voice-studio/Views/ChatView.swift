@@ -56,9 +56,9 @@ struct ChatView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
             }
         }
-        .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
         .onChange(of: subMode) { _, newMode in
             // Solo and Ensemble keep separate thinking defaults/stores;
             // refresh the shared control when the user flips the sub-mode.

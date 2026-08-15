@@ -24,12 +24,20 @@ extension EnsembleViewModel {
     /// Open a new thread (New Cast or Restart). Optional snapshot seeds
     /// the file so a restart has cast even before the first spoken line.
     func beginEnsembleThread(title: String, snapshot: EnsembleThreadPayload? = nil) {
-        flushEnsembleThreadSave()
+        detachAfterFlushingCurrentThread()
         var record = ChatThreadStore.create(kind: .ensemble, title: title)
         record.ensemble = snapshot ?? currentCastSnapshot(turns: turns)
         record = ChatThreadStore.save(record)
         currentThreadID = record.id
         threadBrowser?.applySaved(record)
+    }
+
+    /// Persist the open thread with its *current* turns, then detach so the
+    /// next mutation cannot overwrite that file.
+    func detachAfterFlushingCurrentThread() {
+        threadSaveTask?.cancel()
+        flushEnsembleThreadSave()
+        currentThreadID = nil
     }
 
     func noteEnsembleThreadActivity() {
@@ -38,10 +46,20 @@ extension EnsembleViewModel {
                 title: scene.isEmpty ? "New ensemble" : scene,
                 snapshot: currentCastSnapshot(turns: turns)
             )
+            requestEnsembleThemeIfNeeded()
         } else {
-            flushEnsembleThreadSave()
+            scheduleEnsembleThreadSave()
         }
-        requestEnsembleThemeIfNeeded()
+    }
+
+    func scheduleEnsembleThreadSave() {
+        threadSaveTask?.cancel()
+        threadSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            self.flushEnsembleThreadSave()
+            self.requestEnsembleThemeIfNeeded()
+        }
     }
 
     func flushEnsembleThreadSave() {
@@ -71,7 +89,9 @@ extension EnsembleViewModel {
 
     func loadEnsembleThread(id: UUID) {
         stop()
-        flushEnsembleThreadSave()
+        if currentThreadID != id {
+            detachAfterFlushingCurrentThread()
+        }
         guard let record = ChatThreadStore.load(id: id, kind: .ensemble),
               let payload = record.ensemble
         else {

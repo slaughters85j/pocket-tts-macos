@@ -55,6 +55,7 @@ final class ChatViewModel {
     /// JSON thread currently backing this Solo session (nil = not yet created).
     var currentThreadID: UUID?
     var threadBrowser: ChatThreadBrowser?
+    var threadSaveTask: Task<Void, Never>?
 
     // MARK: Dependencies
 
