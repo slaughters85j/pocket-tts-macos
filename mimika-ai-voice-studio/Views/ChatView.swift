@@ -334,15 +334,6 @@ struct ChatView: View {
             .help("Export transcript (.md)")
             .accessibilityIdentifier("ensemble.saveTranscript")
 
-            Button(action: { ensembleViewModel.saveEpisodeToHistory() }) {
-                Image(systemName: "tray.and.arrow.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Save episode to History")
-            .accessibilityIdentifier("ensemble.saveHistory")
-
             Button(action: openEnsembleInMultiTalk) {
                 Image(systemName: "person.2.wave.2")
                     .font(.system(size: 13))

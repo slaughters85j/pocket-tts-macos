@@ -14,12 +14,17 @@ import Foundation
 
 // MARK: - ChatThreadStore
 
-@MainActor
 enum ChatThreadStore {
     static let maxUnpinnedPerKind = 30
 
+    /// Serial file I/O — never encode/write JSON on the UI thread.
+    private static let ioQueue = DispatchQueue(
+        label: "com.mimika.chat-threads.io",
+        qos: .utility
+    )
+
     /// Tests point this at a temp folder so they never touch the live store.
-    static var directoryOverride: URL?
+    nonisolated(unsafe) static var directoryOverride: URL?
 
     // MARK: Paths
 
@@ -59,15 +64,21 @@ enum ChatThreadStore {
     // MARK: Index
 
     static func list(kind: ChatThreadKind) -> [ChatThreadIndexEntry] {
-        loadIndex().entries
-            .filter { $0.kind == kind }
-            .sorted { lhs, rhs in
-                if lhs.pinned != rhs.pinned { return lhs.pinned && !rhs.pinned }
-                return lhs.updatedAt > rhs.updatedAt
-            }
+        ioQueue.sync {
+            loadIndexUnlocked().entries
+                .filter { $0.kind == kind }
+                .sorted { lhs, rhs in
+                    if lhs.pinned != rhs.pinned { return lhs.pinned && !rhs.pinned }
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+        }
     }
 
     static func loadIndex() -> ChatThreadIndex {
+        ioQueue.sync { loadIndexUnlocked() }
+    }
+
+    private static func loadIndexUnlocked() -> ChatThreadIndex {
         ensureDirectories()
         guard
             let data = try? Data(contentsOf: indexURL()),
@@ -81,6 +92,10 @@ enum ChatThreadStore {
     // MARK: Record CRUD
 
     static func load(id: UUID, kind: ChatThreadKind) -> ChatThreadRecord? {
+        ioQueue.sync { loadUnlocked(id: id, kind: kind) }
+    }
+
+    private static func loadUnlocked(id: UUID, kind: ChatThreadKind) -> ChatThreadRecord? {
         guard let data = try? Data(contentsOf: fileURL(id: id, kind: kind)) else {
             return nil
         }
@@ -89,6 +104,23 @@ enum ChatThreadStore {
 
     @discardableResult
     static func save(_ record: ChatThreadRecord) -> ChatThreadRecord {
+        ioQueue.sync { saveUnlocked(record) }
+    }
+
+    /// Encode + write off the main thread; hop back for UI (sidebar upsert).
+    static func saveAsync(
+        _ record: ChatThreadRecord,
+        completion: @escaping @MainActor (ChatThreadRecord) -> Void
+    ) {
+        ioQueue.async {
+            let saved = saveUnlocked(record)
+            DispatchQueue.main.async {
+                completion(saved)
+            }
+        }
+    }
+
+    private static func saveUnlocked(_ record: ChatThreadRecord) -> ChatThreadRecord {
         ensureDirectories()
         var next = record
         next.updatedAt = .now
@@ -104,34 +136,40 @@ enum ChatThreadStore {
     }
 
     static func delete(id: UUID, kind: ChatThreadKind) {
-        try? FileManager.default.removeItem(at: fileURL(id: id, kind: kind))
-        var index = loadIndex()
-        index.entries.removeAll { $0.id == id }
-        writeIndex(index)
+        ioQueue.sync {
+            try? FileManager.default.removeItem(at: fileURL(id: id, kind: kind))
+            var index = loadIndexUnlocked()
+            index.entries.removeAll { $0.id == id }
+            writeIndex(index)
+        }
     }
 
     static func setPinned(id: UUID, kind: ChatThreadKind, pinned: Bool) {
-        var index = loadIndex()
-        guard let i = index.entries.firstIndex(where: { $0.id == id }) else { return }
-        index.entries[i].pinned = pinned
-        writeIndex(index)
-        if var record = load(id: id, kind: kind) {
-            record.pinned = pinned
-            writeAtomically(record, to: fileURL(id: id, kind: kind))
+        ioQueue.sync {
+            var index = loadIndexUnlocked()
+            guard let i = index.entries.firstIndex(where: { $0.id == id }) else { return }
+            index.entries[i].pinned = pinned
+            writeIndex(index)
+            if var record = loadUnlocked(id: id, kind: kind) {
+                record.pinned = pinned
+                writeAtomically(record, to: fileURL(id: id, kind: kind))
+            }
         }
     }
 
     static func updateTheme(id: UUID, kind: ChatThreadKind, theme: String) {
         let trimmed = theme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        var index = loadIndex()
-        if let i = index.entries.firstIndex(where: { $0.id == id }) {
-            index.entries[i].theme = trimmed
-            writeIndex(index)
-        }
-        if var record = load(id: id, kind: kind) {
-            record.theme = trimmed
-            writeAtomically(record, to: fileURL(id: id, kind: kind))
+        ioQueue.sync {
+            var index = loadIndexUnlocked()
+            if let i = index.entries.firstIndex(where: { $0.id == id }) {
+                index.entries[i].theme = trimmed
+                writeIndex(index)
+            }
+            if var record = loadUnlocked(id: id, kind: kind) {
+                record.theme = trimmed
+                writeAtomically(record, to: fileURL(id: id, kind: kind))
+            }
         }
     }
 
@@ -175,7 +213,7 @@ enum ChatThreadStore {
     // MARK: Internals
 
     private static func upsertIndex(_ entry: ChatThreadIndexEntry) {
-        var index = loadIndex()
+        var index = loadIndexUnlocked()
         if let i = index.entries.firstIndex(where: { $0.id == entry.id }) {
             var merged = entry
             merged.pinned = index.entries[i].pinned || entry.pinned
@@ -188,7 +226,7 @@ enum ChatThreadStore {
     }
 
     private static func enforceCap(kind: ChatThreadKind) {
-        var index = loadIndex()
+        var index = loadIndexUnlocked()
         let unpinned = index.entries
             .filter { $0.kind == kind && !$0.pinned }
             .sorted { $0.updatedAt > $1.updatedAt }

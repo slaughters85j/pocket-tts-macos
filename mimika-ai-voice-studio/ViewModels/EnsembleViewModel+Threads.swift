@@ -64,13 +64,16 @@ extension EnsembleViewModel {
 
     func flushEnsembleThreadSave() {
         guard let id = currentThreadID else { return }
-        var record = ChatThreadStore.load(id: id, kind: .ensemble)
-            ?? ChatThreadRecord(id: id, kind: .ensemble)
+        var record = ChatThreadRecord(id: id, kind: .ensemble)
+        record.theme = threadBrowser?.entries.first(where: { $0.id == id })?.theme ?? ""
+        record.createdAt = threadBrowser?.entries.first(where: { $0.id == id })?.createdAt ?? record.createdAt
         record.ensemble = currentCastSnapshot(turns: turns)
         record.title = ensembleThreadTitle()
         record.pinned = threadBrowser?.entries.first(where: { $0.id == id })?.pinned ?? record.pinned
-        record = ChatThreadStore.save(record)
-        threadBrowser?.applySaved(record)
+        let browser = threadBrowser
+        ChatThreadStore.saveAsync(record) { saved in
+            browser?.applySaved(saved)
+        }
     }
 
     func currentCastSnapshot(turns: [EnsembleTurn]) -> EnsembleThreadPayload {
@@ -150,6 +153,8 @@ extension EnsembleViewModel {
         guard existing.isEmpty else { return }
         let spoken = turns.filter { !$0.isSceneBeat && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard spoken.count >= 2 else { return }
+        // Same local server as the turn loop — never steal the model mid-run.
+        guard !isRunning else { return }
         let source = ChatThreadStore.themeSourceText(from: turns)
         let model = resolvedModel
         guard !model.isEmpty else { return }

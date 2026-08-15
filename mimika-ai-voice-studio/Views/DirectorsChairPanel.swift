@@ -69,7 +69,8 @@ struct DirectorsChairPanel: View {
                     VStack(spacing: Theme.space3) {
                         bootControl
                         directControl
-                        compactContextControl
+                        // Isolated view: fill % / turns must not rebuild the glass card.
+                        DirectorsChairCompactMeter(viewModel: viewModel)
                     }
                 }
 
@@ -96,7 +97,8 @@ struct DirectorsChairPanel: View {
         .padding(.top, 2)
         .animation(.easeInOut(duration: 0.25), value: showsBootComposer)
         .animation(.easeInOut(duration: 0.25), value: showsDirectComposer)
-        .onChange(of: viewModel.cast.map(\.id)) { _, ids in
+        .onChange(of: viewModel.cast.count) { _, _ in
+            let ids = viewModel.cast.map(\.id)
             if let id = bootTargetID, !ids.contains(id) {
                 bootTargetID = ids.first
             } else if bootTargetID == nil {
@@ -213,92 +215,6 @@ struct DirectorsChairPanel: View {
               ? "A direction is already armed for the next forced turn"
               : "Direct — private note to one cast member (Strict sampling)")
         .accessibilityIdentifier("ensemble.directorsChair.direct")
-    }
-
-    /// Compact — fold older model context; icon under Boot with a blue progress ring.
-    private var compactContextControl: some View {
-        let fill = CGFloat(viewModel.contextFillPercent ?? 0) / 100.0
-        let ringLine: CGFloat = 3.0
-        return Button {
-            _ = viewModel.compactContext()
-        } label: {
-            VStack(spacing: Theme.space1) {
-                ZStack {
-                    // Soft disc (same footprint as Boot) so the ring sits “around” a button.
-                    Circle()
-                        .fill(Self.compactRingBlue.opacity(viewModel.turns.isEmpty ? 0.06 : 0.12))
-                    // Dim track
-                    Circle()
-                        .stroke(Self.compactRingBlue.opacity(0.28), lineWidth: ringLine)
-                    // Progress arc (0…fill), 12 o’clock start — system activity-ring style
-                    Circle()
-                        .trim(from: 0, to: min(1, max(0, fill)))
-                        .stroke(
-                            Self.compactRingBlue,
-                            style: StrokeStyle(lineWidth: ringLine, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
-                        .animation(.easeInOut(duration: 0.35), value: viewModel.contextFillPercent)
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(compactIconColor)
-                }
-                .frame(width: 40, height: 40)
-                Text("Compact")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(EnsembleSettingsView.chairLabelColor)
-                if let pct = viewModel.contextFillPercent {
-                    Text("~\(pct)%")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(compactIconColor)
-                    Text(EnsembleSettingsView.formatTokenCount(viewModel.effectiveContextLimitTokens))
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(viewModel.turns.isEmpty)
-        .opacity(viewModel.turns.isEmpty ? 0.45 : 1)
-        .help(compactContextHelpText)
-        .accessibilityIdentifier("ensemble.directorsChair.compactContext")
-        .onAppear {
-            viewModel.refreshContextFillEstimate()
-            #if DEBUG
-            let limit = viewModel.effectiveContextLimitTokens
-            let prompt = viewModel.estimateModelFacingPromptTokens()
-            print(
-                "[Compact] meter ready fill~\(viewModel.contextFillPercent.map(String.init) ?? "?")% "
-                + "promptTokens=\(prompt) limit=\(limit) "
-                + "loaded=\(viewModel.modelContextLimitTokens.map(String.init) ?? "?") "
-                + "archMax=\(viewModel.modelArchitectureMaxTokens.map(String.init) ?? "?") "
-                + "override=\(viewModel.contextLimitOverrideTokens.map(String.init) ?? "nil") "
-                + "turns=\(viewModel.turns.count) summarizedUpTo=\(viewModel.summarizedUpTo)"
-            )
-            #endif
-        }
-    }
-
-    private var compactContextHelpText: String {
-        var s = Self.compactContextHelp
-        let loaded = viewModel.modelContextLimitTokens
-        let arch = viewModel.modelArchitectureMaxTokens
-        if let loaded, let arch, arch > loaded {
-            s += " Server loaded \(EnsembleSettingsView.formatTokenCount(loaded)); model max \(EnsembleSettingsView.formatTokenCount(arch)) — raise Context Length in LM Studio to use more."
-        }
-        return s
-    }
-
-    /// Bright system-style blue for the context fill ring (track + progress).
-    private static let compactRingBlue = Color(red: 0.22, green: 0.55, blue: 1.0)
-
-    private var compactIconColor: Color {
-        guard let pct = viewModel.contextFillPercent else { return Theme.accent }
-        if pct >= 90 { return Theme.errorFG }
-        if pct >= 75 { return Theme.warningFG }
-        return Theme.accent
     }
 
     fileprivate static let compactContextHelp =
@@ -502,6 +418,79 @@ private extension View {
                 }
                 .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 12)
         }
+    }
+}
+
+// MARK: - Compact meter (isolated)
+
+/// Own Observation scope so token/fill updates do not rebuild the glass card.
+private struct DirectorsChairCompactMeter: View {
+    @Bindable var viewModel: EnsembleViewModel
+
+    private let ringLine: CGFloat = 3.0
+    private static let compactRingBlue = Color(red: 0.22, green: 0.55, blue: 1.0)
+
+    var body: some View {
+        let fill = CGFloat(viewModel.contextFillPercent ?? 0) / 100.0
+        let empty = viewModel.turns.isEmpty
+        return Button {
+            _ = viewModel.compactContext()
+        } label: {
+            VStack(spacing: Theme.space1) {
+                ZStack {
+                    Circle()
+                        .fill(Self.compactRingBlue.opacity(empty ? 0.06 : 0.12))
+                    Circle()
+                        .stroke(Self.compactRingBlue.opacity(0.28), lineWidth: ringLine)
+                    Circle()
+                        .trim(from: 0, to: min(1, max(0, fill)))
+                        .stroke(
+                            Self.compactRingBlue,
+                            style: StrokeStyle(lineWidth: ringLine, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(compactIconColor)
+                }
+                .frame(width: 40, height: 40)
+                Text("Compact")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(EnsembleSettingsView.chairLabelColor)
+                if let pct = viewModel.contextFillPercent {
+                    Text("~\(pct)%")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(compactIconColor)
+                    Text(EnsembleSettingsView.formatTokenCount(viewModel.effectiveContextLimitTokens))
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(empty)
+        .opacity(empty ? 0.45 : 1)
+        .help(helpText)
+        .accessibilityIdentifier("ensemble.directorsChair.compactContext")
+    }
+
+    private var compactIconColor: Color {
+        guard let pct = viewModel.contextFillPercent else { return Theme.accent }
+        if pct >= 90 { return Theme.errorFG }
+        if pct >= 75 { return Theme.warningFG }
+        return Theme.accent
+    }
+
+    private var helpText: String {
+        var s = DirectorsChairPanel.compactContextHelp
+        let loaded = viewModel.modelContextLimitTokens
+        let arch = viewModel.modelArchitectureMaxTokens
+        if let loaded, let arch, arch > loaded {
+            s += " Server loaded \(EnsembleSettingsView.formatTokenCount(loaded)); model max \(EnsembleSettingsView.formatTokenCount(arch)) — raise Context Length in LM Studio to use more."
+        }
+        return s
     }
 }
 

@@ -86,13 +86,16 @@ extension ChatViewModel {
 
     private func flushSoloThreadSave() {
         guard let id = currentThreadID else { return }
-        var record = ChatThreadStore.load(id: id, kind: .solo)
-            ?? ChatThreadRecord(id: id, kind: .solo)
+        var record = ChatThreadRecord(id: id, kind: .solo)
+        record.theme = threadBrowser?.entries.first(where: { $0.id == id })?.theme ?? ""
+        record.createdAt = threadBrowser?.entries.first(where: { $0.id == id })?.createdAt ?? record.createdAt
         record.soloMessages = messages
         record.title = soloThreadTitle(from: messages)
         record.pinned = threadBrowser?.entries.first(where: { $0.id == id })?.pinned ?? record.pinned
-        record = ChatThreadStore.save(record)
-        threadBrowser?.applySaved(record)
+        let browser = threadBrowser
+        ChatThreadStore.saveAsync(record) { saved in
+            browser?.applySaved(saved)
+        }
         requestSoloThemeIfNeeded()
     }
 
@@ -116,6 +119,7 @@ extension ChatViewModel {
                 && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard usable.count >= 2 else { return }
+        guard activeTurn == nil else { return }
         let source = ChatThreadStore.themeSourceText(from: messages)
         let model = soloThemeModel
         guard !model.isEmpty else { return }

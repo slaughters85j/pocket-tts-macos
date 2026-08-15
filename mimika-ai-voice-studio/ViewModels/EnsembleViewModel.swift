@@ -856,6 +856,7 @@ final class EnsembleViewModel {
         if !Task.isCancelled {
             if case .error = runState {} else { runState = .idle }
         }
+        requestEnsembleThemeIfNeeded()
     }
 
     // MARK: - Rolling summary (Phase 5 — context management)

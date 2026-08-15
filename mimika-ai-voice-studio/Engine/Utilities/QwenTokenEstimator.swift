@@ -43,12 +43,31 @@ final class QwenTokenEstimator: @unchecked Sendable {
     /// Token count for `text`. Falls back to a Qwen-ish char heuristic if the
     /// bundled tokenizer cannot load.
     func countTokens(_ text: String) -> Int {
-        ensureLoaded()
-        if loadFailed || vocab.isEmpty {
-            return max(text.isEmpty ? 0 : 1, (text.utf8.count + 2) / 3)
+        // Never parse the 19 MB tokenizer on the caller's thread. If load is
+        // still pending, return the heuristic and kick a background load.
+        if !isReady {
+            Self.prewarm()
+            return heuristicCount(text)
+        }
+        lock.lock()
+        let failed = loadFailed
+        let empty = vocab.isEmpty
+        lock.unlock()
+        if failed || empty {
+            return heuristicCount(text)
         }
         let n = encodeCount(text)
         return text.isEmpty ? 0 : max(n, 1)
+    }
+
+    private var isReady: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didLoad
+    }
+
+    private func heuristicCount(_ text: String) -> Int {
+        max(text.isEmpty ? 0 : 1, (text.utf8.count + 2) / 3)
     }
 
     // MARK: - Load
