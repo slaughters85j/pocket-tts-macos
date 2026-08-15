@@ -30,12 +30,16 @@ final class ChatCapabilityStateTests: XCTestCase {
         XCTAssertEqual(viewModel.capabilityState.freshness, .current)
         XCTAssertEqual(viewModel.capabilityState.authoritative, [.vision])
 
+        // Polls skip re-probe while freshness is .current. Force a refresh so
+        // a failed metadata read can move current → stale.
+        viewModel.capabilityState.freshness = .unknown
         LLMStubURLProtocol.enqueue(metadata(vision: true, tools: false, reasoning: false))
         LLMStubURLProtocol.enqueue(Data("malformed".utf8))
         await viewModel.checkConnection()
         XCTAssertEqual(viewModel.capabilityState.freshness, .stale)
         XCTAssertEqual(viewModel.capabilityState.authoritative, [.vision])
 
+        viewModel.capabilityState.freshness = .unknown
         LLMStubURLProtocol.enqueue(metadata(vision: false, tools: true, reasoning: true))
         LLMStubURLProtocol.enqueue(metadata(vision: false, tools: true, reasoning: true))
         await viewModel.checkConnection()
@@ -127,6 +131,85 @@ final class ChatCapabilityStateTests: XCTestCase {
         XCTAssertTrue(restored.forcedCapabilities(for: otherModel).isEmpty)
     }
 
+    func test_forceReasoningOverrideAppearsWithoutReprobe() async throws {
+        let (viewModel, appState) = try makeViewModel()
+        let meta = metadata(vision: false, tools: false, reasoning: false)
+        LLMStubURLProtocol.enqueue(meta)
+        LLMStubURLProtocol.enqueue(meta)
+        await viewModel.checkConnection()
+        XCTAssertFalse(viewModel.supportsReasoning)
+        XCTAssertNil(viewModel.reasoningConfiguration)
+
+        let selection = ChatModelSelection(
+            endpoint: viewModel.settings.baseURL,
+            model: viewModel.settings.model
+        )
+        var newSettings = viewModel.settings
+        newSettings.setCapability(.reasoning, forcedSupported: true, for: selection)
+        try appState.applyChatConfiguration(
+            newSettings,
+            endpointBaseURL: newSettings.baseURL
+        )
+        viewModel.settings = appState.chatSettings
+
+        // Same serving set — must pick up forced bits without a new probe.
+        await viewModel.checkConnection()
+
+        XCTAssertTrue(viewModel.capabilityState.forced.contains(.reasoning))
+        XCTAssertTrue(viewModel.supportsReasoning)
+        XCTAssertNotNil(viewModel.reasoningConfiguration)
+        XCTAssertNotNil(viewModel.reasoningSelection)
+    }
+
+    func test_forceReasoningSurvivesSwitchWhilePreviousModelStillServing() async throws {
+        let (viewModel, appState) = try makeViewModel()
+        let oldMeta = metadata(key: "m", vision: false, tools: false, reasoning: false)
+        LLMStubURLProtocol.enqueue(oldMeta)
+        LLMStubURLProtocol.enqueue(oldMeta)
+        await viewModel.checkConnection()
+        XCTAssertFalse(viewModel.supportsReasoning)
+
+        let newSelection = ChatModelSelection(
+            endpoint: viewModel.settings.baseURL,
+            model: "new-model"
+        )
+        var newSettings = viewModel.settings
+        newSettings.model = "new-model"
+        newSettings.setCapability(.reasoning, forcedSupported: true, for: newSelection)
+        try appState.applyChatConfiguration(
+            newSettings,
+            endpointBaseURL: newSettings.baseURL
+        )
+        viewModel.settings = appState.chatSettings
+
+        // Auto-load not finished: serving list is still the old model.
+        LLMStubURLProtocol.enqueue(oldMeta)
+        await viewModel.checkConnection()
+
+        XCTAssertEqual(viewModel.capabilitySelection?.model, "new-model")
+        XCTAssertTrue(viewModel.capabilityState.forced.contains(.reasoning))
+        XCTAssertTrue(viewModel.supportsReasoning)
+        XCTAssertNotNil(
+            viewModel.reasoningConfiguration,
+            "must not adopt the still-serving old model's empty reasoning"
+        )
+
+        // New model is now loaded and reports no native reasoning.
+        let newMeta = metadata(key: "new-model", vision: false, tools: false, reasoning: false)
+        LLMStubURLProtocol.enqueue(newMeta)
+        LLMStubURLProtocol.enqueue(newMeta)
+        await viewModel.checkConnection()
+
+        XCTAssertEqual(viewModel.capabilitySelection?.model, "new-model")
+        XCTAssertTrue(viewModel.capabilityState.forced.contains(.reasoning))
+        XCTAssertTrue(viewModel.supportsReasoning)
+        XCTAssertNotNil(viewModel.reasoningConfiguration)
+        XCTAssertEqual(
+            viewModel.capabilityState.displayState(for: .reasoning),
+            .overridden
+        )
+    }
+
     func test_authoritativeSupportDisplaysCurrentWithoutMutatingOverride() async throws {
         let (viewModel, appState) = try makeViewModel()
         let selection = ChatModelSelection(
@@ -216,6 +299,8 @@ final class ChatCapabilityStateTests: XCTestCase {
         settings.model = "m"
         settings.baseURL = "http://localhost:1234"
         let appState = AppState()
+        // Tests must not inherit the user's last Solo/Ensemble pick from UserDefaults.
+        appState.chatSubMode = .solo
         try appState.applyChatConfiguration(settings, endpointBaseURL: settings.baseURL)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LLMStubURLProtocol.self]

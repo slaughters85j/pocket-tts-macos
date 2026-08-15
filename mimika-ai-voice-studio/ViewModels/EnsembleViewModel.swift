@@ -113,6 +113,12 @@ final class EnsembleViewModel {
 
     // MARK: - Composer
     var draft: String = ""
+    /// Unsent Solo-style image attachments for the next human turn.
+    var pendingAttachments: [ChatImageAttachment] = []
+    /// In-window preview for a composer or transcript thumbnail.
+    var previewAttachment: ChatImageAttachment?
+    /// Server-reported Vision for the current serving model (forced override OR'd in).
+    var modelSupportsVision: Bool = false
 
     // MARK: - Connection (mirrors ChatViewModel)
     var connectionState: ConnectionState = .checking
@@ -294,12 +300,17 @@ final class EnsembleViewModel {
                 if modelArchitectureMaxTokens != meta.architectureMaxContextLength {
                     modelArchitectureMaxTokens = meta.architectureMaxContextLength
                 }
+                let vision = meta.capabilities.contains(.vision)
+                if modelSupportsVision != vision {
+                    modelSupportsVision = vision
+                }
                 #if DEBUG
                 if connectionChanged {
                     print(
                         "[Compact] context meta loaded=\(meta.contextLength.map(String.init) ?? "?") "
                         + "archMax=\(meta.architectureMaxContextLength.map(String.init) ?? "?") "
                         + "override=\(contextLimitOverrideTokens.map(String.init) ?? "nil") model=\(effective)"
+                        + " vision=\(vision)"
                     )
                 }
                 #endif
@@ -310,6 +321,16 @@ final class EnsembleViewModel {
                 .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
             )
         }
+    }
+
+    /// Effective Vision support for Ensemble image attach (probe + App Settings force).
+    var supportsVision: Bool {
+        if modelSupportsVision { return true }
+        let selection = ChatModelSelection(
+            endpoint: appState.currentEndpointBaseURL,
+            model: resolvedModel
+        )
+        return appState.chatSettings.forcedCapabilities(for: selection).contains(.vision)
     }
 
     /// Avoid redundant `@Observable` publishes on a 1s poll.
@@ -655,14 +676,11 @@ final class EnsembleViewModel {
 
     /// Inject a user turn. The user is a peer: if the loop is running it picks
     /// this up on its next iteration (mention override honored); otherwise we
-    /// advance one turn so someone reacts.
+    /// advance one turn so someone reacts. Text and/or images (Solo parity).
     func submitUserTurn() {
         // Invited turn (director/conductor tapped the human) — complete the wait.
         if awaitingInvitedUserTurn {
-            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            draft = ""
-            turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+            guard appendPendingUserTurn() else { return }
             // Always kill the mic session — leaving it running after Send is what
             // stuck the button on .unavailable via late onError callbacks.
             resetDictationToIdle()
@@ -672,13 +690,39 @@ final class EnsembleViewModel {
         // After a barge-in (the user cut the cast off), submitting resumes the
         // cast in the prior advance mode instead of queuing/stepping.
         if case .userTurn = runState { finishBargeIn(); return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        draft = ""
-        turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+        guard appendPendingUserTurn() else { return }
         if !isLooping, canRun {
             stepOnce()
         }
+    }
+
+    /// Consume draft + pending images into a user `EnsembleTurn`. Returns false
+    /// when there is nothing to send or Vision is missing for attached images.
+    @discardableResult
+    func appendPendingUserTurn() -> Bool {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let images = pendingAttachments
+        guard !text.isEmpty || !images.isEmpty else { return false }
+        if !images.isEmpty, !supportsVision {
+            showNotice("The current model does not support Vision. Remove the images or pick a Vision model.")
+            return false
+        }
+        let encoded = turns.flatMap(\.attachments).reduce(0) { $0 + $1.encodedURLByteCount }
+            + images.reduce(0) { $0 + $1.encodedURLByteCount }
+        if encoded > ChatImageLimits.maxEncodedRequestBytes {
+            showNotice("Image history exceeds the 64 MiB encoded request limit.")
+            return false
+        }
+        draft = ""
+        pendingAttachments = []
+        turns.append(EnsembleTurn(
+            id: UUID(),
+            speakerID: nil,
+            speakerName: userPeer.name,
+            content: text,
+            attachments: images
+        ))
+        return true
     }
 
     // MARK: - Invited user turn (include me in turn order)

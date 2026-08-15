@@ -259,6 +259,7 @@
 		D5B7DDBA3007F177006FE124 /* SeededGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */; };
 		D652342D5E8948F5BDC2F411 /* EnsembleMultiTalkVoiceMapSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6305E43509094D4880AAC215 /* EnsembleMultiTalkVoiceMapSheet.swift */; };
 		D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */; };
+		C5176820E79640D8B94BE493 /* EnsembleViewModel+Attachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2AAD140E51431C86FE3251 /* EnsembleViewModel+Attachments.swift */; };
 		DB7BAD1E1D03A4E010C897B7 /* ChatViewModel+Attachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 209ABB13B3566ACBE2A669C9 /* ChatViewModel+Attachments.swift */; };
 		DBE7147515474E66609D4E71 /* VoiceReferenceExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1597B0B0B63AF9B310542A57 /* VoiceReferenceExtractor.swift */; };
 		DDD4100677FC483AA94FF11C /* QwenTokenEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A831A915F2904B298E16B536 /* QwenTokenEstimator.swift */; };
@@ -566,6 +567,7 @@
 		E3B816255BCAB7DCB5A4173F /* SpokenTurnRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpokenTurnRunner.swift; sourceTree = "<group>"; };
 		E464314A8241A9CB95AC93CF /* Conductor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Conductor.swift; sourceTree = "<group>"; };
 		E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Context.swift"; sourceTree = "<group>"; };
+		BA2AAD140E51431C86FE3251 /* EnsembleViewModel+Attachments.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Attachments.swift"; sourceTree = "<group>"; };
 		E9CC17D2ABF0DB738583B68A /* EnsemblePersonaEditorSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsemblePersonaEditorSheet.swift; sourceTree = "<group>"; };
 		F2ADB677568344C7900E266C /* EnsembleViewModel+PersonaEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+PersonaEdit.swift"; sourceTree = "<group>"; };
 		F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaProviderTests.swift; sourceTree = "<group>"; };
@@ -883,6 +885,7 @@
 				9F063B7FB9F736C210A43433 /* EnsembleViewModel.swift */,
 				F2ADB677568344C7900E266C /* EnsembleViewModel+PersonaEdit.swift */,
 				E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */,
+				BA2AAD140E51431C86FE3251 /* EnsembleViewModel+Attachments.swift */,
 				D8EAA320219AD219F53EF673 /* EnsembleViewModel+Interruption.swift */,
 				22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */,
 				CE64C94E90821F9C8BEE43DA /* EnsembleViewModel+Director.swift */,
@@ -1414,6 +1417,7 @@
 				677D580326185F4D444FE23A /* EnsembleViewModel.swift in Sources */,
 				45DE81AD8DF645A2A1768900 /* EnsembleViewModel+PersonaEdit.swift in Sources */,
 				D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */,
+				C5176820E79640D8B94BE493 /* EnsembleViewModel+Attachments.swift in Sources */,
 				5541B2D0AA6F43724ABD380C /* EnsembleSurfaceView.swift in Sources */,
 				84374F4D139241CF9223E082 /* EnsembleCharacterPickerBar.swift in Sources */,
 				D652342D5E8948F5BDC2F411 /* EnsembleMultiTalkVoiceMapSheet.swift in Sources */,

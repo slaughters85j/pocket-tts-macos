@@ -9,7 +9,9 @@
 //  ChatView's single top bar (mirroring Solo) — this view owns only the body.
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EnsembleSurfaceView: View {
     @Bindable var viewModel: EnsembleViewModel
@@ -23,6 +25,7 @@ struct EnsembleSurfaceView: View {
     @State private var showGrenadeInfo = false
     /// Drives the attention shake on the grenade flame (armed or collapse nudge).
     @State private var grenadeShakeTick = false
+    @State private var dropIsTargeted = false
 
     /// A short, self-dismissing message shown centered in the controls bar.
     private struct ControlFlash {
@@ -56,6 +59,12 @@ struct EnsembleSurfaceView: View {
         }
         .onChange(of: viewModel.agreementCollapsed) { _, collapsed in
             if collapsed, !viewModel.pendingGrenade { triggerGrenadeShake(pulses: 2) }
+        }
+        .sheet(item: $viewModel.previewAttachment) { attachment in
+            ChatImagePreviewView(
+                attachment: attachment,
+                close: { viewModel.previewAttachment = nil }
+            )
         }
     }
 
@@ -109,10 +118,26 @@ struct EnsembleSurfaceView: View {
                     presetBadge(preset, tint: color(for: turn))
                 }
             }
-            Text(turn.content + (turn.wasCutOff ? "  — [cut off]" : ""))
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if !turn.attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Theme.space2) {
+                        ForEach(turn.attachments) { attachment in
+                            ChatAttachmentThumbnail(
+                                attachment: attachment,
+                                deliveryState: nil,
+                                preview: { viewModel.previewAttachment = attachment }
+                            )
+                        }
+                    }
+                }
+                .padding(.top, 2)
+            }
+            if !turn.content.isEmpty || turn.wasCutOff {
+                Text(turn.content + (turn.wasCutOff ? "  — [cut off]" : ""))
+                    .font(Theme.fontSM)
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(Theme.space3)
         .background(Theme.bgSecondary)
@@ -410,6 +435,9 @@ struct EnsembleSurfaceView: View {
             if case let .unavailable(msg) = viewModel.dictation {
                 Text(msg).font(Theme.fontXS).foregroundStyle(Theme.warningFG)
             }
+            if !viewModel.pendingAttachments.isEmpty {
+                ensembleAttachmentTray
+            }
             HStack(spacing: Theme.space3) {
                 TextField(
                     viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…",
@@ -426,6 +454,19 @@ struct EnsembleSurfaceView: View {
                     .onSubmit { viewModel.submitUserTurn() }
                     .accessibilityIdentifier("ensemble.composer.field")
 
+                if viewModel.supportsVision {
+                    Button(action: chooseImages) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .background(Theme.bgTertiary)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add images")
+                    .accessibilityIdentifier("ensemble.composer.addImages")
+                }
+
                 micButton
 
                 Button(action: { viewModel.submitUserTurn() }) {
@@ -434,16 +475,59 @@ struct EnsembleSurfaceView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, Theme.space4)
                         .padding(.vertical, Theme.space3)
-                        .background(Theme.accent)
+                        .background(viewModel.canSubmitUserTurn ? Theme.accent : Color.gray.opacity(0.5))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
                 }
                 .buttonStyle(.plain)
+                .disabled(!viewModel.canSubmitUserTurn)
                 .accessibilityIdentifier("ensemble.composer.send")
             }
         }
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space3)
         .background(Theme.bgPrimary)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.radius)
+                .stroke(
+                    dropIsTargeted ? Theme.accent : Color.clear,
+                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                )
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard viewModel.shouldHandleImageDrop(urls) else { return false }
+            Task { await viewModel.importImageURLs(urls) }
+            return true
+        } isTargeted: { dropIsTargeted = $0 }
+    }
+
+    private var ensembleAttachmentTray: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.space2) {
+                ForEach(viewModel.pendingAttachments) { attachment in
+                    ChatAttachmentThumbnail(
+                        attachment: attachment,
+                        deliveryState: nil,
+                        remove: { viewModel.removePendingAttachment(id: attachment.id) },
+                        preview: { viewModel.previewAttachment = attachment }
+                    )
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityIdentifier("ensemble.composer.attachmentTray")
+    }
+
+    /// Open the same multi-image picker Solo Chat uses.
+    private func chooseImages() {
+        let panel = NSOpenPanel()
+        panel.title = "Add Images"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.png, .jpeg]
+            + [UTType(filenameExtension: "webp")].compactMap { $0 }
+        guard panel.runModal() == .OK else { return }
+        Task { await viewModel.importImageURLs(panel.urls) }
     }
 
     // MARK: - Mic button (barge-in) — mirrors ChatView

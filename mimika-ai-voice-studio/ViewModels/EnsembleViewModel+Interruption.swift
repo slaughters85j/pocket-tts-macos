@@ -204,29 +204,22 @@ extension EnsembleViewModel {
     func finishBargeIn() {
         // Invited turn: complete the parked wait instead of starting a new loop.
         if awaitingInvitedUserTurn {
-            let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            draft = ""
             // Paperplane send after listening — same deactivate cue as stop.
             if dictation == .ready || dictation == .listening {
                 playMicDeactivatedCue()
             }
-            if !text.isEmpty {
-                turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
+            if appendPendingUserTurn() {
                 completeInvitedUserTurn(submitted: true) // resets mic to idle
             } else {
                 completeInvitedUserTurn(submitted: false)
             }
             return
         }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        draft = ""
         if dictation == .ready || dictation == .listening {
             playMicDeactivatedCue()
         }
         resetDictationToIdle()
-        if !text.isEmpty {
-            turns.append(EnsembleTurn(id: UUID(), speakerID: nil, speakerName: userPeer.name, content: text))
-        }
+        _ = appendPendingUserTurn()
         resumeCast()
     }
 }
