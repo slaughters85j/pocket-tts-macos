@@ -66,6 +66,11 @@ extension ChatViewModel {
             lastAutomaticVisionRecoveryKey = nil
             showsVisionRecovery = false
             deferredVisionRecovery = false
+        } else {
+            // Same model — still merge App Settings force-overrides. Done used
+            // to only persist; the 1s poll skipped re-probe when freshness was
+            // already .current, so the toolbar never saw the new forced bits.
+            syncForcedCapabilities(for: configuredSelection)
         }
         let client = LocalLLMClient(
             baseURL: URL(string: requestedEndpoint) ?? Self.fallbackURL,
@@ -86,10 +91,19 @@ extension ChatViewModel {
                 return
             }
 
-            let effectiveModel = models.contains(settings.model) ? settings.model : loaded
+            let selectedIsServing = models.contains(settings.model)
+            let effectiveModel = selectedIsServing ? settings.model : loaded
             let next = ConnectionState.connected(model: effectiveModel)
             let connectionChanged = connectionState != next
             setConnectionStateIfChanged(next)
+
+            // User picked a model that is not serving yet (auto-load in flight).
+            // Do NOT adopt the previous loaded model's probe results — that
+            // clobbered force-overrides and made the Thinking toggle flicker
+            // then vanish once the new model finished loading.
+            if !settings.model.isEmpty, !selectedIsServing {
+                return
+            }
 
             let selection = ChatModelSelection(
                 endpoint: appState.currentEndpointBaseURL,
@@ -106,6 +120,8 @@ extension ChatViewModel {
             }
             if needsProbe {
                 await probeCapabilities(for: selection, forced: forced)
+            } else {
+                syncForcedCapabilities(for: selection)
             }
         } catch {
             guard !Task.isCancelled, requestID == connectionRequestID else { return }
@@ -191,17 +207,35 @@ extension ChatViewModel {
 
     // MARK: Reasoning selection
 
+    /// Merge persisted force-overrides into live `capabilityState` and refresh
+    /// the Thinking control. No-ops when the forced set is already current.
+    func syncForcedCapabilities(for selection: ChatModelSelection) {
+        guard capabilitySelection == selection else { return }
+        let forced = settings.forcedCapabilities(for: selection)
+        guard capabilityState.forced != forced else { return }
+        capabilityState.forced = forced
+        applyReasoningConfiguration(
+            lastKnownReasoningConfigurations[selection.storageKey],
+            for: selection
+        )
+    }
+
     /// Resolve one model's reasoning control without guessing from its name.
     /// Ensemble keeps its own stored selection (defaults to Off) so Solo
     /// effort levels are not inherited into multi-agent turns.
+    ///
+    /// Force-Reasoning override always keeps a binary On/Off control even when
+    /// LM Studio reports no reasoning metadata for the loaded model.
     func applyReasoningConfiguration(
         _ configuration: ModelReasoningConfiguration?,
         for selection: ChatModelSelection
     ) {
         guard capabilitySelection == selection else { return }
 
+        let forceReasoning = capabilityState.forced.contains(.reasoning)
+            || settings.forcedCapabilities(for: selection).contains(.reasoning)
         let base = configuration
-            ?? (supportsReasoning ? .binaryFallback : nil)
+            ?? ((supportsReasoning || forceReasoning) ? .binaryFallback : nil)
         let resolved = Self.reasoningConfiguration(
             base: base,
             forEnsemble: appState.chatSubMode == .ensemble
