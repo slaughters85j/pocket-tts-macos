@@ -43,6 +43,22 @@ extension ChatViewModel {
         threadBrowser?.select(nil)
     }
 
+    /// User-facing New Chat: park the current thread, empty the transcript.
+    func startNewSoloConversation() {
+        guard activeTurn == nil else {
+            showToast("Please wait until the model finishes responding.")
+            return
+        }
+        beginFreshSoloThread()
+        messages.removeAll()
+        pendingAttachments = []
+        previewAttachment = nil
+        showsVisionRecovery = false
+        deferredVisionRecovery = false
+        lastAutomaticVisionRecoveryKey = nil
+        status = .idle
+    }
+
     /// Drop live state if the open thread was deleted from the sidebar.
     func detachIfShowing(_ id: UUID) {
         guard currentThreadID == id else { return }

@@ -14,6 +14,7 @@ struct ChatThreadSidebar: View {
     @Bindable var browser: ChatThreadBrowser
     var onSelect: (ChatThreadIndexEntry) -> Void
     var onDeleted: (ChatThreadIndexEntry) -> Void = { _ in }
+    var onNew: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +24,18 @@ struct ChatThreadSidebar: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.textSecondary)
                 Spacer()
+                if let onNew = onNew {
+                    Button(action: onNew) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help(browser.kind == .solo
+                          ? "Start a new Solo thread"
+                          : "New Ensemble threads start from New Cast or Reuse Last")
+                    .accessibilityIdentifier("chat.threads.new")
+                }
             }
             .padding(.horizontal, Theme.space3)
             .padding(.vertical, Theme.space2)

@@ -33,7 +33,10 @@ struct ChatView: View {
                 ChatThreadSidebar(
                     browser: threadBrowser,
                     onSelect: openThread,
-                    onDeleted: detachIfDeleted
+                    onDeleted: detachIfDeleted,
+                    onNew: subMode == .solo
+                        ? { viewModel.startNewSoloConversation() }
+                        : nil
                 )
                 Divider().background(Theme.borderColor)
             }
@@ -258,6 +261,16 @@ struct ChatView: View {
 
     @ViewBuilder
     private var soloControls: some View {
+        Button(action: { viewModel.startNewSoloConversation() }) {
+            Label("New Chat", systemImage: "square.and.pencil")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.accent)
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.hasActiveTurn)
+        .help("Start a new Solo thread. The current conversation stays in the list.")
+        .accessibilityIdentifier("chat.newThread")
+
         Button(action: { viewModel.saveTranscript() }) {
             Image(systemName: "square.and.arrow.down")
                 .font(.system(size: 13))
