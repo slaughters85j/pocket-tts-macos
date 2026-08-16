@@ -497,6 +497,25 @@ actor TTSEngine: TTSEngineProtocol {
         return out
     }
 
+    // MARK: - K/V frame budget (state-capacity clamp)
+
+    /// Max AR steps a chunk may run so the CaLM K/V write position
+    /// (`tPrompt + step`) stays inside the model's `K.maxSeq`-slot state.
+    /// Writing past the last slot is undefined behavior: the ANE's e5rt
+    /// runtime aborts the process (field crash signature:
+    /// MLE5BindEmptyMemoryObjectToPort / SIGABRT on M4 + macOS 26.6),
+    /// while GPU/CPU dispatch silently corrupts attention (garbled
+    /// audio). Long voice prefixes (imported/recorded voices bake up to
+    /// 200 positions vs 125–161 for stock) plus a long chunk can push
+    /// `tPrompt + step` past `maxSeq` without this clamp.
+    ///
+    /// Pure + nonisolated for unit testing. Never negative: a `tPrompt`
+    /// at/over capacity (corrupt voice metadata) yields 0 so the AR loop
+    /// simply doesn't run rather than trapping on a negative Range.
+    nonisolated static func kvFrameBudget(maxFrames: Int, tPrompt: Int) -> Int {
+        max(0, min(maxFrames, K.maxSeq - tPrompt))
+    }
+
     /// Synthesize one text chunk through the prompt-phase + AR loop.
     /// Yields PCM frames via the caller-supplied `yield` closure rather
     /// than directly to the AsyncStream continuation — `runTextSegment`
@@ -559,7 +578,16 @@ actor TTSEngine: TTSEngineProtocol {
         let copyMs = (CFAbsoluteTimeGetCurrent() - tCopy) * 1000
         print("[PocketTTS] KV copy: \(String(format: "%.1f", copyMs))ms")
 
-        // 6) AR loop: CaLM → next_latent → Mimi → PCM frame → emit.
+        // 6) Clamp the AR frame budget to the K/V state capacity — every
+        // AR step writes at position `tPrompt + step` and the state has
+        // exactly `K.maxSeq` slots. See `kvFrameBudget` for why crossing
+        // the boundary is a hard crash on the ANE.
+        let frameBudget = Self.kvFrameBudget(maxFrames: chunkOptions.maxFrames, tPrompt: tPrompt)
+        if frameBudget < chunkOptions.maxFrames {
+            print("[PocketTTS] frame budget clamped to \(frameBudget)/\(chunkOptions.maxFrames) (t_prompt=\(tPrompt), maxSeq=\(K.maxSeq))")
+        }
+
+        // 7) AR loop: CaLM → next_latent → Mimi → PCM frame → emit.
         var prevLatent = [Float](repeating: .nan, count: 1 * 1 * K.ldim)   // BOS = NaN
         var eosStep: Int? = nil
         // P-EOS-2: smoothed-fire counter. Increments each AR step the
@@ -571,9 +599,9 @@ actor TTSEngine: TTSEngineProtocol {
         let loopStart = CFAbsoluteTimeGetCurrent()
         var produced = 0
 
-        for step in 0..<chunkOptions.maxFrames {
+        for step in 0..<frameBudget {
             if cancel.isCancelled {
-                print("[PocketTTS] AR loop cancelled at frame \(step)/\(chunkOptions.maxFrames)")
+                print("[PocketTTS] AR loop cancelled at frame \(step)/\(frameBudget)")
                 break
             }
             let frameOffset = Int32(tPrompt + step)
@@ -630,6 +658,16 @@ actor TTSEngine: TTSEngineProtocol {
             // amplitude; the fade starts at this committed-fire step
             // so `framesAfterEOS` counts forward from a stable point.
             if smoothedIsEos && eosStep == nil { eosStep = step }
+
+            // Budget-forced EOS: if the frame budget (state capacity or
+            // maxFrames) will end the loop before a natural EOS commits,
+            // commit one now so the chunk exits through the same tail-fade
+            // ramp as a real EOS — a fade at the boundary instead of a
+            // hard cut, and the stream-wide `isFinal` still lands on the
+            // chunk's last emitted frame.
+            if eosStep == nil && step >= frameBudget - (chunkOptions.framesAfterEOS + 1) {
+                eosStep = step
+            }
 
             let isAtFinalChunkFrame = eosStep.map { step >= $0 + chunkOptions.framesAfterEOS } ?? false
             let final = isLastChunk && isAtFinalChunkFrame

@@ -10,6 +10,7 @@
 import XCTest
 @testable import mimika_ai_voice_studio
 
+@MainActor
 final class MultiTalkBackendSyncTests: XCTestCase {
 
     /// Saved-voice catalog for the mapper: A is Pocket-capable (has a KV

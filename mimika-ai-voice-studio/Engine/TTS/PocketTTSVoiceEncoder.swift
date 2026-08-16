@@ -157,18 +157,31 @@ actor PocketTTSVoiceEncoder {
         let (condArr, framesToCopy) = try runMimiEncoder(samples: samples, maxFrames: Self.tVoiceMax)
 
         // Step 4: Run voice_prompt_phase (Core ML) → KV cache
-        let lengthArr = try MLMultiArray(shape: [1], dataType: .int32)
-        lengthArr.dataPointer.assumingMemoryBound(to: Int32.self).pointee = Int32(framesToCopy)
+        var kvData = try await runVoicePromptPhase(model: phase, condArr: condArr, framesToCopy: framesToCopy)
 
-        let phaseState = phase.makeState()
-        let phaseInput = try MLDictionaryFeatureProvider(dictionary: [
-            "conditioning": condArr,
-            "voice_length": lengthArr,
-        ])
-        _ = try await phase.prediction(from: phaseInput, using: phaseState)
+        // Validate the read-back before accepting it. On macOS 27
+        // (beta) the `.cpuAndGPU` execution path returns an all-zero
+        // MLState for this model — every buffer, every layer, on every
+        // read pattern (verified with a standalone probe; `.cpuOnly`
+        // is unaffected). A zero KV prefix silently bakes a dead,
+        // identity-less voice whose synthesis degenerates into pauses,
+        // repeats, and babble with no EOS. Retry on CPU rather than
+        // save a poisoned fingerprint.
+        if Self.kvIsAllZero(kvData) {
+            print("[PocketTTSVoiceEncoder] KV read-back all-zero under .cpuAndGPU — retrying with .cpuOnly")
+            let cpuCfg = MLModelConfiguration()
+            cpuCfg.computeUnits = .cpuOnly
+            let cpuModel = try MLModel(contentsOf: ModelPaths.voicePromptPhase(), configuration: cpuCfg)
+            kvData = try await runVoicePromptPhase(model: cpuModel, condArr: condArr, framesToCopy: framesToCopy)
+            guard !Self.kvIsAllZero(kvData) else {
+                throw EncoderError.encodeFailed(
+                    "voice_prompt_phase produced an empty KV state on both GPU and CPU compute units"
+                )
+            }
+        }
 
-        // Step 5: Extract KV cache → safetensors
-        try saveKVState(state: phaseState, tVoice: framesToCopy, outputURL: outputURL)
+        // Step 5: Write KV cache → safetensors
+        try writeSafetensors(kvData: kvData, tVoice: framesToCopy, to: outputURL)
 
         // Release models from memory — they're not needed after encoding
         unloadModels()
@@ -203,27 +216,53 @@ actor PocketTTSVoiceEncoder {
 
     // MARK: - KV state output
 
-    private func saveKVState(state: MLState, tVoice: Int, outputURL: URL) throws {
+    /// Run one voice_prompt_phase prediction over the conditioning and
+    /// read the resulting KV state buffers out of the MLState. Takes the
+    /// model explicitly so the caller can retry with a different
+    /// compute-unit configuration when a read-back comes back empty.
+    private func runVoicePromptPhase(
+        model: MLModel,
+        condArr: MLMultiArray,
+        framesToCopy: Int
+    ) async throws -> [String: [Float16]] {
+        let lengthArr = try MLMultiArray(shape: [1], dataType: .int32)
+        lengthArr.dataPointer.assumingMemoryBound(to: Int32.self).pointee = Int32(framesToCopy)
+
+        let phaseState = model.makeState()
+        let phaseInput = try MLDictionaryFeatureProvider(dictionary: [
+            "conditioning": condArr,
+            "voice_length": lengthArr,
+        ])
+        _ = try await model.prediction(from: phaseInput, using: phaseState)
+
         var kvData: [String: [Float16]] = [:]
         let bufferSize = Self.maxSeq * Self.nHeads * Self.dHead
-
         for i in 0..<Self.nLayers {
             var kBuf = [Float16](repeating: 0, count: bufferSize)
-            state.withMultiArray(for: "kv_k_\(i)") { arr in
+            phaseState.withMultiArray(for: "kv_k_\(i)") { arr in
                 let src = arr.dataPointer.assumingMemoryBound(to: Float16.self)
                 kBuf = Array(UnsafeBufferPointer(start: src, count: bufferSize))
             }
             kvData["kv_k_\(i)"] = kBuf
 
             var vBuf = [Float16](repeating: 0, count: bufferSize)
-            state.withMultiArray(for: "kv_v_\(i)") { arr in
+            phaseState.withMultiArray(for: "kv_v_\(i)") { arr in
                 let src = arr.dataPointer.assumingMemoryBound(to: Float16.self)
                 vBuf = Array(UnsafeBufferPointer(start: src, count: bufferSize))
             }
             kvData["kv_v_\(i)"] = vBuf
         }
+        return kvData
+    }
 
-        try writeSafetensors(kvData: kvData, tVoice: tVoice, to: outputURL)
+    /// `true` when every K/V buffer is entirely zero — the signature of
+    /// the macOS 27 GPU state read-back failure. A legitimate bake
+    /// always carries non-zero keys/values in the voice-prefix slots.
+    nonisolated static func kvIsAllZero(_ kvData: [String: [Float16]]) -> Bool {
+        for (_, buf) in kvData where buf.contains(where: { $0 != 0 }) {
+            return false
+        }
+        return true
     }
 
     private func writeSafetensors(kvData: [String: [Float16]], tVoice: Int, to url: URL) throws {
