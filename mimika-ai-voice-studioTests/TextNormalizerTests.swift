@@ -772,6 +772,45 @@ final class TextNormalizerTests: XCTestCase {
 
     // MARK: - Smart-punctuation Tier 3: symbols, fractions, exponents
 
+    // MARK: - Digit-grouping separators
+
+    func test_groupedNumberReadsAsOneNumber() {
+        // No numeric expander tolerated the separator, so this used to split
+        // into "forty-five" + "six hundred and seven".
+        XCTAssertEqual(
+            TextNormalizer.normalize("The total was 45,607 units."),
+            TextNormalizer.normalize("The total was 45607 units.")
+        )
+    }
+
+    func test_groupedCurrencyReadsAsOneAmount() {
+        // Previously "$1" + "500" — "one dollar five hundred".
+        XCTAssertEqual(
+            TextNormalizer.normalize("The price was $1,500 exactly."),
+            TextNormalizer.normalize("The price was $1500 exactly.")
+        )
+    }
+
+    func test_multipleGroupingSeparatorsCollapse() {
+        XCTAssertEqual(
+            TextNormalizer.normalize("Population 1,234,567 today."),
+            TextNormalizer.normalize("Population 1234567 today.")
+        )
+    }
+
+    func test_nonGroupingCommasAreLeftAlone() {
+        // A comma-separated list is not digit grouping: exactly three digits
+        // must follow. Each value stays its own number, commas intact.
+        XCTAssertEqual(
+            TextNormalizer.normalize("items 1,2,3"),
+            "items one,two,three"
+        )
+        // A date's comma is followed by a space, so the lookahead misses it.
+        XCTAssertTrue(
+            TextNormalizer.normalize("January 1, 2026").contains(",")
+        )
+    }
+
     func test_copyrightRegisteredTrademark() {
         XCTAssertEqual(TextNormalizer.normalize("\u{00A9} 2026 Acme"), "copyright twenty twenty-six Acme")
         XCTAssertEqual(TextNormalizer.normalize("Foo\u{00AE} bar"), "Foo registered bar")

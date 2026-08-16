@@ -216,29 +216,47 @@ nonisolated enum TextNormalizer {
     /// Deliberately false for ASCII digits / `#` / `*` which Unicode sometimes
     /// tags as emoji bases for keycap sequences.
     private static func isEmojiLike(_ ch: Character) -> Bool {
-        for s in ch.unicodeScalars {
+        let scalars = ch.unicodeScalars
+        // ZWJ / emoji-style VS only *glue* an emoji cluster together — on their
+        // own they are not evidence of one. Returning true for any cluster
+        // containing them dropped the whole Character, so a plain letter
+        // followed by a stray joiner took the letter with it
+        // ("foo\u{200D}bar" → "fobar"). Smart-punctuation strips the bare
+        // joiner safely once we decline it here.
+        let hasGlue = scalars.contains { $0.value == 0x200D || $0.value == 0xFE0F }
+        for s in scalars {
             if s.properties.isEmojiPresentation { return true }
-            // ZWJ / emoji-style VS glue multi-scalar emoji; drop the whole Character.
-            if s.value == 0x200D || s.value == 0xFE0F { return true }
             // Regional indicators (flags), skin tones, tag sequences, keycap mark.
             if (0x1F1E6...0x1F1FF).contains(s.value) { return true }
             if (0x1F3FB...0x1F3FF).contains(s.value) { return true }
             if (0xE0020...0xE007F).contains(s.value) { return true }
             if s.value == 0x20E3 { return true }
+            // Glue promotes a text-presentation emoji (❤ U+2764) into a real one.
+            if hasGlue, s.properties.isEmoji, s.value > 0x00FF { return true }
         }
         // Single-scalar emoji without default presentation (e.g. ☹ U+2639).
         // Skip ASCII so "1" / "#" never disappear.
-        if ch.unicodeScalars.count == 1, let s = ch.unicodeScalars.first {
+        if scalars.count == 1, let s = scalars.first {
             if s.properties.isEmoji
                 && s.value > 0x00FF
                 && !(s.value >= 0x30 && s.value <= 0x39)
                 && s.value != 0x23
-                && s.value != 0x2A {
+                && s.value != 0x2A
+                // Unicode tags ™ (and friends) Emoji=Yes, so this branch ate it
+                // before the substitution table could speak it. Anything the
+                // table owns is the table's to handle — strip or expand.
+                && !smartPunctScalars.contains(s) {
                 return true
             }
         }
         return false
     }
+
+    /// Scalars `smartPunctSubstitutions` already owns. `stripEmojis` runs first
+    /// (so ZWJ families leave as whole clusters), which means every scalar with
+    /// a spoken expansion has to be excluded here or it never reaches the table.
+    private static let smartPunctScalars: Set<Unicode.Scalar> =
+        Set(smartPunctSubstitutions.map(\.0))
 
     // MARK: - STT artifact stripping
     //
@@ -382,6 +400,22 @@ nonisolated enum TextNormalizer {
         // than something text normalization can fix, so we stop masking it.
         // Pronunciation overrides the model struggles with
         t = applyPronunciationFixes(t)
+        // Digit-grouping commas, removed BEFORE any numeric expander runs.
+        // None of the numeric patterns below tolerate them, so "45,607" was
+        // read as two numbers ("forty-five" + "six hundred and seven") and
+        // "$1,500" as "one dollar" + "five hundred". Stripping the separator
+        // once here lets every existing expander see the plain digit run it
+        // already handles correctly, instead of teaching four regexes and
+        // their expanders about commas.
+        //
+        // The lookarounds require exactly three digits followed by a non-digit,
+        // so real grouping ("1,234,567") collapses while "items 1,2,3" and
+        // "January 1, 2026" are left alone.
+        t = t.replacingOccurrences(
+            of: "(?<=\\d),(?=\\d{3}(?!\\d))",
+            with: "",
+            options: .regularExpression
+        )
         t = replace(t, abbrevPattern) { m, s in expandAbbreviation(m, in: s) }
         t = replace(t, listItemPattern) { m, s in expandListItem(m, in: s) }
         t = replace(t, currencyMagnitudePattern) { m, s in expandCurrencyMagnitude(m, in: s) }
