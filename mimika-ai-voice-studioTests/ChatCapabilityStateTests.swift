@@ -449,6 +449,17 @@ final class ChatMarkdownParserTests: XCTestCase {
         )
     }
 
+    func test_multiTalkSanitizerKeepsProsodyPunctuationAndGroupedNumbers() {
+        // `,` `?` `!` used to be replaced with spaces, which flattened questions
+        // into statements and turned "45,607" into two separate numbers.
+        XCTAssertEqual(
+            ChatTranscriptSanitizer.multiTalkText(
+                from: "The total was 45,607 units. Who are you? Stop!"
+            ),
+            "The total was 45,607 units. Who are you? Stop!"
+        )
+    }
+
     func test_multiTalkSanitizerKeepsOnlySpeechSafePunctuation() {
         let source = #"Path /root\folder; #topic: "Sam's ready." — “It’s done.” [yes] {no} @home + 50%"#
 

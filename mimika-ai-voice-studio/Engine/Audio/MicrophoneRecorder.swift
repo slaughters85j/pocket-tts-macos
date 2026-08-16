@@ -38,12 +38,16 @@ nonisolated final class RecordingSampleSink: @unchecked Sendable {
         lastLevel = 0
     }
 
-    /// Down-mix `pcm` to mono, apply capture `gain`, and append, stopping at
-    /// `cap` frames. Runs on the realtime audio thread — keep it
-    /// allocation-light and lock-brief. `tanh` makes the boost near-linear for
-    /// quiet input (the common case) while smoothly saturating transients
-    /// rather than hard-clipping.
-    func append(_ pcm: AVAudioPCMBuffer, cap: Int, gain: Float) {
+    /// Down-mix `pcm` to mono and append RAW, stopping at `cap` frames.
+    /// Runs on the realtime audio thread — keep it allocation-light and
+    /// lock-brief. Deliberately NO gain and NO waveshaping here: an
+    /// earlier `tanh(x * 4)` capture boost saturated speech peaks on
+    /// healthy-level mics, and the baked-in distortion destabilized the
+    /// voice-clone conditioning (sentence repeats / long pauses /
+    /// garble). Leveling is linear-only and happens later: a peak
+    /// normalize at save (`VoiceRecorderViewModel.writeTempWAV`) plus the
+    /// import path's RMS normalization.
+    func append(_ pcm: AVAudioPCMBuffer, cap: Int) {
         guard let channels = pcm.floatChannelData else { return }
         let frames = Int(pcm.frameLength)
         guard frames > 0 else { return }
@@ -52,12 +56,12 @@ nonisolated final class RecordingSampleSink: @unchecked Sendable {
         var mono = [Float](repeating: 0, count: frames)
         if channelCount <= 1 {
             let src = channels[0]
-            for i in 0..<frames { mono[i] = tanh(src[i] * gain) }
+            for i in 0..<frames { mono[i] = src[i] }
         } else {
             for i in 0..<frames {
                 var sum: Float = 0
                 for c in 0..<channelCount { sum += channels[c][i] }
-                mono[i] = tanh((sum / Float(channelCount)) * gain)
+                mono[i] = sum / Float(channelCount)
             }
         }
 
@@ -105,13 +109,15 @@ final class MicrophoneRecorder {
     private(set) var sampleRate: Double = 44_100
     private(set) var isRecording = false
 
-    /// Linear capture gain applied per-sample (with `tanh` saturation) before
-    /// storing. macOS routes many USB condenser mics (e.g. Blue Yeti) at a low
-    /// input level; ~+12 dB lets the user record at a normal distance without
-    /// pegging the meter or tripping the "too quiet" feedback, and boosting
-    /// before the Int16 WAV quantization preserves resolution the downstream
-    /// RMS-normalization would otherwise have to lift out of the noise floor.
-    private let captureGain: Float = 4.0
+    /// Capture is unity-gain by design. A previous per-sample
+    /// `tanh(x * 4.0)` boost (meant to lift quiet USB condenser mics
+    /// before Int16 quantization) drove healthy-level captures into
+    /// saturation and baked waveshaping distortion into the voice
+    /// reference — the review player and quality analyzer both saw the
+    /// post-tanh samples, so nothing could catch it. Quiet-mic headroom
+    /// is now recovered LINEARLY at save time (peak normalize in
+    /// `VoiceRecorderViewModel.writeTempWAV`); the meter applies its own
+    /// display-side scaling.
 
     private let engine = AVAudioEngine()
     private let sink = RecordingSampleSink()
@@ -157,9 +163,8 @@ final class MicrophoneRecorder {
         // main-actor state.
         let theSink = sink
         let cap = capFrames
-        let gain = captureGain
         let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
-            theSink.append(buffer, cap: cap, gain: gain)
+            theSink.append(buffer, cap: cap)
         }
         input.installTap(onBus: 0, bufferSize: 4096, format: format, block: tapBlock)
 

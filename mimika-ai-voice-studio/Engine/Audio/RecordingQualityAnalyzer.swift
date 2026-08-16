@@ -48,15 +48,20 @@ enum RecordingQualityAnalyzer {
         let rms = (sumSq / Float(samples.count)).squareRoot()
         let rmsDB = 20 * log10(max(rms, 1e-7))
 
-        // Too hot / clipping.
-        if peak >= 0.99 || rmsDB > -6 {
+        // Too hot / clipping. Thresholds are calibrated for the RAW
+        // unity-gain capture (the old +12 dB tanh capture boost is gone,
+        // so `peak >= 0.99` now genuinely means converter-level clipping
+        // instead of being unreachable behind the tanh ceiling; the RMS
+        // gate shifted −12 dB to match, −6 → −18).
+        if peak >= 0.99 || rmsDB > -18 {
             return RecordingFeedback(
                 severity: .warning,
                 message: "Your input is very loud and may be clipping — move back from the mic or lower the input level."
             )
         }
-        // Too quiet.
-        if rmsDB < -34 {
+        // Too quiet. −34 dB was calibrated against the boosted capture;
+        // −46 dB is the same effective gate on the raw signal.
+        if rmsDB < -46 {
             return RecordingFeedback(
                 severity: .warning,
                 message: "Your voice sounds quiet — move closer to the mic or speak up for a stronger reference."
