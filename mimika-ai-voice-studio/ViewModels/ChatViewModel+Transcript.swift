@@ -126,8 +126,12 @@ extension ChatViewModel {
 
 /// Keeps only speech-safe text and punctuation for spoken chat reuse.
 nonisolated enum ChatTranscriptSanitizer {
+    /// `,` `?` `!` carry prosody the model actually uses — dropping them flattened
+    /// questions into statements and split grouped numbers ("45,607" became
+    /// "45 607", read as two numbers). `;` `:` stay out deliberately: they add no
+    /// spoken value the comma doesn't already cover.
     private static let allowedPunctuation: Set<Character> = [
-        ".", "\"", "'", "“", "”", "‘", "’"
+        ".", ",", "?", "!", "\"", "'", "“", "”", "‘", "’"
     ]
 
     static func multiTalkText(from source: String) -> String {
@@ -151,7 +155,18 @@ nonisolated enum ChatTranscriptSanitizer {
             }
         }
 
+        // Disallowed characters become spaces above so words never jam together
+        // ("a*b" → "a b"). That leaves a gap when the stripped run sat right
+        // before punctuation — `**John**.` → `John .` — which TTS reads as an
+        // unintended pause. Close it after collapsing, matching the same
+        // tightening TextNormalizer applies. Quotes are excluded so they keep
+        // the leading space they need before an opening mark.
         return collapseHorizontalWhitespace(in: speechSafeText)
+            .replacingOccurrences(
+                of: " ([,.!?])",
+                with: "$1",
+                options: .regularExpression
+            )
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
