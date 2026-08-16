@@ -13,7 +13,12 @@ import Foundation
 // MARK: - QwenTokenEstimator
 
 /// Lazy, thread-safe token counter backed by bundled Qwen3 BPE assets.
-final class QwenTokenEstimator: @unchecked Sendable {
+///
+/// Explicitly `nonisolated`: the target builds with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
+/// type to the main actor and defeat the whole point of `prewarm()` — parsing
+/// 19 MB of JSON off the main thread. Isolation here is the `lock`, not an actor.
+nonisolated final class QwenTokenEstimator: @unchecked Sendable {
 
     static let shared = QwenTokenEstimator()
 

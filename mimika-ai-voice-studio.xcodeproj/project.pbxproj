@@ -253,6 +253,7 @@
 		D53CE6F52FD2FADC0071832E /* SentencePieceChunkerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE6362FD2FADC0071832E /* SentencePieceChunkerTests.swift */; };
 		D53CE6F62FD2FADC0071832E /* SpeakerIsolatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5E82FD2FADC0071832E /* SpeakerIsolatorViewModel.swift */; };
 		D53CE7012FD2FADC0071832E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6022FD2FADC0071832E /* Assets.xcassets */; };
+		D53CEA012FD2FADC0071832E /* htdemucs_vocals_golden.wav in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6192FD2FADC0071832E /* htdemucs_vocals_golden.wav */; };
 		D53CE7052FD2FADC0071832E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6052FD2FADC0071832E /* InfoPlist.strings */; };
 		D5B49AEC3A4C1DADFB8A6F29 /* EnsembleLoopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C50F4576D8DAB6980750D51 /* EnsembleLoopTests.swift */; };
 		D5B7DDB63007F0E1006FE124 /* SeededGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB53007F0E1006FE124 /* SeededGenerator.swift */; };
@@ -1248,6 +1249,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D53CEA012FD2FADC0071832E /* htdemucs_vocals_golden.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
