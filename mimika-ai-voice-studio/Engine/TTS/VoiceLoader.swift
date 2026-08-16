@@ -73,6 +73,11 @@ nonisolated enum VoiceLoader {
     static let nHeads = 16
     static let dHead = 64
     static let maxSeq = 512
+    /// Model's hard text-prompt token limit (T_TEXT_MAX). Mirrors
+    /// `K.tTextMax` in TTSEngine.swift (file-private there); used only
+    /// to bound `T_voice` so prompt_phase can never be asked to write
+    /// `tVoice + textLen` past the `maxSeq`-slot state.
+    static let tTextMax = 128
 
     /// Slot count per (K or V) buffer when laid out flat.
     static var bufferLength: Int { maxSeq * nHeads * dHead }
@@ -120,6 +125,18 @@ nonisolated enum VoiceLoader {
             throw VoiceLoaderError.badMetadata(url, "T_voice missing or not an integer")
         }
 
+        // Defensive bound: the voice prefix shares the maxSeq-slot K/V
+        // window with the text prompt (up to tTextMax tokens) and the
+        // generated frames. A corrupt / hand-edited header claiming a
+        // larger prefix would make prompt_phase write outside the state
+        // buffer — undefined on every compute unit, hard abort on the
+        // ANE. Legit exports are ≤200 (PocketTTSVoiceEncoder.tVoiceMax);
+        // the bound here is the structural ceiling, not the product cap.
+        let tVoiceLimit = maxSeq - tTextMax
+        guard tVoice > 0, tVoice <= tVoiceLimit else {
+            throw VoiceLoaderError.badMetadata(url, "T_voice \(tVoice) outside valid range 1...\(tVoiceLimit)")
+        }
+
         let dataStart = 8 + Int(headerLen)
         var kCaches: [[Float16]] = []
         var vCaches: [[Float16]] = []
@@ -129,6 +146,20 @@ nonisolated enum VoiceLoader {
         for i in 0..<nLayers {
             kCaches.append(try readBuffer(name: "kv_k_\(i)", header: json, source: data, dataStart: dataStart, url: url))
             vCaches.append(try readBuffer(name: "kv_v_\(i)", header: json, source: data, dataStart: dataStart, url: url))
+        }
+
+        // Reject a dead (all-zero) KV — the on-disk signature of the
+        // macOS 27 GPU bake failure (see PocketTTSVoiceEncoder's
+        // read-back validation). Conditioning on an empty prefix
+        // synthesizes identity-less garble with no EOS; a clear error
+        // beats that, and tells the user the voice needs re-importing.
+        // Healthy voices short-circuit on their first non-zero value.
+        let allZero = kCaches.allSatisfy { buf in !buf.contains { $0 != 0 } }
+            && vCaches.allSatisfy { buf in !buf.contains { $0 != 0 } }
+        if allZero {
+            throw VoiceLoaderError.badMetadata(
+                url, "KV state is empty (all zeros) — voice was baked by a broken encoder; re-import it"
+            )
         }
 
         let id = url.deletingPathExtension().lastPathComponent
