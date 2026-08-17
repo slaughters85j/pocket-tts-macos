@@ -460,6 +460,22 @@ struct EnsembleSurfaceView: View {
                         .monospacedDigit()
                         .contentTransition(.numericText())
                         .animation(.linear(duration: 0.2), value: viewModel.invitedUserTurnSecondsRemaining)
+
+                    // Forfeit without waiting out the countdown — the invite
+                    // often lands right after you have already said your piece.
+                    Button("Skip") {
+                        viewModel.skipInvitedUserTurn()
+                    }
+                    .buttonStyle(.plain)
+                    .font(Theme.fontXS)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, Theme.space3)
+                    .padding(.vertical, 3)
+                    .background(Theme.accent.opacity(0.18))
+                    .clipShape(Capsule())
+                    .help("Give up this turn and let the cast carry on")
+                    .accessibilityIdentifier("ensemble.composer.skipTurn")
                 }
                 .padding(12)
                 .background(Theme.accent.opacity(0.15))

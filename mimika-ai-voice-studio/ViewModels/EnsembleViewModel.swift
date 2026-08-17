@@ -797,6 +797,17 @@ final class EnsembleViewModel {
         }
     }
 
+    /// Forfeit an invited turn on purpose, without waiting out the countdown.
+    ///
+    /// The invite frequently lands just after the user has already typed a line,
+    /// so the only previous way past it was to sit through the full timeout.
+    func skipInvitedUserTurn() {
+        guard awaitingInvitedUserTurn else { return }
+        // Suppress the timeout-flavored notice — this was deliberate, not a lapse.
+        completeInvitedUserTurn(submitted: false, noticeOnSkip: false)
+        showNotice("Turn skipped")
+    }
+
     /// Resume a parked invited-user wait (submit or timeout).
     /// - Parameter noticeOnSkip: when false (Stop), skip the timeout-flavored notice.
     func completeInvitedUserTurn(submitted: Bool, noticeOnSkip: Bool = true) {
