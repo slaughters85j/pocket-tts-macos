@@ -266,9 +266,32 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
 nonisolated enum SettingsStore {
     private static let key = "com.slaughtersj.mimika-ai-voice-studio.chatSettings"
 
+    /// Where settings actually live. Under XCTest this is a volatile scratch
+    /// suite, never the user's real domain.
+    ///
+    /// Data-integrity interlock, matching `ChatThreadStore` and `VoiceManager`.
+    /// The unit tests run inside the real app host, and six test classes call
+    /// `resetToDefaults()` in both `setUp` and `tearDown` while others write
+    /// fixture endpoints and models through `AppState.applyChatConfiguration`.
+    /// Against `.standard` that destroys the user's real `ChatSettings` blob —
+    /// which holds not just toggles but all three hand-written system prompts
+    /// (chat, single-voice, Multi-Talk), the endpoint, model, TTS voice,
+    /// backend, read-aloud settings and launch-at-login.
+    /// `nonisolated(unsafe)` is honest here: `UserDefaults` is documented
+    /// thread-safe, it is simply not annotated `Sendable`. Immutable after init.
+    nonisolated(unsafe) private static let defaults: UserDefaults = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
+            return .standard
+        }
+        let suite = "mimika.settings.testsandbox.\(ProcessInfo.processInfo.processIdentifier)"
+        UserDefaults.standard.removePersistentDomain(forName: suite)  // PIDs recycle
+        return UserDefaults(suiteName: suite) ?? .standard
+    }()
+
     static func load() -> ChatSettings {
         guard
-            let data = UserDefaults.standard.data(forKey: key),
+            let data = defaults.data(forKey: key),
             let decoded = try? JSONDecoder().decode(ChatSettings.self, from: data)
         else {
             return .default
@@ -278,11 +301,11 @@ nonisolated enum SettingsStore {
 
     static func save(_ settings: ChatSettings) {
         guard let data = try? JSONEncoder().encode(settings) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        defaults.set(data, forKey: key)
     }
 
     static func resetToDefaults() {
-        UserDefaults.standard.removeObject(forKey: key)
+        defaults.removeObject(forKey: key)
     }
 }
 

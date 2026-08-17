@@ -112,4 +112,30 @@ final class ChatThreadStoreTests: XCTestCase {
         browser.applySaved(first)
         XCTAssertEqual(browser.selectedID, second.id, "flush of the previous thread must not steal the click")
     }
+
+    /// With no `directoryOverride`, a test run must still never resolve to the
+    /// user's real Application Support store.
+    ///
+    /// Regression: most Chat/Ensemble view-model tests never set the override, so
+    /// sending a turn wrote fixture threads ("look", "go", "restore me") into the
+    /// live sidebar. The interlock in `rootDirectory()` is what stops that, and it
+    /// has to hold for tests that don't know it exists.
+    func test_rootDirectoryNeverResolvesToLiveStoreUnderTests() {
+        let saved = ChatThreadStore.directoryOverride
+        ChatThreadStore.directoryOverride = nil
+        defer { ChatThreadStore.directoryOverride = saved }
+
+        let root = ChatThreadStore.rootDirectory().standardizedFileURL.path
+        let live = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("pocket-tts-macos", isDirectory: true)
+            .appendingPathComponent("chat-threads", isDirectory: true)
+            .standardizedFileURL.path
+
+        XCTAssertNotEqual(root, live, "unoverridden test writes must not hit the live store")
+        XCTAssertTrue(
+            root.hasPrefix(FileManager.default.temporaryDirectory.standardizedFileURL.path),
+            "expected a temp sandbox, got \(root)"
+        )
+    }
 }

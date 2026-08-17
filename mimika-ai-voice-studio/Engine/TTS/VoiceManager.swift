@@ -97,12 +97,40 @@ final class VoiceManager {
     private let voicesDir: URL
     private let catalogURL: URL
 
+    /// Under XCTest, the library lives in a scratch directory.
+    ///
+    /// This is a data-integrity interlock, matching `ChatThreadStore`. The unit
+    /// tests run inside the real app host and `VoicePipelineTests` calls
+    /// `importVoice` / `deleteVoice` on `VoiceManager.shared` — which, without
+    /// this, writes WAVs and rewrites `voices.json` in the user's real
+    /// `saved-voices/`. A test that fails or is cancelled between import and its
+    /// `deleteVoice` orphans a file in that library, which the boot-time orphan
+    /// recovery then surfaces as an adoptable phantom voice. Same failure class
+    /// as the phantom chat threads, but the payload is the user's own audio.
+    ///
+    /// A fresh directory per process also means tests never inherit the user's
+    /// 39 real voices, so a fixture named like one of them can no longer collide.
+    private static let testSandboxDirectory: URL? = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
+            return nil
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "saved-voices-testsandbox-\(ProcessInfo.processInfo.processIdentifier)",
+            isDirectory: true
+        )
+        // PIDs recycle; never inherit a previous run's library.
+        try? FileManager.default.removeItem(at: url)
+        return url
+    }()
+
     // MARK: - Init
 
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appDir = appSupport.appendingPathComponent("pocket-tts-macos", isDirectory: true)
-        self.voicesDir = appDir.appendingPathComponent("saved-voices", isDirectory: true)
+        self.voicesDir = Self.testSandboxDirectory
+            ?? appDir.appendingPathComponent("saved-voices", isDirectory: true)
         self.catalogURL = voicesDir.appendingPathComponent("voices.json")
 
         // One-shot migration from the legacy `fish-voices/` directory.

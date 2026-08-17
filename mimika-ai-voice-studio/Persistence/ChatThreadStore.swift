@@ -34,6 +34,7 @@ nonisolated enum ChatThreadStore {
 
     static func rootDirectory() -> URL {
         if let directoryOverride { return directoryOverride }
+        if let testSandboxDirectory { return testSandboxDirectory }
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!
@@ -41,6 +42,34 @@ nonisolated enum ChatThreadStore {
             .appendingPathComponent("pocket-tts-macos", isDirectory: true)
             .appendingPathComponent("chat-threads", isDirectory: true)
     }
+
+    /// Under XCTest, writes go to a per-process temp dir unless a test set an
+    /// explicit `directoryOverride`.
+    ///
+    /// This is a data-integrity interlock, not a convenience. The unit tests run
+    /// inside the real app host, so a `ChatViewModel` that sends a turn persists a
+    /// real thread. Six test files construct a Chat/Ensemble view model and only
+    /// one remembered to set `directoryOverride` — the rest wrote fixture threads
+    /// into the user's live store, which surfaced as dozens of phantom sidebar
+    /// rows titled from test strings ("look", "go", "restore me") because
+    /// `soloThreadTitle` uses the first user message, plus a phantom Ensemble
+    /// cast. Isolation that each new test must remember is the wrong shape: the
+    /// cost of forgetting is corrupting real user data. Do not make this opt-in.
+    private static let testSandboxDirectory: URL? = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
+            return nil
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "chat-threads-testsandbox-\(ProcessInfo.processInfo.processIdentifier)",
+            isDirectory: true
+        )
+        // PIDs recycle. Without this a run landing on a previous run's pid
+        // inherits its index.json, so any future `list(kind:).count` assertion
+        // sees threads it never created.
+        try? FileManager.default.removeItem(at: url)
+        return url
+    }()
 
     private static func indexURL() -> URL {
         rootDirectory().appendingPathComponent("index.json")
