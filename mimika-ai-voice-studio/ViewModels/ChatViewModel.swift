@@ -56,6 +56,8 @@ final class ChatViewModel {
     var currentThreadID: UUID?
     var threadBrowser: ChatThreadBrowser?
     var threadSaveTask: Task<Void, Never>?
+    /// In-flight sidebar theme request. Single-flight — see requestSoloThemeIfNeeded.
+    var themeTask: Task<Void, Never>?
 
     // MARK: Dependencies
 

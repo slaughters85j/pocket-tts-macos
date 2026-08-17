@@ -194,8 +194,15 @@ final class ChatVisionRecoveryTransitionTests: XCTestCase {
         LLMStubURLProtocol.setResponse(Data("data: [DONE]\n\n".utf8))
         viewModel.send()
         await assertEventually { viewModel.activeTurn == nil }
-        let body = try XCTUnwrap(LLMStubURLProtocol.capturedBody())
-        return try XCTUnwrap(String(data: body, encoding: .utf8))
+
+        // `capturedBody()` (the LAST request) is a race here: `finishTurnIfSettled`
+        // clears `activeTurn` and then immediately fires the thread auto-title
+        // call, so whichever lands last depends on I/O timing. Both go to
+        // /v1/chat/completions, but only the chat send is streamed — pick that.
+        let sent = LLMStubURLProtocol.capturedBodies()
+            .compactMap { String(data: $0, encoding: .utf8) }
+            .last { $0.contains("\"stream\":true") }
+        return try XCTUnwrap(sent, "no streamed chat request was captured")
     }
 
     private func makeViewModelWithAcceptedImageHistory() throws -> (ChatViewModel, AppState) {

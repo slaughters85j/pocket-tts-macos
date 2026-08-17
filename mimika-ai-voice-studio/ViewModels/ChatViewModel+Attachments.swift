@@ -144,6 +144,9 @@ extension ChatViewModel {
 
         let userText = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userText.isEmpty || !pendingAttachments.isEmpty else { return }
+        // A local server generates one response at a time. Never let the
+        // decorative sidebar-title request sit in front of the user's turn.
+        cancelSoloThemeRequest()
         if let imageHistorySendBlockMessage {
             if capabilityState.freshness == .current {
                 requestVisionRecoveryWhenSafe()

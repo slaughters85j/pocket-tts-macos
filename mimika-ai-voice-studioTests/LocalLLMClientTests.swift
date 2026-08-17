@@ -170,6 +170,10 @@ final class LLMStubURLProtocol: URLProtocol {
     nonisolated(unsafe) private static var canned: Canned?
     nonisolated(unsafe) private static var queue: [Canned] = []
     nonisolated(unsafe) private static var lastBody: Data?
+    /// Every captured body, in order. `lastBody` alone is a race whenever the
+    /// app fires more than one request per user action — e.g. finishing a turn
+    /// clears `activeTurn` and immediately kicks the thread auto-title call.
+    nonisolated(unsafe) private static var allBodies: [Data] = []
     nonisolated(unsafe) private static var lastHeaders: [String: String]?
     nonisolated(unsafe) private static var lastURL: URL?
     nonisolated(unsafe) private static var usesStagedResponse = false
@@ -185,6 +189,7 @@ final class LLMStubURLProtocol: URLProtocol {
         canned = nil
         queue.removeAll()
         lastBody = nil
+        allBodies.removeAll()
         lastHeaders = nil
         lastURL = nil
         usesStagedResponse = false
@@ -210,6 +215,13 @@ final class LLMStubURLProtocol: URLProtocol {
     static func capturedBody() -> Data? {
         lock.lock(); defer { lock.unlock() }
         return lastBody
+    }
+
+    /// All captured bodies in order — use when a single user action can produce
+    /// more than one request and you need a specific one.
+    static func capturedBodies() -> [Data] {
+        lock.lock(); defer { lock.unlock() }
+        return allBodies
     }
 
     static func capturedHeaders() -> [String: String]? {
@@ -359,6 +371,6 @@ final class LLMStubURLProtocol: URLProtocol {
             data = body
         }
         guard let data else { return }
-        Self.lock.lock(); Self.lastBody = data; Self.lock.unlock()
+        Self.lock.lock(); Self.lastBody = data; Self.allBodies.append(data); Self.lock.unlock()
     }
 }

@@ -151,7 +151,9 @@ extension EnsembleViewModel {
         summaryTask?.cancel()
         summaryTask = nil
 
-        let tokensBefore = estimateModelFacingPromptTokens()
+        // Text snapshots only — the two BPE counts happen off-main below, so a
+        // Compact click never blocks the UI on a whole-window tokenization.
+        let textBefore = modelFacingEstimateText()
         let keep = max(4, verbatimWindow)
         let before = turns.count
         if turns.count > keep {
@@ -177,14 +179,19 @@ extension EnsembleViewModel {
         )
         refreshContextFillEstimate()
 
-        let tokensAfter = estimateModelFacingPromptTokens()
-        let freed = max(0, tokensBefore - tokensAfter)
+        let textAfter = modelFacingEstimateText()
         let limit = effectiveContextLimitTokens
-        print(
-            "[Compact] tokens freed=\(freed) (before=\(tokensBefore) after=\(tokensAfter)) "
-            + "fill~\(contextFillPercent.map(String.init) ?? "?")% "
-            + "limit=\(limit) turns=\(before)→keep \(kept) summarizedUpTo=\(summarizedUpTo)"
-        )
+        let summarized = summarizedUpTo
+        Task.detached(priority: .utility) {
+            let estimator = QwenTokenEstimator.shared
+            let tokensBefore = estimator.countTokens(textBefore)
+            let tokensAfter = estimator.countTokens(textAfter)
+            let freed = max(0, tokensBefore - tokensAfter)
+            print(
+                "[Compact] tokens freed=\(freed) (before=\(tokensBefore) after=\(tokensAfter)) "
+                + "limit=\(limit) turns=\(before)→keep \(kept) summarizedUpTo=\(summarized)"
+            )
+        }
         return true
     }
 
@@ -205,10 +212,27 @@ extension EnsembleViewModel {
     ///
     /// Numerator is prompt tokens only. Response budget is reserved in the
     /// denominator so we don't double-count `maxResponseTokens`.
+    ///
+    /// The BPE count runs OFF the main actor. It walks the whole context window
+    /// and `bpe()` rescans every adjacent pair on each merge, so its cost grows
+    /// with the transcript; the turn loop calls this after every turn, and doing
+    /// it inline put unbounded main-actor work between a turn finishing and the
+    /// next one starting. The meter arriving a beat late costs nothing.
     func refreshContextFillEstimate() {
-        let limit = effectiveContextLimitTokens
-        let usable = max(1_024, limit - maxResponseTokens - 256)
-        let promptTokens = estimateModelFacingPromptTokens()
+        let usable = max(1_024, effectiveContextLimitTokens - maxResponseTokens - 256)
+        let text = modelFacingEstimateText()
+        contextFillTask?.cancel()
+        contextFillTask = Task { [weak self] in
+            let promptTokens = await Task.detached(priority: .utility) {
+                QwenTokenEstimator.shared.countTokens(text)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.applyContextFill(promptTokens: promptTokens, usable: usable)
+        }
+    }
+
+    /// Publish a completed estimate + drive the near-full toast. Main actor.
+    private func applyContextFill(promptTokens: Int, usable: Int) {
         let pct = min(100, Int((Double(promptTokens) / Double(usable) * 100.0).rounded()))
         contextFillPercent = pct
 
@@ -224,6 +248,9 @@ extension EnsembleViewModel {
     }
 
     /// Prompt-token estimate for the next model call (no response budget).
+    ///
+    /// Synchronous — callers must not run this on the turn loop. `softDumpContext`
+    /// uses it only for its DEBUG before/after log, off the critical path.
     func estimateModelFacingPromptTokens() -> Int {
         QwenTokenEstimator.shared.countTokens(modelFacingEstimateText())
     }

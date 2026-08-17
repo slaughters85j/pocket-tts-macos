@@ -141,6 +141,19 @@ actor LocalLLMClient {
             || l.contains("text-embedding")
     }
 
+    /// Timeout for `/v1/chat/completions` (both streaming and one-shot).
+    ///
+    /// Not the URLRequest default of 60 s: requesting a model LM Studio has not
+    /// loaded makes the completion call itself trigger the load, so it waits out
+    /// the same multi-minute cold start `loadModel` below is given 600 s for. At
+    /// 60 s the first request against a large model times out and only succeeds
+    /// on retry — a real stall on the first New Cast after starting LM Studio.
+    ///
+    /// This is an *inactivity* timeout, not a total one: once tokens start
+    /// streaming each packet resets it, so a long generation is unaffected. It
+    /// only bounds how long we wait for the server to say anything at all.
+    private static let completionTimeout: TimeInterval = 300
+
     /// POST `/api/v1/models/load` — load a catalog model into memory (LM Studio).
     /// Long timeout: large models can take minutes.
     @discardableResult
@@ -503,7 +516,7 @@ actor LocalLLMClient {
         continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
     ) async throws {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: Self.completionTimeout)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -606,7 +619,7 @@ actor LocalLLMClient {
         responseFormat: ResponseFormat = .text
     ) async throws -> String {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: Self.completionTimeout)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

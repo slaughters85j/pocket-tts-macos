@@ -149,6 +149,8 @@ final class EnsembleViewModel {
     var currentThreadID: UUID?
     var threadBrowser: ChatThreadBrowser?
     var threadSaveTask: Task<Void, Never>?
+    /// In-flight sidebar theme request. Single-flight — see requestEnsembleThemeIfNeeded.
+    var themeTask: Task<Void, Never>?
     /// Transient confirmation shown after an explicit "Reuse Last".
     var castLoadedNotice: String?
     private var noticeToken: UUID?
@@ -190,6 +192,8 @@ final class EnsembleViewModel {
     /// Background rolling-summary task (one at a time) + how many out-of-window
     /// turns accumulate before a fold runs. Internal so import can cancel it.
     var summaryTask: Task<Void, Never>?
+    /// In-flight Compact fill estimate. Coalesced — a newer turn supersedes it.
+    var contextFillTask: Task<Void, Never>?
     private static let summaryBatchSize = 8
     private static let summaryMaxTokens = 256
     /// Hard ceiling on verbatim turns rendered — a safety net so a repeatedly
@@ -259,6 +263,13 @@ final class EnsembleViewModel {
         case .picking, .generating, .speaking: return true
         default: return false
         }
+    }
+
+    /// Parked mid-run in Step mode. `isRunning` is false here, but the next turn
+    /// is one click away — so background work must still not take the model.
+    var isAwaitingStep: Bool {
+        if case .awaitingStep = runState { return true }
+        return false
     }
 
     private var canRun: Bool {
@@ -826,6 +837,9 @@ final class EnsembleViewModel {
     // MARK: - Loop
 
     private func runLoopTask() {
+        // The local server generates one response at a time — never let the
+        // decorative sidebar-title request sit in front of a turn.
+        cancelEnsembleThemeRequest()
         loopTask?.cancel()
         loopTask = Task { @MainActor [weak self] in await self?.runLoop() }
     }

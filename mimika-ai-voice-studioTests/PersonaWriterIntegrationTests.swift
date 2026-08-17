@@ -8,9 +8,17 @@
 //  model, and prints every step (the LocalLLMClient DEBUG logs print the actual
 //  request bodies + timings alongside).
 //
-//  Skips automatically when the endpoint isn't reachable (so it never fails CI
-//  / a normal unit run). To run it: start LM Studio, load your model, then run
-//  this test. Optional overrides:
+//  OPT-IN. Set RUN_LLM_INTEGRATION=1 to run it; otherwise it skips.
+//
+//  It used to gate on "is the endpoint reachable", which inverted the intent:
+//  anyone actually working on this feature has LM Studio running, so the test
+//  fired four real requests at whatever model was loaded and held the whole unit
+//  suite for minutes on a large one. Reachability says nothing about whether the
+//  developer *wanted* a live run. Keep this opt-in.
+//
+//  To run it: start LM Studio, load your model, then
+//    RUN_LLM_INTEGRATION=1 xcodebuild ... -only-testing:…/PersonaWriterIntegrationTests
+//  Optional overrides:
 //    LMSTUDIO_URL    (default http://localhost:1234)
 //    LMSTUDIO_MODEL  (default: the first model the endpoint lists)
 //
@@ -30,6 +38,11 @@ final class PersonaWriterIntegrationTests: XCTestCase {
 
     func test_generatesThreeSpeakerCast_againstLiveEndpoint() async throws {
         let env = ProcessInfo.processInfo.environment
+        // Explicit opt-in — a reachable endpoint is not consent to spend minutes
+        // of a normal unit run on live model calls.
+        guard env["RUN_LLM_INTEGRATION"] == "1" else {
+            throw XCTSkip("live LLM test — set RUN_LLM_INTEGRATION=1 to run")
+        }
         let urlString = env["LMSTUDIO_URL"] ?? "http://localhost:1234"
         guard let url = URL(string: urlString) else {
             throw XCTSkip("invalid LMSTUDIO_URL: \(urlString)")

@@ -182,11 +182,19 @@ extension EnsembleViewModel {
         let spoken = turns.filter { !$0.isSceneBeat && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard spoken.count >= 2 else { return }
         // Same local server as the turn loop — never steal the model mid-run.
-        guard !isRunning else { return }
+        //
+        // `isRunning` alone is NOT enough: the default advance mode is `.step`,
+        // which parks at `runState == .awaitingStep` between turns, where
+        // `isRunning` is false. A theme request fired there is still holding the
+        // single generation slot when the user clicks Step, delaying the next
+        // turn's first token and its first spoken sentence. Gate on the loop
+        // itself, not on the transient run state.
+        guard !isRunning, !isAwaitingStep, themeTask == nil else { return }
         let source = ChatThreadStore.themeSourceText(from: turns)
         let model = resolvedModel
         guard !model.isEmpty else { return }
-        Task { [weak self] in
+        themeTask = Task { [weak self] in
+            defer { self?.themeTask = nil }
             guard let self else { return }
             do {
                 let raw = try await makeClient().completeChat(
@@ -199,8 +207,19 @@ extension EnsembleViewModel {
                 guard !theme.isEmpty, self.currentThreadID == id else { return }
                 ChatThreadStore.updateTheme(id: id, kind: .ensemble, theme: theme)
                 self.threadBrowser?.reload()
-            } catch {}
+            } catch {
+                #if DEBUG
+                print("[ChatThreads] ensemble theme failed: \(error)")
+                #endif
+            }
         }
+    }
+
+    /// Stop a decorative theme request from holding the local model's single
+    /// generation slot while a turn is about to run.
+    func cancelEnsembleThemeRequest() {
+        themeTask?.cancel()
+        themeTask = nil
     }
 
     private func ensembleThreadTitle() -> String {
