@@ -46,9 +46,24 @@ extension ChatViewModel {
         connectionRequestID = requestID
         let requestedEndpoint = appState.currentEndpointBaseURL
         let requestedModel = settings.model
+        // With no explicit model pick, fall back to the one we last resolved.
+        //
+        // This selection is compared below against the selection built from the
+        // *serving* model. Built from an empty `settings.model`, the two can
+        // never be equal, so the "did anything actually change?" guard reported a
+        // change on EVERY 1 s poll: it cleared `capabilityState` and called
+        // `applyReasoningConfiguration(nil, …)`, then the probe restored both.
+        // The capability badges and the whole Thinking control vanished and came
+        // back once a second, and since they live in the top-bar HStack, the
+        // controls after them (the Director's Chair toggle) were re-identified
+        // and blinked along with them. A fresh install has no model picked, so
+        // every new user saw this until they chose one.
+        let comparableModel = requestedModel.isEmpty
+            ? (capabilitySelection?.model ?? requestedModel)
+            : requestedModel
         let configuredSelection = ChatModelSelection(
             endpoint: requestedEndpoint,
-            model: requestedModel
+            model: comparableModel
         )
         if capabilitySelection != configuredSelection {
             if capabilityState.effective.contains(.vision),
