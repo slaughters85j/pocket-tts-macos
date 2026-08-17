@@ -24,26 +24,34 @@ final class ChatThreadStoreTests: XCTestCase {
         super.tearDown()
     }
 
-    func test_createListPinDelete_andRestartDoesNotOverwrite() {
-        let first = ChatThreadStore.create(kind: .solo, title: "Hello there")
-        XCTAssertEqual(ChatThreadStore.list(kind: .solo).count, 1)
+    func test_createListPinDelete_andRestartDoesNotOverwrite() async throws {
+        let savedFirst = await ChatThreadStore.saveAsync(ChatThreadRecord(kind: .solo, title: "Hello there"))
+        let first = try XCTUnwrap(savedFirst)
+        var listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertEqual(listed.count, 1)
         XCTAssertFalse(ChatThreadBrowser.createdDateLabel(first.createdAt).isEmpty)
 
+        // `setPinned` is fire-and-forget; the serial queue guarantees the next `listAsync` sees it.
         ChatThreadStore.setPinned(id: first.id, kind: .solo, pinned: true)
-        XCTAssertTrue(ChatThreadStore.list(kind: .solo).first?.pinned == true)
+        listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertTrue(listed.first?.pinned == true)
 
         var live = first
         live.soloMessages = [ChatMessage(role: .user, content: "Keep this")]
-        _ = ChatThreadStore.save(live)
+        _ = await ChatThreadStore.saveAsync(live)
 
         // Restart = new record, same title family, old file untouched.
-        let restarted = ChatThreadStore.create(kind: .solo, title: "Hello there")
+        let savedRestart = await ChatThreadStore.saveAsync(ChatThreadRecord(kind: .solo, title: "Hello there"))
+        let restarted = try XCTUnwrap(savedRestart)
         XCTAssertNotEqual(restarted.id, first.id)
-        XCTAssertEqual(ChatThreadStore.load(id: first.id, kind: .solo)?.soloMessages.first?.content, "Keep this")
+        let kept = await ChatThreadStore.loadAsync(id: first.id, kind: .solo)
+        XCTAssertEqual(kept?.soloMessages.first?.content, "Keep this")
 
         ChatThreadStore.delete(id: first.id, kind: .solo)
-        XCTAssertNil(ChatThreadStore.load(id: first.id, kind: .solo))
-        XCTAssertEqual(ChatThreadStore.list(kind: .solo).map(\.id), [restarted.id])
+        let gone = await ChatThreadStore.loadAsync(id: first.id, kind: .solo)
+        XCTAssertNil(gone)
+        listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertEqual(listed.map(\.id), [restarted.id])
     }
 
     func test_cleanedTheme_stripsQuotesAndNewlines() {
@@ -63,9 +71,9 @@ final class ChatThreadStoreTests: XCTestCase {
     }
 
     func test_listAndLoadAsync_roundTrip() async {
-        var record = ChatThreadStore.create(kind: .solo, title: "Async")
+        var record = ChatThreadRecord(kind: .solo, title: "Async")
         record.soloMessages = [ChatMessage(role: .user, content: "hi")]
-        _ = ChatThreadStore.save(record)
+        _ = await ChatThreadStore.saveAsync(record)
 
         let listed = await ChatThreadStore.listAsync(kind: .solo)
         XCTAssertEqual(listed.map(\.id), [record.id])
@@ -75,14 +83,85 @@ final class ChatThreadStoreTests: XCTestCase {
     }
 
     func test_saveAsyncAfterDeleteDoesNotResurrect() async {
-        var record = ChatThreadStore.create(kind: .solo, title: "Doomed")
+        var record = ChatThreadRecord(kind: .solo, title: "Doomed")
         record.soloMessages = [ChatMessage(role: .user, content: "keep")]
+        _ = await ChatThreadStore.saveAsync(record)
         ChatThreadStore.delete(id: record.id, kind: .solo)
 
         let saved = await ChatThreadStore.saveAsync(record)
         XCTAssertNil(saved, "tombstone must drop a write queued after delete")
-        XCTAssertNil(ChatThreadStore.load(id: record.id, kind: .solo))
-        XCTAssertTrue(ChatThreadStore.list(kind: .solo).isEmpty)
+        let loaded = await ChatThreadStore.loadAsync(id: record.id, kind: .solo)
+        XCTAssertNil(loaded)
+        let listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertTrue(listed.isEmpty)
+    }
+
+    // MARK: - Tolerant decoding
+
+    /// Writes raw JSON straight into the store's directory, bypassing the encoder, so these tests exercise
+    /// the real decode path a hand-edited or partially-written file would take.
+    private func writeRaw(_ json: String, to relativePath: String) throws {
+        let url = ChatThreadStore.rootDirectory().appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try XCTUnwrap(json.data(using: .utf8)).write(to: url)
+    }
+
+    /// One unusable row must cost that row alone. Before tolerant decoding the array threw, the store
+    /// reported an EMPTY index, and the next save wrote that emptiness over every thread the user had.
+    func test_oneBadIndexRowDoesNotDestroyTheCatalog() async throws {
+        let good = UUID()
+        try writeRaw(
+            """
+            {"entries":[
+              {"id":"\(good.uuidString)","kind":"solo","title":"Survivor","theme":"",
+               "createdAt":"2026-08-01T00:00:00Z","updatedAt":"2026-08-01T00:00:00Z","pinned":false},
+              {"id":"\(UUID().uuidString)","title":"No kind, unaddressable",
+               "createdAt":"2026-08-01T00:00:00Z","updatedAt":"2026-08-01T00:00:00Z","pinned":false}
+            ]}
+            """,
+            to: "index.json"
+        )
+
+        let listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertEqual(listed.map(\.id), [good], "a single bad row must not empty the catalog")
+    }
+
+    /// A row written by an older build lacks the newer keys entirely.
+    func test_indexRowMissingNewerKeysStillDecodes() async throws {
+        let id = UUID()
+        try writeRaw(
+            """
+            {"entries":[{"id":"\(id.uuidString)","kind":"solo","title":"Old build",
+             "createdAt":"2026-08-01T00:00:00Z","updatedAt":"2026-08-01T00:00:00Z"}]}
+            """,
+            to: "index.json"
+        )
+
+        let listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertEqual(listed.map(\.id), [id])
+        XCTAssertFalse(listed[0].pinned, "absent pinned must default, not throw")
+        XCTAssertNil(listed[0].titleIsCustom)
+        XCTAssertEqual(listed[0].theme, "")
+    }
+
+    /// Same guarantee for a thread file: a truncated record loads with defaults rather than reading as a
+    /// missing thread the sidebar would then evict.
+    func test_threadRecordMissingKeysLoadsWithDefaults() async throws {
+        let id = UUID()
+        try writeRaw(
+            """
+            {"id":"\(id.uuidString)","kind":"solo","title":"Truncated"}
+            """,
+            to: "solo/\(id.uuidString).json"
+        )
+
+        let loaded = await ChatThreadStore.loadAsync(id: id, kind: .solo)
+        XCTAssertEqual(loaded?.id, id)
+        XCTAssertEqual(loaded?.title, "Truncated")
+        XCTAssertEqual(loaded?.soloMessages.count, 0)
+        XCTAssertNil(loaded?.ensemble)
     }
 
     func test_browserApplySavedDoesNotResurrectDeleted() {

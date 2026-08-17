@@ -174,6 +174,9 @@ final class EnsembleViewModel {
     // MARK: - Loop bookkeeping
     private var loopTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
+    /// Serving model whose context metadata has already been requested, so the 1 s poll asks once per
+    /// model instead of once per second on endpoints that publish no context length.
+    private var contextMetadataProbedModel: String?
     /// Round-robin seat order. Internal so cast import / roster edits can reset it.
     var shuffledOrder: [UUID] = []
     var orderCursor: Int = 0
@@ -224,6 +227,21 @@ final class EnsembleViewModel {
             }
         )
         loadDefaultCastIfNeeded()
+    }
+
+    /// Cancel every long-lived task. Mirrors `ChatViewModel`, which already did this — without it the 1 s
+    /// `healthCheckTask` started by `startHealthChecks()` polls the endpoint for the rest of the process.
+    ///
+    /// The player is deliberately NOT stopped here. `AppState` owns a single `StreamingPlayer` shared with
+    /// Solo Chat and read-aloud, so stopping it on this deinit could cut audio a different owner started.
+    isolated deinit {
+        loopTask?.cancel()
+        healthCheckTask?.cancel()
+        summaryTask?.cancel()
+        contextFillTask?.cancel()
+        themeTask?.cancel()
+        threadSaveTask?.cancel()
+        invitedUserTimeoutTask?.cancel()
     }
 
     func makeClient() -> LocalLLMClient {
@@ -315,7 +333,14 @@ final class EnsembleViewModel {
 
             // Context metadata + Compact % only when the serving model changes
             // (fill also refreshes after turns; no need every poll).
-            guard connectionChanged || modelContextLimitTokens == nil else { return }
+            //
+            // Gate on "have we asked about THIS model", not on `modelContextLimitTokens == nil`. Only an
+            // LM Studio endpoint publishes a context length, so against Ollama / llama.cpp / vLLM that
+            // field stays nil forever, the guard never closes, and the poll fires an extra metadata request
+            // plus a fill estimate every single second for the life of the process. One attempt per serving
+            // model is enough; a swap in the server re-probes because `effective` changes.
+            guard connectionChanged || contextMetadataProbedModel != effective else { return }
+            contextMetadataProbedModel = effective
             if let meta = try? await client.modelMetadata(for: effective) {
                 if let n = meta.contextLength, n > 0, modelContextLimitTokens != n {
                     modelContextLimitTokens = n
@@ -397,6 +422,10 @@ final class EnsembleViewModel {
     /// Replace the cast with a persona-writer result: resets the conversation,
     /// loads the runtime personas the loop uses, and persists the cast to
     /// SwiftData. Called from the setup flow once voices are confirmed.
+    ///
+    /// The thread file is deliberately NOT minted here. `detachAfterFlushingCurrentThread()` closes the
+    /// previous thread, and `noteEnsembleThreadActivity()` opens a new one on the first turn — matching
+    /// Solo's lazy creation, so a cast the user builds and abandons leaves no empty thread behind.
     func applyGeneratedCast(scene: String, mood: String, userName: String, confirmed: [ConfirmedPersona]) {
         guard !confirmed.isEmpty else { return }
         stop()
@@ -428,7 +457,6 @@ final class EnsembleViewModel {
         lastDepartureNote = nil
         departedSpeakers = []
         persistCast(scene: scene, mood: mood, confirmed: confirmed)
-        beginEnsembleThread(title: scene.isEmpty ? "New ensemble" : scene)
     }
 
     private func persistCast(scene: String, mood: String, confirmed: [ConfirmedPersona]) {
@@ -507,6 +535,8 @@ final class EnsembleViewModel {
     /// Reuse the last / selected-thread cast AND show a confirmation listing
     /// members + scene. Always opens a *new* thread so the source is frozen.
     func reuseLastCast() {
+        // Flush BEFORE the snapshot clears `turns`, or the source thread is saved empty.
+        threadSaveTask?.cancel()
         flushEnsembleThreadSave()
         let snapshot = selectedThreadCastSnapshot()
         if let snapshot {
@@ -514,12 +544,9 @@ final class EnsembleViewModel {
         } else if !loadLastCast() {
             return
         }
-        // Detach so the new file cannot overwrite the source thread.
+        // Detach only. The new thread is minted on the first turn, so reusing a cast and then walking
+        // away leaves nothing behind, and the source thread stays frozen either way.
         currentThreadID = nil
-        beginEnsembleThread(
-            title: scene.isEmpty ? "New ensemble" : scene,
-            snapshot: currentCastSnapshot(turns: [])
-        )
         announceCastLoaded()
     }
 

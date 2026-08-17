@@ -348,6 +348,13 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
 nonisolated enum SettingsStore {
     private static let key = "com.slaughtersj.mimika-ai-voice-studio.chatSettings"
 
+    /// Pre-rename storage key. Commit `99bab45` (shipped v1.5.3) renamed this key alone and left its
+    /// neighbours — `chatSubMode`, `multiTalkTagDisplayMode`, `pocketTTSChunkBudget`, `whisperActiveModel` —
+    /// on the old prefix, so a user updating from v1.5.2 or earlier silently lost their endpoint, model and
+    /// all three hand-written system prompts. `load()` falls back to this key once and writes the result
+    /// forward. It is never written to, and deliberately never removed outside a full reset.
+    private static let legacyKey = "com.slaughtersj.pocket-tts-macos.chatSettings"
+
     /// Where settings actually live. Under XCTest this is a volatile scratch
     /// suite, never the user's real domain.
     ///
@@ -371,14 +378,23 @@ nonisolated enum SettingsStore {
         return UserDefaults(suiteName: suite) ?? .standard
     }()
 
+    /// Reads the stored settings, falling back once to the pre-rename key and writing that blob forward.
+    ///
+    /// The current key is always tried first, so a user who re-entered their settings after the rename can
+    /// never have them overwritten by the older orphaned blob.
     static func load() -> ChatSettings {
-        guard
-            let data = defaults.data(forKey: key),
-            let decoded = try? JSONDecoder().decode(ChatSettings.self, from: data)
-        else {
-            return .default
+        if let current = decode(forKey: key) {
+            return current
         }
-        return decoded
+        guard let migrated = decode(forKey: legacyKey) else { return .default }
+        save(migrated)
+        return migrated
+    }
+
+    /// Decodes one stored blob, returning nil when the key is absent or the payload is unreadable.
+    private static func decode(forKey storageKey: String) -> ChatSettings? {
+        guard let data = defaults.data(forKey: storageKey) else { return nil }
+        return try? JSONDecoder().decode(ChatSettings.self, from: data)
     }
 
     static func save(_ settings: ChatSettings) {
@@ -386,8 +402,10 @@ nonisolated enum SettingsStore {
         defaults.set(data, forKey: key)
     }
 
+    /// Clears both keys, so a reset cannot be undone by the migration fallback on the next `load()`.
     static func resetToDefaults() {
         defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: legacyKey)
     }
 }
 

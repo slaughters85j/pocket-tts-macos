@@ -14,14 +14,20 @@
 //  A regression here means the model is being fed different tokens than
 //  it was trained on, which produces audible mispronunciations
 //  (the original "friends → frainds" bug class).
+//
+//  XCTest, not Swift Testing — project convention (CLAUDE.md). This file used
+//  `@Suite`/`@Test`/`#expect`, which reports in a separate stream, so its five
+//  tests were invisible in the suite's headline count.
+//
 
 import Foundation
-import Testing
+import XCTest
 
 @testable import mimika_ai_voice_studio
 
-@Suite("SentencePieceTokenizer parity")
-struct SentencePieceTokenizerTests {
+// MARK: - SentencePieceTokenizer parity
+
+final class SentencePieceTokenizerTests: XCTestCase {
 
     private struct Fixture: Decodable {
         let text: String
@@ -47,13 +53,11 @@ struct SentencePieceTokenizerTests {
         return fixtures
     }()
 
-    @Test("Fixture file loads with non-zero count")
-    func fixturesLoad() {
-        #expect(!Self.fixtures.isEmpty, "tokenizer_parity.json missing or unreadable")
+    func test_fixtureFileLoadsWithNonZeroCount() {
+        XCTAssertFalse(Self.fixtures.isEmpty, "tokenizer_parity.json missing or unreadable")
     }
 
-    @Test("All fixtures produce byte-identical token IDs to canonical SentencePiece")
-    func parityWithCanonical() throws {
+    func test_allFixturesMatchCanonicalSentencePiece() throws {
         let tok = try SentencePieceTokenizer()
 
         // Pad to something larger than the longest fixture so we don't hit
@@ -77,7 +81,10 @@ struct SentencePieceTokenizerTests {
                 print("  actual:   \(f.actual)")
             }
         }
-        #expect(failures.isEmpty, "\(failures.count) of \(Self.fixtures.count) fixtures differ from canonical SentencePiece")
+        XCTAssertTrue(
+            failures.isEmpty,
+            "\(failures.count) of \(Self.fixtures.count) fixtures differ from canonical SentencePiece"
+        )
     }
 
     // MARK: - Targeted regressions
@@ -85,27 +92,28 @@ struct SentencePieceTokenizerTests {
     // These guard against regressing to greedy longest-match (which produced
     // wrong segmentations even though some fixtures might still pass).
 
-    @Test("'friends' encodes to canonical [260, 636, 261]")
-    func friendsCanonical() throws {
-        let tok = try SentencePieceTokenizer()
-        let (padded, length) = try tok.encode("friends", paddedLength: 16)
-        let actual = Array(padded.prefix(length))
-        #expect(actual == [260, 636, 261], "got \(actual)")
+    func test_friendsEncodesToCanonicalIDs() throws {
+        try assertEncoding(of: "friends", equals: [260, 636, 261])
     }
 
-    @Test("'perfect' encodes to canonical [324, 1318]")
-    func perfectCanonical() throws {
-        let tok = try SentencePieceTokenizer()
-        let (padded, length) = try tok.encode("perfect", paddedLength: 16)
-        let actual = Array(padded.prefix(length))
-        #expect(actual == [324, 1318], "got \(actual)")
+    func test_perfectLowercaseEncodesToCanonicalIDs() throws {
+        try assertEncoding(of: "perfect", equals: [324, 1318])
     }
 
-    @Test("'Perfect' encodes to canonical [497, 1318]")
-    func perfectCapitalCanonical() throws {
+    func test_perfectCapitalizedEncodesToCanonicalIDs() throws {
+        try assertEncoding(of: "Perfect", equals: [497, 1318])
+    }
+
+    /// Encodes one word and compares against the canonical id sequence.
+    private func assertEncoding(
+        of word: String,
+        equals expected: [Int32],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
         let tok = try SentencePieceTokenizer()
-        let (padded, length) = try tok.encode("Perfect", paddedLength: 16)
+        let (padded, length) = try tok.encode(word, paddedLength: 16)
         let actual = Array(padded.prefix(length))
-        #expect(actual == [497, 1318], "got \(actual)")
+        XCTAssertEqual(actual, expected, "got \(actual)", file: file, line: line)
     }
 }

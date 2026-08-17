@@ -15,6 +15,12 @@ import Foundation
 // MARK: - ChatThreadStore
 
 /// File I/O lives off the main actor (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`).
+///
+/// **The public surface is deliberately async-only.** Every entry point either `await`s a continuation or
+/// enqueues fire-and-forget work; none of them ever `ioQueue.sync`. Blocking variants used to exist beside
+/// the async ones with no production callers, which made a main-thread stall one autocomplete away — the
+/// exact failure this store already caused once. Mutations the UI applies optimistically (delete, pin,
+/// rename, theme) return immediately and never report a result, because nothing needs one.
 nonisolated enum ChatThreadStore {
     static let maxUnpinnedPerKind = 30
 
@@ -96,19 +102,11 @@ nonisolated enum ChatThreadStore {
 
     // MARK: Index
 
-    static func list(kind: ChatThreadKind) -> [ChatThreadIndexEntry] {
-        ioQueue.sync { listUnlocked(kind: kind) }
-    }
-
     /// Sidebar catalog — never `sync` from the turn loop.
     static func listAsync(kind: ChatThreadKind) async -> [ChatThreadIndexEntry] {
         await withCheckedContinuation { cont in
             ioQueue.async { cont.resume(returning: listUnlocked(kind: kind)) }
         }
-    }
-
-    static func loadIndex() -> ChatThreadIndex {
-        ioQueue.sync { loadIndexUnlocked() }
     }
 
     private static func listUnlocked(kind: ChatThreadKind) -> [ChatThreadIndexEntry] {
@@ -133,10 +131,6 @@ nonisolated enum ChatThreadStore {
 
     // MARK: Record CRUD
 
-    static func load(id: UUID, kind: ChatThreadKind) -> ChatThreadRecord? {
-        ioQueue.sync { loadUnlocked(id: id, kind: kind) }
-    }
-
     /// Click-load — hops off main so a fat thread JSON cannot stall TTS/tokens.
     static func loadAsync(id: UUID, kind: ChatThreadKind) async -> ChatThreadRecord? {
         await withCheckedContinuation { cont in
@@ -149,11 +143,6 @@ nonisolated enum ChatThreadStore {
             return nil
         }
         return try? decoder.decode(ChatThreadRecord.self, from: data)
-    }
-
-    @discardableResult
-    static func save(_ record: ChatThreadRecord) -> ChatThreadRecord {
-        ioQueue.sync { saveUnlocked(record) ?? record }
     }
 
     /// Encode + write off the main thread; hop back for UI (sidebar upsert).
@@ -189,13 +178,11 @@ nonisolated enum ChatThreadStore {
         return next
     }
 
-    static func create(kind: ChatThreadKind, title: String = "New chat") -> ChatThreadRecord {
-        let record = ChatThreadRecord(kind: kind, title: title)
-        return save(record)
-    }
-
+    /// Tombstone the id and remove its file. The sidebar has already dropped the row, so nothing waits on
+    /// this — and the serial queue keeps ordering, so a `saveAsync` enqueued afterwards still sees the
+    /// tombstone and refuses to resurrect the file.
     static func delete(id: UUID, kind: ChatThreadKind) {
-        ioQueue.sync {
+        ioQueue.async {
             deletedIDs.insert(id)
             try? FileManager.default.removeItem(at: fileURL(id: id, kind: kind))
             var index = loadIndexUnlocked()
@@ -204,8 +191,10 @@ nonisolated enum ChatThreadStore {
         }
     }
 
+    /// Pin state, written to the index AND the record. Two full JSON round-trips, which is exactly why it
+    /// must not block the main thread behind a queued multi-megabyte transcript save.
     static func setPinned(id: UUID, kind: ChatThreadKind, pinned: Bool) {
-        ioQueue.sync {
+        ioQueue.async {
             if deletedIDs.contains(id) { return }
             var index = loadIndexUnlocked()
             guard let i = index.entries.firstIndex(where: { $0.id == id }) else { return }
@@ -251,10 +240,12 @@ nonisolated enum ChatThreadStore {
         }
     }
 
+    /// Model-written sidebar blurb. Fire-and-forget: it lands whenever the queue drains, and the sidebar
+    /// picks it up on the next list.
     static func updateTheme(id: UUID, kind: ChatThreadKind, theme: String) {
         let trimmed = theme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        ioQueue.sync {
+        ioQueue.async {
             if deletedIDs.contains(id) { return }
             var index = loadIndexUnlocked()
             if let i = index.entries.firstIndex(where: { $0.id == id }) {

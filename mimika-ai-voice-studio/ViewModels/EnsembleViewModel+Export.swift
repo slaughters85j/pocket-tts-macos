@@ -437,10 +437,6 @@ extension EnsembleViewModel {
 
         persistImportedCast(package: package, resolved: resolved)
         refreshContextFillEstimate()
-        beginEnsembleThread(
-            title: scene.isEmpty ? "Imported cast" : scene,
-            snapshot: currentCastSnapshot(turns: [])
-        )
 
         var noticeParts: [String] = []
         if remapped > 0 {

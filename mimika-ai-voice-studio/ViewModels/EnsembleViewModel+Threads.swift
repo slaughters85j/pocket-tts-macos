@@ -21,12 +21,15 @@ extension EnsembleViewModel {
 
     // MARK: - Create / save
 
-    /// Open a new thread (New Cast or Restart). Optional snapshot seeds
-    /// the file so a restart has cast even before the first spoken line.
-    func beginEnsembleThread(title: String, snapshot: EnsembleThreadPayload? = nil) {
+    /// Open a new thread for the live cast.
+    ///
+    /// Deliberately `private`: the ONLY entry point is `noteEnsembleThreadActivity()`, which fires on the
+    /// first turn. Cast creation, Reuse Last and cast import each detach instead of creating, so a cast the
+    /// user builds and then abandons leaves no empty thread on disk. An eager call here reintroduces that.
+    private func beginEnsembleThread(title: String) {
         detachAfterFlushingCurrentThread()
         var record = ChatThreadRecord(kind: .ensemble, title: title)
-        record.ensemble = snapshot ?? currentCastSnapshot(turns: turns)
+        record.ensemble = currentCastSnapshot(turns: turns)
         currentThreadID = record.id
         threadBrowser?.applySaved(record)
         threadBrowser?.select(record.id)
@@ -46,10 +49,7 @@ extension EnsembleViewModel {
 
     func noteEnsembleThreadActivity() {
         if currentThreadID == nil {
-            beginEnsembleThread(
-                title: scene.isEmpty ? "New ensemble" : scene,
-                snapshot: currentCastSnapshot(turns: turns)
-            )
+            beginEnsembleThread(title: scene.isEmpty ? "New ensemble" : scene)
             requestEnsembleThemeIfNeeded()
         } else {
             scheduleEnsembleThreadSave()

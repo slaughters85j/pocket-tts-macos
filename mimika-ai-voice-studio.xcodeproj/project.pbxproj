@@ -204,6 +204,7 @@
 		D53CE6BC2FD2FADC0071832E /* BundledMLModelManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE6242FD2FADC0071832E /* BundledMLModelManagerTests.swift */; };
 		D53CE6BD2FD2FADC0071832E /* MimiEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5C52FD2FADC0071832E /* MimiEncoder.swift */; };
 		D53CE6BE2FD2FADC0071832E /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5F62FD2FADC0071832E /* ChatView.swift */; };
+		D53CE9A12FD2FADC0071832E /* ChatViewChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE9A22FD2FADC0071832E /* ChatViewChrome.swift */; };
 		869C424537E1471D895AF9E4 /* ChatThreadSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7282154B00AB4B8C943ABF69 /* ChatThreadSidebar.swift */; };
 		C4D7E1A93B2F48E0A1770C62 /* ChatThreadRenameSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F80B5E7A4C41DBA6390E11 /* ChatThreadRenameSheet.swift */; };
 		D53CE6BF2FD2FADC0071832E /* TextNormalizer+Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5BC2FD2FADC0071832E /* TextNormalizer+Data.swift */; };
@@ -498,6 +499,7 @@
 		D53CE5F42FD2FADC0071832E /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		D53CE5F52FD2FADC0071832E /* ChatSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSettingsView.swift; sourceTree = "<group>"; };
 		D53CE5F62FD2FADC0071832E /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		D53CE9A22FD2FADC0071832E /* ChatViewChrome.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatViewChrome.swift; sourceTree = "<group>"; };
 		7282154B00AB4B8C943ABF69 /* ChatThreadSidebar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatThreadSidebar.swift; sourceTree = "<group>"; };
 		D2F80B5E7A4C41DBA6390E11 /* ChatThreadRenameSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatThreadRenameSheet.swift; sourceTree = "<group>"; };
 		D53CE5F72FD2FADC0071832E /* DemucsModelManagerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemucsModelManagerSheet.swift; sourceTree = "<group>"; };
@@ -942,6 +944,7 @@
 				D53CE5F42FD2FADC0071832E /* AppSettingsView.swift */,
 				D53CE5F52FD2FADC0071832E /* ChatSettingsView.swift */,
 				D53CE5F62FD2FADC0071832E /* ChatView.swift */,
+				D53CE9A22FD2FADC0071832E /* ChatViewChrome.swift */,
 				7282154B00AB4B8C943ABF69 /* ChatThreadSidebar.swift */,
 				D2F80B5E7A4C41DBA6390E11 /* ChatThreadRenameSheet.swift */,
 				D53CE5F72FD2FADC0071832E /* DemucsModelManagerSheet.swift */,
@@ -1403,6 +1406,7 @@
 				D53CE6BB2FD2FADC0071832E /* AppSettingsView.swift in Sources */,
 				D53CE6BD2FD2FADC0071832E /* MimiEncoder.swift in Sources */,
 				D53CE6BE2FD2FADC0071832E /* ChatView.swift in Sources */,
+				D53CE9A12FD2FADC0071832E /* ChatViewChrome.swift in Sources */,
 				869C424537E1471D895AF9E4 /* ChatThreadSidebar.swift in Sources */,
 				C4D7E1A93B2F48E0A1770C62 /* ChatThreadRenameSheet.swift in Sources */,
 				D53CE6BF2FD2FADC0071832E /* TextNormalizer+Data.swift in Sources */,
