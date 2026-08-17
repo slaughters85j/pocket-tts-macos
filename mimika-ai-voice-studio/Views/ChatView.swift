@@ -213,17 +213,17 @@ struct ChatView: View {
             .fixedSize()
             .accessibilityIdentifier("chat.subModeToggle")
 
-            ConnectionStatusPill(
-                state: subMode == .solo
-                    ? viewModel.connectionState
-                    : ensembleViewModel.connectionState
+            ChatConnectionPill(
+                solo: viewModel,
+                ensemble: ensembleViewModel,
+                isEnsemble: subMode == .ensemble
             )
 
             ModelCapabilityBadges(state: viewModel.capabilityState)
-            ModelReasoningControl(
-                viewModel: viewModel,
-                isExternallyLocked: subMode == .ensemble
-                    && ensembleViewModel.isRunning
+            EnsembleReasoningLock(
+                chat: viewModel,
+                ensemble: ensembleViewModel,
+                isEnsemble: subMode == .ensemble
             )
 
             // Ensemble-only: live run knobs without leaving the conversation.
@@ -246,7 +246,14 @@ struct ChatView: View {
             if subMode == .solo {
                 soloControls
             } else {
-                ensembleControls
+                EnsembleToolbarControls(
+                    viewModel: ensembleViewModel,
+                    browser: threadBrowser,
+                    viewMode: $ensembleViewMode,
+                    showsSetup: $showsEnsembleSetup,
+                    showsCastEditor: $showsEnsembleCastEditor,
+                    onOpenMultiTalk: openEnsembleInMultiTalk
+                )
             }
         }
         .padding(.horizontal, Theme.space6)
@@ -341,82 +348,7 @@ struct ChatView: View {
         )
     }
 
-    @ViewBuilder
-    private var ensembleControls: some View {
-        EnsembleRunStatusLabel(viewModel: ensembleViewModel)
 
-        if ensembleViewModel.canExport {
-            Button(action: { ensembleViewModel.saveTranscript() }) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Export transcript (.md)")
-            .accessibilityIdentifier("ensemble.saveTranscript")
-
-            Button(action: openEnsembleInMultiTalk) {
-                Image(systemName: "person.2.wave.2")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Open episode in Multi-Talk — map your character voices first")
-            .accessibilityIdentifier("ensemble.openMultiTalk")
-        }
-
-        Button(action: { ensembleViewMode = ensembleViewMode == .orb ? .transcript : .orb }) {
-            Image(systemName: ensembleViewMode == .orb ? "list.bullet" : "circle.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .help(ensembleViewMode == .orb ? "Show transcript" : "Show orb")
-        .accessibilityIdentifier("ensemble.viewModeToggle")
-
-        if !ensembleViewModel.cast.isEmpty {
-            Button(action: { showsEnsembleCastEditor = true }) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Edit cast, voices, scene & mood")
-            .accessibilityIdentifier("ensemble.editCast")
-        }
-
-        if ensembleViewModel.hasSavedCast || threadBrowser.selectedID != nil {
-            Button(action: { ensembleViewModel.reuseLastCast() }) {
-                Label("Reuse Last", systemImage: "clock.arrow.circlepath")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.plain)
-            .help(reuseLastHelp)
-            .accessibilityIdentifier("ensemble.reuseLast")
-        }
-
-        Button(action: { showsEnsembleSetup = true }) {
-            Label("New Cast", systemImage: "person.3.sequence.fill")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.accent)
-        }
-        .buttonStyle(.plain)
-        .help("Generate a new cast with the persona-writer")
-        .accessibilityIdentifier("ensemble.newCast")
-    }
-
-    private var reuseLastHelp: String {
-        let scene = ensembleViewModel.scene.trimmingCharacters(in: .whitespacesAndNewlines)
-        let names = ensembleViewModel.cast.map(\.name).joined(separator: ", ")
-        if scene.isEmpty && names.isEmpty {
-            return "Restart this cast in a new thread — the current thread stays as history"
-        }
-        if scene.isEmpty {
-            return "Restart — \(names)"
-        }
-        return "Restart — \(names). Scene: \(scene)"
-    }
 
     private func attachThreads(for mode: ChatSubMode) {
         if mode == .solo {
@@ -501,6 +433,122 @@ struct ChatView: View {
             }
         }
         .background(Theme.bgPrimary)
+    }
+}
+
+// MARK: - Isolated toolbar chips
+
+/// Own Observation scope so connection polls do not rebuild ChatView (Chair glass).
+private struct ChatConnectionPill: View {
+    @Bindable var solo: ChatViewModel
+    @Bindable var ensemble: EnsembleViewModel
+    let isEnsemble: Bool
+
+    var body: some View {
+        ConnectionStatusPill(
+            state: isEnsemble ? ensemble.connectionState : solo.connectionState
+        )
+    }
+}
+
+/// Own Observation scope so `runState` / `isRunning` do not rebuild ChatView.
+private struct EnsembleReasoningLock: View {
+    @Bindable var chat: ChatViewModel
+    @Bindable var ensemble: EnsembleViewModel
+    let isEnsemble: Bool
+
+    var body: some View {
+        ModelReasoningControl(
+            viewModel: chat,
+            isExternallyLocked: isEnsemble && ensemble.isRunning
+        )
+    }
+}
+
+/// Trailing Ensemble chrome. `canExport` reads `turns` — must not live in ChatView.body
+/// or every token rebuilds the sidebar + Director's Chair glass.
+private struct EnsembleToolbarControls: View {
+    @Bindable var viewModel: EnsembleViewModel
+    @Bindable var browser: ChatThreadBrowser
+    @Binding var viewMode: ViewMode
+    @Binding var showsSetup: Bool
+    @Binding var showsCastEditor: Bool
+    var onOpenMultiTalk: () -> Void
+
+    var body: some View {
+        EnsembleRunStatusLabel(viewModel: viewModel)
+
+        if viewModel.canExport {
+            Button(action: { viewModel.saveTranscript() }) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Export transcript (.md)")
+            .accessibilityIdentifier("ensemble.saveTranscript")
+
+            Button(action: onOpenMultiTalk) {
+                Image(systemName: "person.2.wave.2")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open episode in Multi-Talk — map your character voices first")
+            .accessibilityIdentifier("ensemble.openMultiTalk")
+        }
+
+        Button(action: { viewMode = viewMode == .orb ? .transcript : .orb }) {
+            Image(systemName: viewMode == .orb ? "list.bullet" : "circle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .help(viewMode == .orb ? "Show transcript" : "Show orb")
+        .accessibilityIdentifier("ensemble.viewModeToggle")
+
+        if !viewModel.cast.isEmpty {
+            Button(action: { showsCastEditor = true }) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Edit cast, voices, scene & mood")
+            .accessibilityIdentifier("ensemble.editCast")
+        }
+
+        if viewModel.hasSavedCast || browser.selectedID != nil {
+            Button(action: { viewModel.reuseLastCast() }) {
+                Label("Reuse Last", systemImage: "clock.arrow.circlepath")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help(reuseLastHelp)
+            .accessibilityIdentifier("ensemble.reuseLast")
+        }
+
+        Button(action: { showsSetup = true }) {
+            Label("New Cast", systemImage: "person.3.sequence.fill")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.accent)
+        }
+        .buttonStyle(.plain)
+        .help("Generate a new cast with the persona-writer")
+        .accessibilityIdentifier("ensemble.newCast")
+    }
+
+    private var reuseLastHelp: String {
+        let scene = viewModel.scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let names = viewModel.cast.map(\.name).joined(separator: ", ")
+        if scene.isEmpty && names.isEmpty {
+            return "Restart this cast in a new thread — the current thread stays as history"
+        }
+        if scene.isEmpty {
+            return "Restart — \(names)"
+        }
+        return "Restart — \(names). Scene: \(scene)"
     }
 }
 

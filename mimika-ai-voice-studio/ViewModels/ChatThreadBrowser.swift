@@ -47,14 +47,28 @@ final class ChatThreadBrowser {
 
     /// Upsert the catalog row. Does **not** change selection — a late save of
     /// thread A must not steal a click that already moved to thread B.
+    /// Timestamp-only writes skip the array write so the sidebar (and the
+    /// Chair sitting in the same Chat HStack) is not invalidated every turn.
     func applySaved(_ record: ChatThreadRecord) {
         guard !suppressedIDs.contains(record.id) else { return }
         let entry = record.indexEntry
         if let i = entries.firstIndex(where: { $0.id == entry.id }) {
-            if entries[i] != entry { entries[i] = entry }
+            if Self.sidebarVisibleFieldsMatch(entries[i], entry) { return }
+            entries[i] = entry
         } else {
             entries.insert(entry, at: 0)
         }
+    }
+
+    private static func sidebarVisibleFieldsMatch(
+        _ lhs: ChatThreadIndexEntry,
+        _ rhs: ChatThreadIndexEntry
+    ) -> Bool {
+        lhs.id == rhs.id
+            && lhs.title == rhs.title
+            && lhs.theme == rhs.theme
+            && lhs.pinned == rhs.pinned
+            && lhs.createdAt == rhs.createdAt
     }
 
     func togglePinned(_ entry: ChatThreadIndexEntry) {
