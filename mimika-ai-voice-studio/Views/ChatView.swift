@@ -22,6 +22,8 @@ struct ChatView: View {
     @State private var showsEnsembleCastEditor = false
     @State private var showsMultiTalkVoiceMap = false
     @State private var showsDirectorsChair = false
+    /// Keep the glass card in the tree after first open so reopen skips layout.
+    @State private var chairMounted = false
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
     @State private var editingMessage: ChatMessage?
@@ -47,14 +49,14 @@ struct ChatView: View {
                 // (sketch: ZStack overlay + glass, not a layout-pushing strip).
                 ZStack(alignment: .top) {
                     mainChatSurface
-                    if subMode == .ensemble, showsDirectorsChair {
+                    if chairMounted {
                         DirectorsChairPanel(viewModel: ensembleViewModel) {
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 showsDirectorsChair = false
                             }
                         }
-                        // In-place: opacity only (no slide/fly-in). 500 ms both ways.
-                        .transition(.asymmetric(insertion: .opacity, removal: .opacity))
+                        .opacity(subMode == .ensemble && showsDirectorsChair ? 1 : 0)
+                        .allowsHitTesting(subMode == .ensemble && showsDirectorsChair)
                         .zIndex(10)
                     }
                 }
@@ -226,7 +228,7 @@ struct ChatView: View {
 
             // Ensemble-only: live run knobs without leaving the conversation.
             if subMode == .ensemble {
-                DirectorsChairToggleButton(isOpen: $showsDirectorsChair)
+                DirectorsChairToggleButton(isOpen: chairOpenBinding)
             }
 
             Spacer()
@@ -328,14 +330,20 @@ struct ChatView: View {
 
     // MARK: Ensemble controls
 
+    /// First open mounts the Chair; later toggles only flip visibility.
+    private var chairOpenBinding: Binding<Bool> {
+        Binding(
+            get: { showsDirectorsChair },
+            set: { newValue in
+                if newValue { chairMounted = true }
+                showsDirectorsChair = newValue
+            }
+        )
+    }
+
     @ViewBuilder
     private var ensembleControls: some View {
-        if let color = ensembleSpeakerColor {
-            Circle().fill(color).frame(width: 8, height: 8)
-        }
-        Text(ensembleStatusText)
-            .font(Theme.fontXS)
-            .foregroundStyle(Theme.textSecondary)
+        EnsembleRunStatusLabel(viewModel: ensembleViewModel)
 
         if ensembleViewModel.canExport {
             Button(action: { ensembleViewModel.saveTranscript() }) {
@@ -424,6 +432,12 @@ struct ChatView: View {
     }
 
     private func openThread(_ entry: ChatThreadIndexEntry) {
+        #if DEBUG
+        let current = entry.kind == .solo
+            ? viewModel.currentThreadID
+            : ensembleViewModel.currentThreadID
+        print("[ChatThreads] click kind=\(entry.kind.rawValue) title=\(entry.title) id=\(entry.id.uuidString.prefix(8)) selected=\(threadBrowser.selectedID?.uuidString.prefix(8) ?? "nil") current=\(current?.uuidString.prefix(8) ?? "nil") same=\(current == entry.id)")
+        #endif
         switch entry.kind {
         case .solo:
             viewModel.loadSoloThread(id: entry.id)
@@ -440,26 +454,6 @@ struct ChatView: View {
         } else {
             ensembleViewModel.openInMultiTalk()
         }
-    }
-
-    private var ensembleStatusText: String {
-        switch ensembleViewModel.runState {
-        case .idle: return "Idle"
-        case .picking: return "Choosing next speaker…"
-        case .generating: return "\(ensembleViewModel.currentSpeakerName ?? "Someone") is thinking…"
-        case .speaking: return "\(ensembleViewModel.currentSpeakerName ?? "Someone") is talking…"
-        case .awaitingStep: return "Paused — Step or Resume"
-        case .userTurn: return "Your turn…"
-        case let .error(message): return "Error: \(message)"
-        }
-    }
-
-    private var ensembleSpeakerColor: Color? {
-        guard
-            let id = ensembleViewModel.currentSpeakerID,
-            let index = ensembleViewModel.cast.firstIndex(where: { $0.id == id })
-        else { return nil }
-        return Theme.speakerColor(at: index)
     }
 
     // MARK: Transcript
@@ -507,5 +501,43 @@ struct ChatView: View {
             }
         }
         .background(Theme.bgPrimary)
+    }
+}
+
+// MARK: - Ensemble run status (isolated)
+
+/// Own Observation scope so `runState` / speaker updates do not rebuild the Chat toolbar.
+private struct EnsembleRunStatusLabel: View {
+    @Bindable var viewModel: EnsembleViewModel
+
+    var body: some View {
+        HStack(spacing: Theme.space3) {
+            if let color = speakerColor {
+                Circle().fill(color).frame(width: 8, height: 8)
+            }
+            Text(statusText)
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private var statusText: String {
+        switch viewModel.runState {
+        case .idle: return "Idle"
+        case .picking: return "Choosing next speaker…"
+        case .generating: return "\(viewModel.currentSpeakerName ?? "Someone") is thinking…"
+        case .speaking: return "\(viewModel.currentSpeakerName ?? "Someone") is talking…"
+        case .awaitingStep: return "Paused — Step or Resume"
+        case .userTurn: return "Your turn…"
+        case let .error(message): return "Error: \(message)"
+        }
+    }
+
+    private var speakerColor: Color? {
+        guard
+            let id = viewModel.currentSpeakerID,
+            let index = viewModel.cast.firstIndex(where: { $0.id == id })
+        else { return nil }
+        return Theme.speakerColor(at: index)
     }
 }

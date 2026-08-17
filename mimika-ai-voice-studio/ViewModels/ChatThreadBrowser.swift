@@ -23,10 +23,21 @@ final class ChatThreadBrowser {
     var selectedID: UUID?
     var isCollapsed = false
 
+    /// Drop late `applySaved` / `listAsync` results for threads the user deleted.
+    private var suppressedIDs: Set<UUID> = []
+    private var reloadToken = UUID()
+
     func reload() {
-        entries = ChatThreadStore.list(kind: kind)
-        if let selectedID, !entries.contains(where: { $0.id == selectedID }) {
-            self.selectedID = nil
+        let kind = self.kind
+        let token = UUID()
+        reloadToken = token
+        Task { @MainActor [weak self] in
+            let listed = await ChatThreadStore.listAsync(kind: kind)
+            guard let self, self.reloadToken == token, self.kind == kind else { return }
+            self.entries = listed.filter { !self.suppressedIDs.contains($0.id) }
+            if let selectedID, !self.entries.contains(where: { $0.id == selectedID }) {
+                self.selectedID = nil
+            }
         }
     }
 
@@ -34,26 +45,34 @@ final class ChatThreadBrowser {
         selectedID = id
     }
 
+    /// Upsert the catalog row. Does **not** change selection — a late save of
+    /// thread A must not steal a click that already moved to thread B.
     func applySaved(_ record: ChatThreadRecord) {
+        guard !suppressedIDs.contains(record.id) else { return }
         let entry = record.indexEntry
         if let i = entries.firstIndex(where: { $0.id == entry.id }) {
             if entries[i] != entry { entries[i] = entry }
         } else {
             entries.insert(entry, at: 0)
         }
-        selectedID = entry.id
     }
 
     func togglePinned(_ entry: ChatThreadIndexEntry) {
-        ChatThreadStore.setPinned(id: entry.id, kind: entry.kind, pinned: !entry.pinned)
-        reload()
+        guard let i = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        entries[i].pinned.toggle()
+        ChatThreadStore.setPinned(id: entry.id, kind: entry.kind, pinned: entries[i].pinned)
+        entries.sort { lhs, rhs in
+            if lhs.pinned != rhs.pinned { return lhs.pinned && !rhs.pinned }
+            return lhs.updatedAt > rhs.updatedAt
+        }
     }
 
     func delete(_ entry: ChatThreadIndexEntry) {
         let id = entry.id
-        ChatThreadStore.delete(id: id, kind: entry.kind)
+        suppressedIDs.insert(id)
+        entries.removeAll { $0.id == id }
         if selectedID == id { selectedID = nil }
-        reload()
+        ChatThreadStore.delete(id: id, kind: entry.kind)
     }
 
     /// Messages-style created date (8/7/26).

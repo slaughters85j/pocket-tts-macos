@@ -25,11 +25,15 @@ extension EnsembleViewModel {
     /// the file so a restart has cast even before the first spoken line.
     func beginEnsembleThread(title: String, snapshot: EnsembleThreadPayload? = nil) {
         detachAfterFlushingCurrentThread()
-        var record = ChatThreadStore.create(kind: .ensemble, title: title)
+        var record = ChatThreadRecord(kind: .ensemble, title: title)
         record.ensemble = snapshot ?? currentCastSnapshot(turns: turns)
-        record = ChatThreadStore.save(record)
         currentThreadID = record.id
         threadBrowser?.applySaved(record)
+        threadBrowser?.select(record.id)
+        let browser = threadBrowser
+        ChatThreadStore.saveAsync(record) { saved in
+            browser?.applySaved(saved)
+        }
     }
 
     /// Persist the open thread with its *current* turns, then detach so the
@@ -91,19 +95,41 @@ extension EnsembleViewModel {
     // MARK: - Load / restart helpers
 
     func loadEnsembleThread(id: UUID) {
+        #if DEBUG
+        print("[ChatThreads] ensemble load begin id=\(id.uuidString.prefix(8)) current=\(currentThreadID?.uuidString.prefix(8) ?? "nil") running=\(isRunning)")
+        #endif
         stop()
         if currentThreadID != id {
+            #if DEBUG
+            print("[ChatThreads] ensemble flush+detach current before switch")
+            #endif
             detachAfterFlushingCurrentThread()
         }
-        guard let record = ChatThreadStore.load(id: id, kind: .ensemble),
-              let payload = record.ensemble
-        else {
-            showNotice("Couldn't open that thread")
-            return
+        threadBrowser?.select(id)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let record = await ChatThreadStore.loadAsync(id: id, kind: .ensemble),
+                  let payload = record.ensemble
+            else {
+                #if DEBUG
+                print("[ChatThreads] ensemble load missing file/payload id=\(id.uuidString.prefix(8)) stillSelected=\(self.threadBrowser?.selectedID == id)")
+                #endif
+                guard self.threadBrowser?.selectedID == id else { return }
+                self.showNotice("Couldn't open that thread")
+                return
+            }
+            guard self.threadBrowser?.selectedID == id else {
+                #if DEBUG
+                print("[ChatThreads] ensemble load stale — dropped id=\(id.uuidString.prefix(8)) nowSelected=\(self.threadBrowser?.selectedID?.uuidString.prefix(8) ?? "nil")")
+                #endif
+                return
+            }
+            self.applyCastSnapshot(payload, resetTurns: false)
+            self.currentThreadID = record.id
+            #if DEBUG
+            print("[ChatThreads] ensemble load applied id=\(record.id.uuidString.prefix(8)) title=\(record.title) turns=\(payload.turns.count) cast=\(payload.cast.map(\.name).joined(separator: ","))")
+            #endif
         }
-        applyCastSnapshot(payload, resetTurns: false)
-        currentThreadID = record.id
-        threadBrowser?.select(record.id)
     }
 
     func applyCastSnapshot(_ payload: EnsembleThreadPayload, resetTurns: Bool) {
@@ -133,16 +159,18 @@ extension EnsembleViewModel {
 
     func detachIfShowing(_ id: UUID) {
         guard currentThreadID == id else { return }
+        threadSaveTask?.cancel()
+        threadSaveTask = nil
         currentThreadID = nil
         stop()
         turns = []
     }
 
+    /// In-memory only — Reuse Last must not `ioQueue.sync` a JSON load.
     func selectedThreadCastSnapshot() -> EnsembleThreadPayload? {
-        guard let id = threadBrowser?.selectedID ?? currentThreadID,
-              let record = ChatThreadStore.load(id: id, kind: .ensemble)
-        else { return nil }
-        return record.ensemble
+        let id = threadBrowser?.selectedID ?? currentThreadID
+        guard let id, id == currentThreadID else { return nil }
+        return currentCastSnapshot(turns: turns)
     }
 
     // MARK: - Theme

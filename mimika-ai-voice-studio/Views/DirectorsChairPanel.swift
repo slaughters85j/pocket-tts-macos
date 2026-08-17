@@ -25,6 +25,8 @@ struct DirectorsChairPanel: View {
     @State private var directTargetID: UUID?
     @State private var directInstruction: String = ""
     @FocusState private var directInstructionFocused: Bool
+    /// Settings form is deferred one frame so first-open glass can composite first.
+    @State private var settingsMounted = false
 
     private let cardRadius: CGFloat = 20
 
@@ -61,7 +63,11 @@ struct DirectorsChairPanel: View {
                             .accessibilityIdentifier("ensemble.directorsChair.collapse")
                         }
 
-                        EnsembleSettingsView(viewModel: viewModel, showsSectionTitle: false)
+                        if settingsMounted {
+                            EnsembleSettingsView(viewModel: viewModel, showsSectionTitle: false)
+                        } else {
+                            Color.clear.frame(minHeight: 200)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -116,6 +122,12 @@ struct DirectorsChairPanel: View {
             }
             if directTargetID == nil {
                 directTargetID = viewModel.cast.first?.id
+            }
+            if !settingsMounted {
+                Task { @MainActor in
+                    await Task.yield()
+                    settingsMounted = true
+                }
             }
         }
         .onDisappear {

@@ -19,16 +19,21 @@ extension ChatViewModel {
     }
 
     /// Create a thread on first real content; debounce-save afterwards.
+    /// Mint the id on-thread and persist off-main — never `ioQueue.sync` here.
     func noteSoloThreadActivity() {
         if currentThreadID == nil {
-            var record = ChatThreadStore.create(
+            var record = ChatThreadRecord(
                 kind: .solo,
                 title: soloThreadTitle(from: messages)
             )
             record.soloMessages = messages
-            record = ChatThreadStore.save(record)
             currentThreadID = record.id
             threadBrowser?.applySaved(record)
+            threadBrowser?.select(record.id)
+            let browser = threadBrowser
+            ChatThreadStore.saveAsync(record) { saved in
+                browser?.applySaved(saved)
+            }
             requestSoloThemeIfNeeded()
         } else {
             scheduleSoloThreadSave()
@@ -62,6 +67,8 @@ extension ChatViewModel {
     /// Drop live state if the open thread was deleted from the sidebar.
     func detachIfShowing(_ id: UUID) {
         guard currentThreadID == id else { return }
+        threadSaveTask?.cancel()
+        threadSaveTask = nil
         currentThreadID = nil
         messages.removeAll()
         pendingAttachments = []
@@ -71,22 +78,44 @@ extension ChatViewModel {
 
     /// Persist then restore a Solo thread's transcript.
     func loadSoloThread(id: UUID) {
+        #if DEBUG
+        print("[ChatThreads] solo load begin id=\(id.uuidString.prefix(8)) current=\(currentThreadID?.uuidString.prefix(8) ?? "nil") activeTurn=\(activeTurn != nil)")
+        #endif
         guard activeTurn == nil else {
+            #if DEBUG
+            print("[ChatThreads] solo load blocked — model still responding")
+            #endif
             showToast("Please wait until the model finishes responding.")
             return
         }
         flushSoloThreadSave()
-        guard let record = ChatThreadStore.load(id: id, kind: .solo) else {
-            showToast("Couldn't open that thread")
-            return
+        threadBrowser?.select(id)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let record = await ChatThreadStore.loadAsync(id: id, kind: .solo) else {
+                #if DEBUG
+                print("[ChatThreads] solo load missing file id=\(id.uuidString.prefix(8)) stillSelected=\(self.threadBrowser?.selectedID == id)")
+                #endif
+                guard self.threadBrowser?.selectedID == id else { return }
+                self.showToast("Couldn't open that thread")
+                return
+            }
+            guard self.threadBrowser?.selectedID == id else {
+                #if DEBUG
+                print("[ChatThreads] solo load stale — dropped id=\(id.uuidString.prefix(8)) nowSelected=\(self.threadBrowser?.selectedID?.uuidString.prefix(8) ?? "nil")")
+                #endif
+                return
+            }
+            self.messages = record.soloMessages
+            self.pendingAttachments = []
+            self.previewAttachment = nil
+            self.showsVisionRecovery = false
+            self.currentThreadID = record.id
+            self.status = .idle
+            #if DEBUG
+            print("[ChatThreads] solo load applied id=\(record.id.uuidString.prefix(8)) title=\(record.title) messages=\(record.soloMessages.count)")
+            #endif
         }
-        messages = record.soloMessages
-        pendingAttachments = []
-        previewAttachment = nil
-        showsVisionRecovery = false
-        currentThreadID = record.id
-        threadBrowser?.select(record.id)
-        status = .idle
     }
 
     // MARK: - Save

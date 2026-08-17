@@ -14,7 +14,8 @@ import Foundation
 
 // MARK: - ChatThreadStore
 
-enum ChatThreadStore {
+/// File I/O lives off the main actor (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`).
+nonisolated enum ChatThreadStore {
     static let maxUnpinnedPerKind = 30
 
     /// Serial file I/O — never encode/write JSON on the UI thread.
@@ -25,6 +26,9 @@ enum ChatThreadStore {
 
     /// Tests point this at a temp folder so they never touch the live store.
     nonisolated(unsafe) static var directoryOverride: URL?
+
+    /// IDs removed while a `saveAsync` may still be queued. Touched only on `ioQueue`.
+    nonisolated(unsafe) private static var deletedIDs: Set<UUID> = []
 
     // MARK: Paths
 
@@ -64,18 +68,27 @@ enum ChatThreadStore {
     // MARK: Index
 
     static func list(kind: ChatThreadKind) -> [ChatThreadIndexEntry] {
-        ioQueue.sync {
-            loadIndexUnlocked().entries
-                .filter { $0.kind == kind }
-                .sorted { lhs, rhs in
-                    if lhs.pinned != rhs.pinned { return lhs.pinned && !rhs.pinned }
-                    return lhs.updatedAt > rhs.updatedAt
-                }
+        ioQueue.sync { listUnlocked(kind: kind) }
+    }
+
+    /// Sidebar catalog — never `sync` from the turn loop.
+    static func listAsync(kind: ChatThreadKind) async -> [ChatThreadIndexEntry] {
+        await withCheckedContinuation { cont in
+            ioQueue.async { cont.resume(returning: listUnlocked(kind: kind)) }
         }
     }
 
     static func loadIndex() -> ChatThreadIndex {
         ioQueue.sync { loadIndexUnlocked() }
+    }
+
+    private static func listUnlocked(kind: ChatThreadKind) -> [ChatThreadIndexEntry] {
+        loadIndexUnlocked().entries
+            .filter { $0.kind == kind }
+            .sorted { lhs, rhs in
+                if lhs.pinned != rhs.pinned { return lhs.pinned && !rhs.pinned }
+                return lhs.updatedAt > rhs.updatedAt
+            }
     }
 
     private static func loadIndexUnlocked() -> ChatThreadIndex {
@@ -95,6 +108,13 @@ enum ChatThreadStore {
         ioQueue.sync { loadUnlocked(id: id, kind: kind) }
     }
 
+    /// Click-load — hops off main so a fat thread JSON cannot stall TTS/tokens.
+    static func loadAsync(id: UUID, kind: ChatThreadKind) async -> ChatThreadRecord? {
+        await withCheckedContinuation { cont in
+            ioQueue.async { cont.resume(returning: loadUnlocked(id: id, kind: kind)) }
+        }
+    }
+
     private static func loadUnlocked(id: UUID, kind: ChatThreadKind) -> ChatThreadRecord? {
         guard let data = try? Data(contentsOf: fileURL(id: id, kind: kind)) else {
             return nil
@@ -104,23 +124,33 @@ enum ChatThreadStore {
 
     @discardableResult
     static func save(_ record: ChatThreadRecord) -> ChatThreadRecord {
-        ioQueue.sync { saveUnlocked(record) }
+        ioQueue.sync { saveUnlocked(record) ?? record }
     }
 
     /// Encode + write off the main thread; hop back for UI (sidebar upsert).
+    /// Completion is skipped when the id was deleted before the write landed.
     static func saveAsync(
         _ record: ChatThreadRecord,
         completion: @escaping @MainActor (ChatThreadRecord) -> Void
     ) {
         ioQueue.async {
-            let saved = saveUnlocked(record)
+            guard let saved = saveUnlocked(record) else { return }
             DispatchQueue.main.async {
                 completion(saved)
             }
         }
     }
 
-    private static func saveUnlocked(_ record: ChatThreadRecord) -> ChatThreadRecord {
+    /// Same as `saveAsync` for tests that need to observe a dropped write.
+    static func saveAsync(_ record: ChatThreadRecord) async -> ChatThreadRecord? {
+        await withCheckedContinuation { cont in
+            ioQueue.async { cont.resume(returning: saveUnlocked(record)) }
+        }
+    }
+
+    /// `nil` when this id was deleted before the write — do not resurrect the file.
+    private static func saveUnlocked(_ record: ChatThreadRecord) -> ChatThreadRecord? {
+        if deletedIDs.contains(record.id) { return nil }
         ensureDirectories()
         var next = record
         next.updatedAt = .now
@@ -137,6 +167,7 @@ enum ChatThreadStore {
 
     static func delete(id: UUID, kind: ChatThreadKind) {
         ioQueue.sync {
+            deletedIDs.insert(id)
             try? FileManager.default.removeItem(at: fileURL(id: id, kind: kind))
             var index = loadIndexUnlocked()
             index.entries.removeAll { $0.id == id }
@@ -146,6 +177,7 @@ enum ChatThreadStore {
 
     static func setPinned(id: UUID, kind: ChatThreadKind, pinned: Bool) {
         ioQueue.sync {
+            if deletedIDs.contains(id) { return }
             var index = loadIndexUnlocked()
             guard let i = index.entries.firstIndex(where: { $0.id == id }) else { return }
             index.entries[i].pinned = pinned
@@ -161,6 +193,7 @@ enum ChatThreadStore {
         let trimmed = theme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         ioQueue.sync {
+            if deletedIDs.contains(id) { return }
             var index = loadIndexUnlocked()
             if let i = index.entries.firstIndex(where: { $0.id == id }) {
                 index.entries[i].theme = trimmed
@@ -232,6 +265,7 @@ enum ChatThreadStore {
             .sorted { $0.updatedAt > $1.updatedAt }
         guard unpinned.count > maxUnpinnedPerKind else { return }
         for stale in unpinned.dropFirst(maxUnpinnedPerKind) {
+            deletedIDs.insert(stale.id)
             try? FileManager.default.removeItem(at: fileURL(id: stale.id, kind: stale.kind))
             index.entries.removeAll { $0.id == stale.id }
         }

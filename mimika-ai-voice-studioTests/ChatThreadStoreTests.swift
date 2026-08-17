@@ -27,7 +27,7 @@ final class ChatThreadStoreTests: XCTestCase {
     func test_createListPinDelete_andRestartDoesNotOverwrite() {
         let first = ChatThreadStore.create(kind: .solo, title: "Hello there")
         XCTAssertEqual(ChatThreadStore.list(kind: .solo).count, 1)
-        XCTAssertFalse(ChatThreadStore.createdDateLabelIsEmpty(first.createdAt))
+        XCTAssertFalse(ChatThreadBrowser.createdDateLabel(first.createdAt).isEmpty)
 
         ChatThreadStore.setPinned(id: first.id, kind: .solo, pinned: true)
         XCTAssertTrue(ChatThreadStore.list(kind: .solo).first?.pinned == true)
@@ -61,10 +61,55 @@ final class ChatThreadStoreTests: XCTestCase {
         let date = Calendar(identifier: .gregorian).date(from: comps)!
         XCTAssertEqual(ChatThreadBrowser.createdDateLabel(date), "8/7/26")
     }
-}
 
-private extension ChatThreadStore {
-    static func createdDateLabelIsEmpty(_ date: Date) -> Bool {
-        ChatThreadBrowser.createdDateLabel(date).isEmpty
+    func test_listAndLoadAsync_roundTrip() async {
+        var record = ChatThreadStore.create(kind: .solo, title: "Async")
+        record.soloMessages = [ChatMessage(role: .user, content: "hi")]
+        _ = ChatThreadStore.save(record)
+
+        let listed = await ChatThreadStore.listAsync(kind: .solo)
+        XCTAssertEqual(listed.map(\.id), [record.id])
+
+        let loaded = await ChatThreadStore.loadAsync(id: record.id, kind: .solo)
+        XCTAssertEqual(loaded?.soloMessages.first?.content, "hi")
+    }
+
+    func test_saveAsyncAfterDeleteDoesNotResurrect() async {
+        var record = ChatThreadStore.create(kind: .solo, title: "Doomed")
+        record.soloMessages = [ChatMessage(role: .user, content: "keep")]
+        ChatThreadStore.delete(id: record.id, kind: .solo)
+
+        let saved = await ChatThreadStore.saveAsync(record)
+        XCTAssertNil(saved, "tombstone must drop a write queued after delete")
+        XCTAssertNil(ChatThreadStore.load(id: record.id, kind: .solo))
+        XCTAssertTrue(ChatThreadStore.list(kind: .solo).isEmpty)
+    }
+
+    func test_browserApplySavedDoesNotResurrectDeleted() {
+        let browser = ChatThreadBrowser()
+        var record = ChatThreadRecord(kind: .solo, title: "Ghost")
+        record.soloMessages = [ChatMessage(role: .user, content: "x")]
+        browser.applySaved(record)
+        XCTAssertEqual(browser.entries.map(\.id), [record.id])
+
+        let entry = browser.entries[0]
+        browser.delete(entry)
+        XCTAssertTrue(browser.entries.isEmpty)
+
+        browser.applySaved(record)
+        XCTAssertTrue(browser.entries.isEmpty, "late save must not put a deleted row back")
+    }
+
+    func test_applySavedDoesNotStealSelection() {
+        let browser = ChatThreadBrowser()
+        let first = ChatThreadRecord(kind: .solo, title: "First")
+        let second = ChatThreadRecord(kind: .solo, title: "Second")
+        browser.applySaved(first)
+        browser.select(first.id)
+        browser.applySaved(second)
+        browser.select(second.id)
+
+        browser.applySaved(first)
+        XCTAssertEqual(browser.selectedID, second.id, "flush of the previous thread must not steal the click")
     }
 }
