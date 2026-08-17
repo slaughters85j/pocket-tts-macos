@@ -32,7 +32,7 @@ struct EnsembleSettingsView: View {
                 Picker("", selection: $viewModel.turnOrder) {
                     ForEach(TurnMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
-                .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+                .pickerStyle(.menu).labelsHidden()
             }
             row("Randomness", helpTitle: "Randomness", helpBody: randomnessHelp,
                 accessibilityID: "ensemble.settings.help.randomness") {
@@ -40,7 +40,7 @@ struct EnsembleSettingsView: View {
                     Text("Shuffle once").tag(RNGMode.shuffleOnce)
                     Text("Reroll each turn").tag(RNGMode.rerollPerTurn)
                 }
-                .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+                .pickerStyle(.menu).labelsHidden()
                 // Conductor only consults RNG for Round Robin seat order.
                 // Director / Weighted Random ignore it — grey the control out.
                 .disabled(!randomnessApplies)
@@ -53,7 +53,7 @@ struct EnsembleSettingsView: View {
                         Text($0.displayName).tag($0)
                     }
                 }
-                .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+                .pickerStyle(.menu).labelsHidden()
             }
             row("Pace", helpTitle: "Pace", helpBody: paceHelp,
                 accessibilityID: "ensemble.settings.help.pace") {
@@ -67,12 +67,10 @@ struct EnsembleSettingsView: View {
             row("Max turns", helpTitle: "Max turns", helpBody: maxTurnsHelp,
                 accessibilityID: "ensemble.settings.help.maxTurns") {
                 Stepper("\(viewModel.maxTurns)", value: $viewModel.maxTurns, in: 4...300, step: 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             row("Context window", helpTitle: "Context window", helpBody: contextWindowHelp,
                 accessibilityID: "ensemble.settings.help.contextWindow") {
                 Stepper("\(viewModel.verbatimWindow) turns", value: $viewModel.verbatimWindow, in: 4...40, step: 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             // Compact fill denominator — not Solo "Max Tokens" (reply length).
             // Override only affects the meter; raise n_ctx in LM Studio for real capacity.
@@ -114,6 +112,7 @@ struct EnsembleSettingsView: View {
             )
             .opacity(viewModel.hasRealUserCharacterName ? 1 : 0.55)
         }
+        .frame(width: Self.formWidth, alignment: .leading)
     }
 
     private var includeUserBinding: Binding<Bool> {
@@ -240,6 +239,24 @@ struct EnsembleSettingsView: View {
 
     // MARK: - Layout
 
+    // Fixed row geometry. This is a PERFORMANCE contract, not cosmetics.
+    //
+    // Every control here is AppKit-backed (NSPopUpButton / NSStepper / NSTextField).
+    // Left flexible, SwiftUI's StackLayout re-proposes sizes to each one and every
+    // probe round-trips into AppKit. A 30 s Time Profiler trace of the open Chair
+    // showed ~13.5 nested `LayoutEngineBox.sizeThatFits` per sample, ~5.9
+    // `_FlexFrameLayout` (that IS `.frame(maxWidth:)`), and a main thread hung
+    // continuously — clicks and keystrokes took seconds. Rigid widths give the
+    // layout engine nothing to search. Do not put `maxWidth: .infinity` back on
+    // the form, a row, or any AppKit-backed control in one. (A plain Text inside
+    // an already-fixed column is fine — it resolves against a known width.)
+    //
+    // labelWidth + space3 + controlWidth == formWidth, and formWidth fits the
+    // Chair's 480pt card (448 inner − 16 gap − ~56 Boot/Direct/Compact column).
+    private static let formWidth: CGFloat = 372
+    private static let labelWidth: CGFloat = 132
+    private static let controlWidth: CGFloat = 228
+
     /// Manual binding for the `paceSeconds` computed bridge (Duration ↔ seconds).
     private var paceBinding: Binding<Double> {
         Binding(get: { viewModel.paceSeconds }, set: { viewModel.paceSeconds = $0 })
@@ -259,8 +276,9 @@ struct EnsembleSettingsView: View {
                 Text(label).font(Theme.fontXS).foregroundStyle(Self.chairLabelColor)
                 SettingInfoButton(title: helpTitle, message: helpBody, accessibilityID: accessibilityID)
             }
-            .frame(width: 132, alignment: .leading)
+            .frame(width: Self.labelWidth, alignment: .leading)
             content()
+                .frame(width: Self.controlWidth, alignment: .leading)
         }
     }
 

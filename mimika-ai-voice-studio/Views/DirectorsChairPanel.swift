@@ -14,19 +14,17 @@ import SwiftUI
 /// Sketch: stem from the toolbar chair, settings left, Boot affordance right.
 struct DirectorsChairPanel: View {
     @Bindable var viewModel: EnsembleViewModel
-    var onCollapse: () -> Void
+    /// Binding instead of a closure — a new `() -> Void` every parent body
+    /// eval was recreating this view (and Liquid Glass) on each token.
+    @Binding var isPresented: Bool
 
+    // Composer text + focus live on `ChairComposerCard`, not here — typing must
+    // not re-evaluate this body (glass card + the whole run-settings form).
     @State private var showsBootComposer = false
     @State private var bootTargetID: UUID?
-    @State private var bootReason: String = ""
-    @FocusState private var bootReasonFocused: Bool
 
     @State private var showsDirectComposer = false
     @State private var directTargetID: UUID?
-    @State private var directInstruction: String = ""
-    @FocusState private var directInstructionFocused: Bool
-    /// Settings form is deferred one frame so first-open glass can composite first.
-    @State private var settingsMounted = false
 
     private let cardRadius: CGFloat = 20
 
@@ -63,11 +61,7 @@ struct DirectorsChairPanel: View {
                             .accessibilityIdentifier("ensemble.directorsChair.collapse")
                         }
 
-                        if settingsMounted {
-                            EnsembleSettingsView(viewModel: viewModel, showsSectionTitle: false)
-                        } else {
-                            Color.clear.frame(minHeight: 200)
-                        }
+                        EnsembleSettingsView(viewModel: viewModel, showsSectionTitle: false)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -123,16 +117,6 @@ struct DirectorsChairPanel: View {
             if directTargetID == nil {
                 directTargetID = viewModel.cast.first?.id
             }
-            if !settingsMounted {
-                Task { @MainActor in
-                    await Task.yield()
-                    settingsMounted = true
-                }
-            }
-        }
-        .onDisappear {
-            bootReasonFocused = false
-            directInstructionFocused = false
         }
         .accessibilityIdentifier("ensemble.directorsChair.panel")
     }
@@ -233,136 +217,42 @@ struct DirectorsChairPanel: View {
         "Compact older model context: next calls keep the last Context window turns plus a short brief. Transcript / export stay complete. ~% uses a Qwen reference tokenizer vs LM Studio’s loaded context length (Server context in Run Settings; toast at ~90%). Not Solo Max Tokens."
 
     private var bootComposer: some View {
-        VStack(alignment: .center, spacing: Theme.space2) {
-            Text("BOOT")
-                .font(Theme.fontXS)
-                .foregroundStyle(EnsembleSettingsView.chairLabelColor)
-                .frame(maxWidth: .infinity)
-            Text("They speak next with this instruction, then leave the cast. Everyone else is told they're gone.")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-
-            Picker("Speaker", selection: bootTargetBinding) {
-                ForEach(viewModel.cast) { persona in
-                    Text(persona.name).tag(Optional(persona.id))
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 280)
-            .accessibilityIdentifier("ensemble.directorsChair.bootTarget")
-
-            HStack(spacing: Theme.space2) {
-                TextField("Reason — e.g. die heroically, leave the bridge, stop the crude jokes",
-                         text: $bootReason)
-                    .textFieldStyle(.roundedBorder)
-                    .font(Theme.fontSM)
-                    .focused($bootReasonFocused)
-                    .accessibilityIdentifier("ensemble.directorsChair.bootReason")
-
-                Button("Send") {
-                    sendBoot()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-                .disabled(bootTargetID == nil || !canBoot)
-                .accessibilityIdentifier("ensemble.directorsChair.bootSend")
-            }
-        }
-        .padding(Theme.space3)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                .fill(Color.black.opacity(0.22))
+        ChairComposerCard(
+            style: .boot,
+            cast: viewModel.cast,
+            canSend: canBoot,
+            targetID: $bootTargetID,
+            onSend: sendBoot
         )
     }
 
-    private var bootTargetBinding: Binding<UUID?> {
-        Binding(
-            get: { bootTargetID },
-            set: { bootTargetID = $0 }
-        )
-    }
-
-    private func sendBoot() {
-        guard let id = bootTargetID else { return }
-        // Resign field focus before collapsing the composer.
-        bootReasonFocused = false
-        guard viewModel.bootCastMember(id: id, reason: bootReason) else { return }
-        bootReason = ""
+    private func sendBoot(reason: String) -> Bool {
+        guard let id = bootTargetID else { return false }
+        guard viewModel.bootCastMember(id: id, reason: reason) else { return false }
         collapseBootComposer()
+        return true
     }
 
     private var directComposer: some View {
-        VStack(alignment: .center, spacing: Theme.space2) {
-            Text("DIRECT")
-                .font(Theme.fontXS)
-                .foregroundStyle(EnsembleSettingsView.chairLabelColor)
-                .frame(maxWidth: .infinity)
-            Text("Private note for one cast member. They speak next (Strict sampling). Stay in character — steer, ban a phrase, or change the beat.")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-
-            Picker("Speaker", selection: directTargetBinding) {
-                ForEach(viewModel.cast) { persona in
-                    Text(persona.name).tag(Optional(persona.id))
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 280)
-            .accessibilityIdentifier("ensemble.directorsChair.directTarget")
-
-            HStack(spacing: Theme.space2) {
-                TextField("e.g. stop the emoji jokes, get back to the sensor anomaly",
-                         text: $directInstruction)
-                    .textFieldStyle(.roundedBorder)
-                    .font(Theme.fontSM)
-                    .focused($directInstructionFocused)
-                    .accessibilityIdentifier("ensemble.directorsChair.directInstruction")
-
-                Button("Send") {
-                    sendDirect()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-                .disabled(directTargetID == nil
-                          || directInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                          || !canDirect)
-                .accessibilityIdentifier("ensemble.directorsChair.directSend")
-            }
-        }
-        .padding(Theme.space3)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
-                .fill(Color.black.opacity(0.22))
+        ChairComposerCard(
+            style: .direct,
+            cast: viewModel.cast,
+            canSend: canDirect,
+            targetID: $directTargetID,
+            onSend: sendDirect
         )
     }
 
-    private var directTargetBinding: Binding<UUID?> {
-        Binding(
-            get: { directTargetID },
-            set: { directTargetID = $0 }
-        )
-    }
-
-    private func sendDirect() {
-        guard let id = directTargetID else { return }
-        directInstructionFocused = false
-        guard viewModel.issueDirective(id: id, instruction: directInstruction) else { return }
-        directInstruction = ""
+    private func sendDirect(instruction: String) -> Bool {
+        guard let id = directTargetID else { return false }
+        guard viewModel.issueDirective(id: id, instruction: instruction) else { return false }
         collapseDirectComposer()
+        return true
     }
 
-    /// Defocus the reason field first so the field teardown doesn't fight the
-    /// composer hide animation (focus resign → then remove).
+    /// The card resigns focus on send / disappear; the 60 ms beat still keeps
+    /// that teardown from fighting the composer hide animation.
     private func collapseBootComposer() {
-        bootReasonFocused = false
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -372,7 +262,6 @@ struct DirectorsChairPanel: View {
     }
 
     private func collapseDirectComposer() {
-        directInstructionFocused = false
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -382,15 +271,13 @@ struct DirectorsChairPanel: View {
     }
 
     private func collapseChair() {
-        bootReasonFocused = false
-        directInstructionFocused = false
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
             withAnimation(.easeInOut(duration: 0.5)) {
                 showsBootComposer = false
                 showsDirectComposer = false
             }
-            onCollapse()
+            isPresented = false
         }
     }
 }
@@ -444,7 +331,7 @@ private struct DirectorsChairCompactMeter: View {
 
     var body: some View {
         let fill = CGFloat(viewModel.contextFillPercent ?? 0) / 100.0
-        let empty = viewModel.turns.isEmpty
+        let empty = !viewModel.hasTurns
         return Button {
             _ = viewModel.compactContext()
         } label: {

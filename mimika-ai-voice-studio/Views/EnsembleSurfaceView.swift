@@ -26,6 +26,8 @@ struct EnsembleSurfaceView: View {
     /// Drives the attention shake on the grenade flame (armed or collapse nudge).
     @State private var grenadeShakeTick = false
     @State private var dropIsTargeted = false
+    /// Driven by MacTextEditor's laid-out content height (see the composer).
+    @State private var composerHeight: CGFloat = 42
 
     /// A short, self-dismissing message shown centered in the controls bar.
     private struct ControlFlash {
@@ -95,7 +97,9 @@ struct EnsembleSurfaceView: View {
                 .padding(.vertical, Theme.space4)
             }
             .onChange(of: viewModel.turns.last?.content) {
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("tail", anchor: .bottom) }
+                // No animation — tokens can land more than once per frame, and
+                // animating scroll under Liquid Glass melts the main thread.
+                proxy.scrollTo("tail", anchor: .bottom)
             }
         }
         .background(Theme.bgPrimary)
@@ -439,20 +443,41 @@ struct EnsembleSurfaceView: View {
                 ensembleAttachmentTray
             }
             HStack(spacing: Theme.space3) {
-                TextField(
-                    viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…",
-                    text: $viewModel.draft,
-                    axis: .vertical
-                )
-                    .lineLimit(1...4)
-                    .textFieldStyle(.plain)
-                    .font(Theme.fontSM)
-                    .foregroundStyle(Theme.textPrimary)
-                    .padding(.horizontal, Theme.space4)
-                    .padding(.vertical, Theme.space3)
-                    .themeInputField()
-                    .onSubmit { viewModel.submitUserTurn() }
-                    .accessibilityIdentifier("ensemble.composer.field")
+                // NSTextView-backed, fixed height — same pattern as Solo's
+                // ChatComposerView and ScriptGeneratorModal.
+                //
+                // NOT cosmetic. `TextField(axis: .vertical)` has no intrinsic width
+                // cap, so the enclosing HStack asks it how wide it wants to be, and
+                // answering means re-shaping the WHOLE draft through CoreText. A
+                // 15 s trace of a large pasted block showed the main thread in
+                // OpenType glyph positioning — `OTL::GPOS::ApplyPairPos`,
+                // `PairSet::ValuePair`, variable-font `ItemVariationStore` — for
+                // the entire recording, and the stall persisted for as long as the
+                // text sat in the field. A fixed-height editor advertises no
+                // content-dependent size, so nothing re-measures it.
+                ZStack(alignment: .topLeading) {
+                    if viewModel.draft.isEmpty {
+                        Text(viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…")
+                            .font(Theme.fontSM)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, Theme.space4 + 4)
+                            .padding(.vertical, Theme.space3)
+                            .allowsHitTesting(false)
+                    }
+                    MacTextEditor(
+                        text: $viewModel.draft,
+                        accessibilityID: "ensemble.composer.field",
+                        onSubmit: { viewModel.submitUserTurn() },
+                        onContentHeightChange: { contentHeight in
+                            // Cap ≈ the old `.lineLimit(1...4)`; longer drafts scroll.
+                            composerHeight = min(max(contentHeight + 4, 42), 100)
+                        }
+                    )
+                    .padding(.horizontal, Theme.space4 - 4)
+                    .padding(.vertical, 2)
+                }
+                .frame(height: composerHeight)
+                .themeInputField()
 
                 if viewModel.supportsVision {
                     Button(action: chooseImages) {

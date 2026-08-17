@@ -22,8 +22,6 @@ struct ChatView: View {
     @State private var showsEnsembleCastEditor = false
     @State private var showsMultiTalkVoiceMap = false
     @State private var showsDirectorsChair = false
-    /// Keep the glass card in the tree after first open so reopen skips layout.
-    @State private var chairMounted = false
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
     @State private var editingMessage: ChatMessage?
@@ -40,29 +38,32 @@ struct ChatView: View {
                         ? { viewModel.startNewSoloConversation() }
                         : nil
                 )
+                .fixedSize(horizontal: true, vertical: false)
                 Divider().background(Theme.borderColor)
             }
             VStack(spacing: 0) {
                 topBar
                 Divider().background(Theme.borderColor)
-                // Transcript/composer stay full-height; the Chair floats over them
-                // (sketch: ZStack overlay + glass, not a layout-pushing strip).
-                ZStack(alignment: .top) {
+                if subMode == .solo {
                     mainChatSurface
-                    if chairMounted {
-                        DirectorsChairPanel(viewModel: ensembleViewModel) {
-                            withAnimation(.easeInOut(duration: 0.5)) {
-                                showsDirectorsChair = false
-                            }
-                        }
-                        .opacity(subMode == .ensemble && showsDirectorsChair ? 1 : 0)
-                        .allowsHitTesting(subMode == .ensemble && showsDirectorsChair)
-                        .zIndex(10)
-                    }
+                } else {
+                    // Own view so token/toolbar Observation cannot recreate glass.
+                    ChatWorkspace(
+                        ensembleViewModel: ensembleViewModel,
+                        player: player,
+                        ensembleViewMode: ensembleViewMode,
+                        showsDirectorsChair: $showsDirectorsChair
+                    )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
             }
+            // REQUIRED, not cosmetic. Without a flexible frame this VStack's ideal
+            // width depends on its whole subtree, so the enclosing HStack probes it
+            // with several proposals — and every probe re-measures the top bar, the
+            // transcript, AND the Director's Chair's ~10 AppKit controls. That is
+            // what made the sidebar poison app-wide performance: collapsing the
+            // sidebar left one HStack child and the stall vanished. Taking the
+            // proposal verbatim ends the search at one pass.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: subMode) { _, newMode in
             // Solo and Ensemble keep separate thinking defaults/stores;
@@ -163,27 +164,19 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Main surface (under Director's Chair overlay)
+    // MARK: - Main surface
 
-    @ViewBuilder
+    /// Solo only — Ensemble's transcript lives in `ChatWorkspace` with the Chair.
     private var mainChatSurface: some View {
-        if subMode == .solo {
-            VStack(spacing: 0) {
-                if viewModel.viewMode == .orb {
-                    OrbView(amplitudeSource: player.currentAmplitude)
-                        .background(Color.black)
-                } else {
-                    transcript
-                }
-                Divider().background(Theme.borderColor)
-                ChatComposerView(viewModel: viewModel)
+        VStack(spacing: 0) {
+            if viewModel.viewMode == .orb {
+                OrbView(amplitudeSource: player.currentAmplitude)
+                    .background(Color.black)
+            } else {
+                transcript
             }
-        } else {
-            EnsembleSurfaceView(
-                viewModel: ensembleViewModel,
-                player: player,
-                viewMode: ensembleViewMode
-            )
+            Divider().background(Theme.borderColor)
+            ChatComposerView(viewModel: viewModel)
         }
     }
 
@@ -228,7 +221,7 @@ struct ChatView: View {
 
             // Ensemble-only: live run knobs without leaving the conversation.
             if subMode == .ensemble {
-                DirectorsChairToggleButton(isOpen: chairOpenBinding)
+                DirectorsChairToggleButton(isOpen: $showsDirectorsChair)
             }
 
             Spacer()
@@ -337,19 +330,6 @@ struct ChatView: View {
 
     // MARK: Ensemble controls
 
-    /// First open mounts the Chair; later toggles only flip visibility.
-    private var chairOpenBinding: Binding<Bool> {
-        Binding(
-            get: { showsDirectorsChair },
-            set: { newValue in
-                if newValue { chairMounted = true }
-                showsDirectorsChair = newValue
-            }
-        )
-    }
-
-
-
     private func attachThreads(for mode: ChatSubMode) {
         if mode == .solo {
             viewModel.attachThreadBrowser(threadBrowser)
@@ -436,6 +416,38 @@ struct ChatView: View {
     }
 }
 
+// MARK: - Workspace (own Observation scope)
+
+/// Transcript + Chair. Isolated so ChatView toolbar/sidebar invalidation
+/// cannot rebuild Liquid Glass, and so the Chair is not handed a fresh
+/// collapse closure on every token.
+private struct ChatWorkspace: View {
+    @Bindable var ensembleViewModel: EnsembleViewModel
+    let player: StreamingPlayer
+    let ensembleViewMode: ViewMode
+    @Binding var showsDirectorsChair: Bool
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            EnsembleSurfaceView(
+                viewModel: ensembleViewModel,
+                player: player,
+                viewMode: ensembleViewMode
+            )
+            if showsDirectorsChair {
+                DirectorsChairPanel(
+                    viewModel: ensembleViewModel,
+                    isPresented: $showsDirectorsChair
+                )
+                .transition(.asymmetric(insertion: .opacity, removal: .opacity))
+                .zIndex(10)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
+    }
+}
+
 // MARK: - Isolated toolbar chips
 
 /// Own Observation scope so connection polls do not rebuild ChatView (Chair glass).
@@ -465,8 +477,9 @@ private struct EnsembleReasoningLock: View {
     }
 }
 
-/// Trailing Ensemble chrome. `canExport` reads `turns` — must not live in ChatView.body
-/// or every token rebuilds the sidebar + Director's Chair glass.
+/// Trailing Ensemble chrome. Nothing here may read `turns` — that fires on every
+/// streamed token and would rebuild the sidebar + Director's Chair glass with it.
+/// `canExport` is quarantined in `EnsembleExportControls`.
 private struct EnsembleToolbarControls: View {
     @Bindable var viewModel: EnsembleViewModel
     @Bindable var browser: ChatThreadBrowser
@@ -477,26 +490,7 @@ private struct EnsembleToolbarControls: View {
 
     var body: some View {
         EnsembleRunStatusLabel(viewModel: viewModel)
-
-        if viewModel.canExport {
-            Button(action: { viewModel.saveTranscript() }) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Export transcript (.md)")
-            .accessibilityIdentifier("ensemble.saveTranscript")
-
-            Button(action: onOpenMultiTalk) {
-                Image(systemName: "person.2.wave.2")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Open episode in Multi-Talk — map your character voices first")
-            .accessibilityIdentifier("ensemble.openMultiTalk")
-        }
+        EnsembleExportControls(viewModel: viewModel, onOpenMultiTalk: onOpenMultiTalk)
 
         Button(action: { viewMode = viewMode == .orb ? .transcript : .orb }) {
             Image(systemName: viewMode == .orb ? "list.bullet" : "circle.fill")
@@ -549,6 +543,38 @@ private struct EnsembleToolbarControls: View {
             return "Restart — \(names)"
         }
         return "Restart — \(names). Scene: \(scene)"
+    }
+}
+
+// MARK: - Ensemble export chrome (isolated)
+
+/// Own Observation scope for `canExport`, which reads `turns` and re-runs
+/// TextNormalizer. Sharing a body with the rest of the toolbar meant every
+/// streamed token re-evaluated all of it.
+private struct EnsembleExportControls: View {
+    @Bindable var viewModel: EnsembleViewModel
+    var onOpenMultiTalk: () -> Void
+
+    var body: some View {
+        if viewModel.canExport {
+            Button(action: { viewModel.saveTranscript() }) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Export transcript (.md)")
+            .accessibilityIdentifier("ensemble.saveTranscript")
+
+            Button(action: onOpenMultiTalk) {
+                Image(systemName: "person.2.wave.2")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open episode in Multi-Talk — map your character voices first")
+            .accessibilityIdentifier("ensemble.openMultiTalk")
+        }
     }
 }
 

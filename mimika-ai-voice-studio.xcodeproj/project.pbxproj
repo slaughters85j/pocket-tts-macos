@@ -59,6 +59,7 @@
 		898CF712008166ED09428509 /* PersonaWriterIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */; };
 		9033479D61A32A041F03B2A4 /* MicrophoneRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */; };
 		9299B66A7C094EF0A56888C8 /* DirectorsChairPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC1096E3CA841BE9518329E /* DirectorsChairPanel.swift */; };
+		A3C7F1D2E4B84A19C6D50B77 /* DirectorsChairComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E2D4A6C1F74E03B92A6C15 /* DirectorsChairComposer.swift */; };
 		980FFE19F76D732F785165F1 /* ChatVisionRecoveryTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2924248BB28A70031C205C60 /* ChatVisionRecoveryTransitionTests.swift */; };
 		9A28843F630780EC11A80853 /* RecordingQualityAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */; };
 		9B933C945BB6F908E8268066 /* VoiceReferenceExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FFBC61F34B3B4FE53889AD5 /* VoiceReferenceExtractorTests.swift */; };
@@ -312,6 +313,7 @@
 		1597B0B0B63AF9B310542A57 /* VoiceReferenceExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReferenceExtractor.swift; sourceTree = "<group>"; };
 		1BE02A905C6569FE16A5E900 /* ActiveChatTurn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveChatTurn.swift; sourceTree = "<group>"; };
 		1FC1096E3CA841BE9518329E /* DirectorsChairPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DirectorsChairPanel.swift; sourceTree = "<group>"; };
+		B8E2D4A6C1F74E03B92A6C15 /* DirectorsChairComposer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DirectorsChairComposer.swift; sourceTree = "<group>"; };
 		209ABB13B3566ACBE2A669C9 /* ChatViewModel+Attachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewModel+Attachments.swift"; sourceTree = "<group>"; };
 		21E9C5D6FBA0A2CA3CE12967 /* ChatCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCapabilities.swift; sourceTree = "<group>"; };
 		22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Export.swift"; sourceTree = "<group>"; };
@@ -954,6 +956,7 @@
 				C39989818B12E30B025277F9 /* EnsembleCastEditorSheet.swift */,
 				4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */,
 				1FC1096E3CA841BE9518329E /* DirectorsChairPanel.swift */,
+				B8E2D4A6C1F74E03B92A6C15 /* DirectorsChairComposer.swift */,
 				E9CC17D2ABF0DB738583B68A /* EnsemblePersonaEditorSheet.swift */,
 				7811C7B05509321C8D2C8261 /* MenuBarContent.swift */,
 				326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */,
@@ -1465,6 +1468,7 @@
 				F32CB45378CA5EE418905F43 /* EnsembleViewModel+Director.swift in Sources */,
 				BDF03E2F201819BC6671F989 /* EnsembleSettingsView.swift in Sources */,
 				9299B66A7C094EF0A56888C8 /* DirectorsChairPanel.swift in Sources */,
+				A3C7F1D2E4B84A19C6D50B77 /* DirectorsChairComposer.swift in Sources */,
 				AA7E25F17754F920B93BCADA /* KeychainStore.swift in Sources */,
 				9DED98B73CC5CD304F80E552 /* PersonaProviderStore.swift in Sources */,
 				5AE7C0489BE46297DB384FA1 /* AnthropicMessagesClient.swift in Sources */,

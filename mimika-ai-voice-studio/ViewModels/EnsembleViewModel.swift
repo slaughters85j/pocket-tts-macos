@@ -29,7 +29,15 @@ import AppKit
 final class EnsembleViewModel {
 
     // MARK: - Transcript + cast
-    var turns: [EnsembleTurn] = []
+    /// Stored so the Chair Compact meter can disable without observing `turns`
+    /// (mutating a turn's content would otherwise rebuild glass every token).
+    var hasTurns: Bool = false
+    var turns: [EnsembleTurn] = [] {
+        didSet {
+            let next = !turns.isEmpty
+            if hasTurns != next { hasTurns = next }
+        }
+    }
     var cast: [Persona] = []
     var userPeer = UserPeer()
     /// Quick-pick names the human can speak as mid-conversation. Seeded from
