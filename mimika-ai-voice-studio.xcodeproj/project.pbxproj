@@ -123,6 +123,7 @@
 		D53CE66A2FD2FADC0071832E /* DemucsModelVariant.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE59C2FD2FADC0071832E /* DemucsModelVariant.swift */; };
 		D53CE66B2FD2FADC0071832E /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5D32FD2FADC0071832E /* OrbShader.metal */; };
 		D53CE66C2FD2FADC0071832E /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5822FD2FADC0071832E /* MessageBubble.swift */; };
+		A7B3C9D14E6F42A8B05D3E27 /* MarkdownProseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E9A4C86D2B47539CA80B63 /* MarkdownProseView.swift */; };
 		D53CE66E2FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE6272FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift */; };
 		D53CE66F2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE64A2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift */; };
 		D53CE6702FD2FADC0071832E /* VoiceSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE58D2FD2FADC0071832E /* VoiceSelector.swift */; };
@@ -204,6 +205,7 @@
 		D53CE6BD2FD2FADC0071832E /* MimiEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5C52FD2FADC0071832E /* MimiEncoder.swift */; };
 		D53CE6BE2FD2FADC0071832E /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5F62FD2FADC0071832E /* ChatView.swift */; };
 		869C424537E1471D895AF9E4 /* ChatThreadSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7282154B00AB4B8C943ABF69 /* ChatThreadSidebar.swift */; };
+		C4D7E1A93B2F48E0A1770C62 /* ChatThreadRenameSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F80B5E7A4C41DBA6390E11 /* ChatThreadRenameSheet.swift */; };
 		D53CE6BF2FD2FADC0071832E /* TextNormalizer+Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5BC2FD2FADC0071832E /* TextNormalizer+Data.swift */; };
 		D53CE6C02FD2FADC0071832E /* SpeakerIsolatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE63B2FD2FADC0071832E /* SpeakerIsolatorTests.swift */; };
 		D53CE6C12FD2FADC0071832E /* MultiSpeakerRevoicerNoBackgroundRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE6302FD2FADC0071832E /* MultiSpeakerRevoicerNoBackgroundRegressionTests.swift */; };
@@ -395,6 +397,7 @@
 		D53CE5802FD2FADC0071832E /* HistoryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryCard.swift; sourceTree = "<group>"; };
 		D53CE5812FD2FADC0071832E /* MacTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTextEditor.swift; sourceTree = "<group>"; };
 		D53CE5822FD2FADC0071832E /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
+		F1E9A4C86D2B47539CA80B63 /* MarkdownProseView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownProseView.swift; sourceTree = "<group>"; };
 		D53CE5832FD2FADC0071832E /* MiniAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniAudioPlayer.swift; sourceTree = "<group>"; };
 		D53CE5842FD2FADC0071832E /* ModalContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModalContainer.swift; sourceTree = "<group>"; };
 		D53CE5852FD2FADC0071832E /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
@@ -496,6 +499,7 @@
 		D53CE5F52FD2FADC0071832E /* ChatSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSettingsView.swift; sourceTree = "<group>"; };
 		D53CE5F62FD2FADC0071832E /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		7282154B00AB4B8C943ABF69 /* ChatThreadSidebar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatThreadSidebar.swift; sourceTree = "<group>"; };
+		D2F80B5E7A4C41DBA6390E11 /* ChatThreadRenameSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatThreadRenameSheet.swift; sourceTree = "<group>"; };
 		D53CE5F72FD2FADC0071832E /* DemucsModelManagerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemucsModelManagerSheet.swift; sourceTree = "<group>"; };
 		D53CE5F82FD2FADC0071832E /* FirstLaunchSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstLaunchSetupView.swift; sourceTree = "<group>"; };
 		D53CE5F92FD2FADC0071832E /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -661,6 +665,7 @@
 				D53CE5802FD2FADC0071832E /* HistoryCard.swift */,
 				D53CE5812FD2FADC0071832E /* MacTextEditor.swift */,
 				D53CE5822FD2FADC0071832E /* MessageBubble.swift */,
+				F1E9A4C86D2B47539CA80B63 /* MarkdownProseView.swift */,
 				A11B9C112FD2FADC0071832E /* ChatMessageActions.swift */,
 				D53CE5832FD2FADC0071832E /* MiniAudioPlayer.swift */,
 				0D0528909C61EB4E7BDC5ED2 /* ModelCapabilityBadges.swift */,
@@ -938,6 +943,7 @@
 				D53CE5F52FD2FADC0071832E /* ChatSettingsView.swift */,
 				D53CE5F62FD2FADC0071832E /* ChatView.swift */,
 				7282154B00AB4B8C943ABF69 /* ChatThreadSidebar.swift */,
+				D2F80B5E7A4C41DBA6390E11 /* ChatThreadRenameSheet.swift */,
 				D53CE5F72FD2FADC0071832E /* DemucsModelManagerSheet.swift */,
 				D53CE5F82FD2FADC0071832E /* FirstLaunchSetupView.swift */,
 				D53CE5F92FD2FADC0071832E /* HistoryView.swift */,
@@ -1330,6 +1336,7 @@
 				D53CE66A2FD2FADC0071832E /* DemucsModelVariant.swift in Sources */,
 				D53CE66B2FD2FADC0071832E /* OrbShader.metal in Sources */,
 				D53CE66C2FD2FADC0071832E /* MessageBubble.swift in Sources */,
+				A7B3C9D14E6F42A8B05D3E27 /* MarkdownProseView.swift in Sources */,
 				A11B9C102FD2FADC0071832E /* ChatMessageActions.swift in Sources */,
 				D53CE6702FD2FADC0071832E /* VoiceSelector.swift in Sources */,
 				D53CE6712FD2FADC0071832E /* SpeakerIsolatorViewModel+ChangeVoices.swift in Sources */,
@@ -1397,6 +1404,7 @@
 				D53CE6BD2FD2FADC0071832E /* MimiEncoder.swift in Sources */,
 				D53CE6BE2FD2FADC0071832E /* ChatView.swift in Sources */,
 				869C424537E1471D895AF9E4 /* ChatThreadSidebar.swift in Sources */,
+				C4D7E1A93B2F48E0A1770C62 /* ChatThreadRenameSheet.swift in Sources */,
 				D53CE6BF2FD2FADC0071832E /* TextNormalizer+Data.swift in Sources */,
 				D53CE6C22FD2FADC0071832E /* DemucsSourceSeparator.swift in Sources */,
 				D53CE6C32FD2FADC0071832E /* HistoryViewModel.swift in Sources */,

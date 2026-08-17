@@ -78,6 +78,12 @@ nonisolated struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
 nonisolated enum ChatMarkdownSegment: Equatable, Sendable {
     case prose(String)
     case code(language: String?, content: String)
+    /// GFM pipe table. `rows` excludes the header and the `---` separator.
+    ///
+    /// Foundation's `AttributedString(markdown:)` has no table support at all —
+    /// it handles inline styling only — so a pipe table used to render as literal
+    /// `| Shift | Role |` text. Segmenting it here lets the view draw a real grid.
+    case table(header: [String], rows: [[String]])
 }
 
 /// Streaming-safe fenced-code segmentation shared by chat display and reuse.
@@ -144,7 +150,83 @@ nonisolated enum ChatMarkdownParser {
             flushProse()
         }
 
-        return segments
+        return segments.flatMap(splitTables)
+    }
+
+    // MARK: - Tables
+
+    /// Split a prose segment into prose / table / prose runs.
+    ///
+    /// Runs after fence handling so a pipe table inside a code fence stays code.
+    private static func splitTables(_ segment: ChatMarkdownSegment) -> [ChatMarkdownSegment] {
+        guard case let .prose(text) = segment else { return [segment] }
+        let lines = text.components(separatedBy: "\n")
+        var out: [ChatMarkdownSegment] = []
+        var prose: [String] = []
+        var index = 0
+
+        func flushProse() {
+            let joined = prose.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if !joined.isEmpty { out.append(.prose(joined)) }
+            prose.removeAll(keepingCapacity: true)
+        }
+
+        while index < lines.count {
+            // A table is a pipe row followed by a |---|---| separator.
+            if index + 1 < lines.count,
+               isPipeRow(lines[index]),
+               isSeparatorRow(lines[index + 1]) {
+                let header = cells(in: lines[index])
+                var rows: [[String]] = []
+                var cursor = index + 2
+                while cursor < lines.count, isPipeRow(lines[cursor]) {
+                    var row = cells(in: lines[cursor])
+                    // Ragged rows are common in model output — pad/trim to header.
+                    if row.count < header.count {
+                        row += Array(repeating: "", count: header.count - row.count)
+                    } else if row.count > header.count {
+                        row = Array(row.prefix(header.count))
+                    }
+                    rows.append(row)
+                    cursor += 1
+                }
+                flushProse()
+                out.append(.table(header: header, rows: rows))
+                index = cursor
+                continue
+            }
+            prose.append(lines[index])
+            index += 1
+        }
+        flushProse()
+        return out
+    }
+
+    private static func isPipeRow(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        return t.hasPrefix("|") && t.count > 1
+    }
+
+    /// `| --- | :--: |` — dashes with optional alignment colons.
+    private static func isSeparatorRow(_ line: String) -> Bool {
+        guard isPipeRow(line) else { return false }
+        let parts = cells(in: line)
+        guard !parts.isEmpty else { return false }
+        return parts.allSatisfy { cell in
+            let c = cell.trimmingCharacters(in: .whitespaces)
+            return !c.isEmpty
+                && c.allSatisfy { $0 == "-" || $0 == ":" }
+                && c.contains("-")
+        }
+    }
+
+    /// Cells of a pipe row, without the leading/trailing delimiters.
+    private static func cells(in line: String) -> [String] {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        return t.components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }
 

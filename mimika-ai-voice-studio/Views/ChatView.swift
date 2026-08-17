@@ -125,7 +125,8 @@ struct ChatView: View {
         }
         .sheet(item: $editingMessage) { message in
             ChatMessageEditorSheet(
-                message: message,
+                content: message.content,
+                allowsEmpty: !message.attachments.isEmpty,
                 onCancel: { editingMessage = nil },
                 onSave: { content in
                     viewModel.updateTranscriptMessage(

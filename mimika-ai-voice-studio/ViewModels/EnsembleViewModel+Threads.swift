@@ -68,16 +68,54 @@ extension EnsembleViewModel {
 
     func flushEnsembleThreadSave() {
         guard let id = currentThreadID else { return }
+        let entry = threadBrowser?.entries.first(where: { $0.id == id })
         var record = ChatThreadRecord(id: id, kind: .ensemble)
-        record.theme = threadBrowser?.entries.first(where: { $0.id == id })?.theme ?? ""
-        record.createdAt = threadBrowser?.entries.first(where: { $0.id == id })?.createdAt ?? record.createdAt
+        record.theme = entry?.theme ?? ""
+        record.createdAt = entry?.createdAt ?? record.createdAt
         record.ensemble = currentCastSnapshot(turns: turns)
-        record.title = ensembleThreadTitle()
-        record.pinned = threadBrowser?.entries.first(where: { $0.id == id })?.pinned ?? record.pinned
+        record.pinned = entry?.pinned ?? record.pinned
+        // A user rename wins over the scene-derived title.
+        if entry?.titleIsCustom == true, let custom = entry?.title, !custom.isEmpty {
+            record.title = custom
+            record.titleIsCustom = true
+        } else {
+            record.title = ensembleThreadTitle()
+        }
         let browser = threadBrowser
         ChatThreadStore.saveAsync(record) { saved in
             browser?.applySaved(saved)
         }
+    }
+
+    // MARK: - Transcript edits
+
+    /// Rewrite one turn's text. Mirrors Solo's `updateTranscriptMessage`.
+    ///
+    /// Steering a flattening conversation is the point: the models only ever see
+    /// `turns`, so correcting or trimming a line changes what the cast reads next.
+    func updateTurnContent(id: UUID, content: String) {
+        guard !isRunning else {
+            showNotice("Please wait until the current turn finishes.")
+            return
+        }
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].content = content
+        // A cut-off marker is meaningless once the line has been rewritten.
+        turns[index].wasCutOff = false
+        noteEnsembleThreadActivity()
+    }
+
+    /// Remove one turn — used to drop repetition that drags the cast into a loop.
+    func deleteTurn(id: UUID) {
+        guard !isRunning else {
+            showNotice("Please wait until the current turn finishes.")
+            return
+        }
+        guard turns.contains(where: { $0.id == id }) else { return }
+        turns.removeAll { $0.id == id }
+        // Summaries are indexed by position; a removal invalidates that window.
+        if summarizedUpTo > turns.count { summarizedUpTo = turns.count }
+        noteEnsembleThreadActivity()
     }
 
     func currentCastSnapshot(turns: [EnsembleTurn]) -> EnsembleThreadPayload {

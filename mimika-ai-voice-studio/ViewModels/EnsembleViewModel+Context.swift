@@ -233,7 +233,10 @@ extension EnsembleViewModel {
 
     /// Publish a completed estimate + drive the near-full toast. Main actor.
     private func applyContextFill(promptTokens: Int, usable: Int) {
-        let pct = min(100, Int((Double(promptTokens) / Double(usable) * 100.0).rounded()))
+        // Clamped at both ends — the meter is a 0…100 ring and a negative fill
+        // would both read as nonsense and invert the trim.
+        let raw = Int((Double(promptTokens) / Double(usable) * 100.0).rounded())
+        let pct = max(0, min(100, raw))
         contextFillPercent = pct
 
         if pct >= 90, !didWarnContextNearFull {

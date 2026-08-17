@@ -16,6 +16,9 @@ struct ChatThreadSidebar: View {
     var onDeleted: (ChatThreadIndexEntry) -> Void = { _ in }
     var onNew: (() -> Void)?
 
+    /// Row being renamed — drives the edit sheet.
+    @State private var renaming: ChatThreadIndexEntry?
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -65,6 +68,16 @@ struct ChatThreadSidebar: View {
         .frame(width: 248)
         .background(Theme.bgSecondary)
         .accessibilityIdentifier("chat.threads.sidebar")
+        .sheet(item: $renaming) { entry in
+            ChatThreadRenameSheet(
+                entry: entry,
+                onCancel: { renaming = nil },
+                onSave: { title, theme in
+                    browser.rename(entry, title: title, theme: theme)
+                    renaming = nil
+                }
+            )
+        }
     }
 
     private func threadRow(_ entry: ChatThreadIndexEntry) -> some View {
@@ -105,6 +118,9 @@ struct ChatThreadSidebar: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button("Rename…") {
+                renaming = entry
+            }
             Button(entry.pinned ? "Unpin" : "Pin") {
                 browser.togglePinned(entry)
             }

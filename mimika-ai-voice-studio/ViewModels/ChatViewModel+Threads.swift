@@ -131,12 +131,19 @@ extension ChatViewModel {
 
     private func flushSoloThreadSave() {
         guard let id = currentThreadID else { return }
+        let entry = threadBrowser?.entries.first(where: { $0.id == id })
         var record = ChatThreadRecord(id: id, kind: .solo)
-        record.theme = threadBrowser?.entries.first(where: { $0.id == id })?.theme ?? ""
-        record.createdAt = threadBrowser?.entries.first(where: { $0.id == id })?.createdAt ?? record.createdAt
+        record.theme = entry?.theme ?? ""
+        record.createdAt = entry?.createdAt ?? record.createdAt
         record.soloMessages = messages
-        record.title = soloThreadTitle(from: messages)
-        record.pinned = threadBrowser?.entries.first(where: { $0.id == id })?.pinned ?? record.pinned
+        record.pinned = entry?.pinned ?? record.pinned
+        // A user rename wins over the title derived from the first message.
+        if entry?.titleIsCustom == true, let custom = entry?.title, !custom.isEmpty {
+            record.title = custom
+            record.titleIsCustom = true
+        } else {
+            record.title = soloThreadTitle(from: messages)
+        }
         let browser = threadBrowser
         ChatThreadStore.saveAsync(record) { saved in
             browser?.applySaved(saved)

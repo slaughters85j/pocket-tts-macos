@@ -30,6 +30,15 @@ nonisolated struct ChatThreadIndexEntry: Identifiable, Equatable, Codable, Senda
     var createdAt: Date
     var updatedAt: Date
     var pinned: Bool
+    /// Set once the user renames the thread, so the per-turn save stops
+    /// re-deriving the title from the first message.
+    ///
+    /// Optional on purpose: synthesized `Codable` THROWS on a missing key, so a
+    /// non-optional field here would make every thread file written before this
+    /// build fail to decode — and `loadIndexUnlocked` turns a decode failure into
+    /// an empty index, which the next save then writes over the top of. Optional
+    /// decodes as `nil` for old files.
+    var titleIsCustom: Bool?
 }
 
 // MARK: - Index file
@@ -50,6 +59,9 @@ nonisolated struct ChatThreadRecord: Identifiable, Codable, Sendable {
     var pinned: Bool
     var soloMessages: [ChatMessage]
     var ensemble: EnsembleThreadPayload?
+    /// See `ChatThreadIndexEntry.titleIsCustom` — Optional for the same
+    /// backward-compatibility reason.
+    var titleIsCustom: Bool?
 
     init(
         id: UUID = UUID(),
@@ -60,7 +72,8 @@ nonisolated struct ChatThreadRecord: Identifiable, Codable, Sendable {
         updatedAt: Date = .now,
         pinned: Bool = false,
         soloMessages: [ChatMessage] = [],
-        ensemble: EnsembleThreadPayload? = nil
+        ensemble: EnsembleThreadPayload? = nil,
+        titleIsCustom: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -71,6 +84,7 @@ nonisolated struct ChatThreadRecord: Identifiable, Codable, Sendable {
         self.pinned = pinned
         self.soloMessages = soloMessages
         self.ensemble = ensemble
+        self.titleIsCustom = titleIsCustom
     }
 
     var indexEntry: ChatThreadIndexEntry {
@@ -81,7 +95,8 @@ nonisolated struct ChatThreadRecord: Identifiable, Codable, Sendable {
             theme: theme,
             createdAt: createdAt,
             updatedAt: updatedAt,
-            pinned: pinned
+            pinned: pinned,
+            titleIsCustom: titleIsCustom
         )
     }
 }

@@ -16,7 +16,11 @@ import Observation
 final class ChatThreadBrowser {
     var kind: ChatThreadKind = .solo {
         didSet {
-            if oldValue != kind { reload() }
+            guard oldValue != kind else { return }
+            // Park the outgoing kind's row before the list swaps under us.
+            selectionByKind[oldValue] = selectedID
+            selectedID = selectionByKind[kind]
+            reload()
         }
     }
     var entries: [ChatThreadIndexEntry] = []
@@ -26,6 +30,11 @@ final class ChatThreadBrowser {
     /// Drop late `applySaved` / `listAsync` results for threads the user deleted.
     private var suppressedIDs: Set<UUID> = []
     private var reloadToken = UUID()
+    /// Last selected row per kind, so flipping Solo ↔ Ensemble and back keeps
+    /// the open thread highlighted. `reload()` drops a selection that isn't in
+    /// the freshly-listed kind — correct for a deleted thread, wrong for a mode
+    /// switch, which is why the highlight used to vanish on every view change.
+    private var selectionByKind: [ChatThreadKind: UUID] = [:]
 
     func reload() {
         let kind = self.kind
@@ -35,14 +44,20 @@ final class ChatThreadBrowser {
             let listed = await ChatThreadStore.listAsync(kind: kind)
             guard let self, self.reloadToken == token, self.kind == kind else { return }
             self.entries = listed.filter { !self.suppressedIDs.contains($0.id) }
-            if let selectedID, !self.entries.contains(where: { $0.id == selectedID }) {
+            // Restore this kind's remembered row; clear only if it really is gone.
+            let desired = self.selectedID ?? self.selectionByKind[kind]
+            if let desired, self.entries.contains(where: { $0.id == desired }) {
+                self.selectedID = desired
+            } else {
                 self.selectedID = nil
+                self.selectionByKind[kind] = nil
             }
         }
     }
 
     func select(_ id: UUID?) {
         selectedID = id
+        selectionByKind[kind] = id
     }
 
     /// Upsert the catalog row. Does **not** change selection — a late save of
@@ -71,6 +86,24 @@ final class ChatThreadBrowser {
             && lhs.createdAt == rhs.createdAt
     }
 
+    /// Apply a user rename optimistically, then persist off the main thread.
+    func rename(_ entry: ChatThreadIndexEntry, title: String, theme: String) {
+        let cleanTitle = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        let cleanTheme = String(theme.trimmingCharacters(in: .whitespacesAndNewlines).prefix(140))
+        guard !cleanTitle.isEmpty else { return }
+        if let i = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[i].title = cleanTitle
+            entries[i].theme = cleanTheme
+            entries[i].titleIsCustom = true
+        }
+        ChatThreadStore.rename(
+            id: entry.id,
+            kind: entry.kind,
+            title: cleanTitle,
+            theme: cleanTheme
+        )
+    }
+
     func togglePinned(_ entry: ChatThreadIndexEntry) {
         guard let i = entries.firstIndex(where: { $0.id == entry.id }) else { return }
         entries[i].pinned.toggle()
@@ -86,6 +119,7 @@ final class ChatThreadBrowser {
         suppressedIDs.insert(id)
         entries.removeAll { $0.id == id }
         if selectedID == id { selectedID = nil }
+        if selectionByKind[entry.kind] == id { selectionByKind[entry.kind] = nil }
         ChatThreadStore.delete(id: id, kind: entry.kind)
     }
 

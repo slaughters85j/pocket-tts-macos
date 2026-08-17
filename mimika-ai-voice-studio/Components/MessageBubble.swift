@@ -60,7 +60,7 @@ struct MessageBubble: View {
                        displayedContent.isEmpty {
                         AssistantResponseShimmer()
                     } else if message.role == .assistant, !displayedContent.isEmpty {
-                        AssistantMarkdownText(source: displayedContent)
+                        MarkdownProseView(source: displayedContent)
                     } else if !displayedContent.isEmpty {
                         Text(displayedContent)
                             .font(Theme.fontSM)
@@ -93,7 +93,8 @@ struct MessageBubble: View {
                 alignment: message.role == .user ? .bottomTrailing : .bottomLeading
             ) {
                 ChatMessageActionBar(
-                    message: message,
+                    content: message.content,
+                    entryID: message.id,
                     canModify: canModify,
                     onEdit: { onEdit(message) },
                     onDelete: { onDelete(message.id) }
@@ -292,50 +293,3 @@ private nonisolated struct ChatBubbleShape: Shape {
     }
 }
 
-// MARK: - Assistant Markdown
-
-/// Native Markdown prose plus distinct fenced code panels for assistant replies.
-private struct AssistantMarkdownText: View {
-    let source: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.space3) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case let .prose(markdown):
-                    Text(attributedMarkdown(markdown))
-                        .font(Theme.fontSM)
-                        .foregroundStyle(.white)
-                        .tint(.white.opacity(0.85))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                case let .code(_, content):
-                    Text(content.isEmpty ? " " : content)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.82))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, Theme.space2)
-                    .background(Color(red: 0.12, green: 0.13, blue: 0.16))
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                }
-            }
-        }
-    }
-
-    private var segments: [ChatMarkdownSegment] {
-        ChatMarkdownParser.parse(source)
-    }
-
-    /// Parse inline and block Markdown attributes, falling back to literal prose.
-    private func attributedMarkdown(_ markdown: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .full,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        return (try? AttributedString(markdown: markdown, options: options))
-            ?? AttributedString(markdown)
-    }
-}

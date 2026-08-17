@@ -141,6 +141,13 @@ nonisolated enum ChatTranscriptSanitizer {
                 switch segment {
                 case let .prose(content), let .code(_, content):
                     return content
+                case let .table(header, rows):
+                    // Pipes and dashes are not speakable. Flatten to one line
+                    // per row with comma-separated cells, header included.
+                    return ([header] + rows)
+                        .map { $0.filter { !$0.isEmpty }.joined(separator: ", ") }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
                 }
             }
             .joined(separator: "\n\n")

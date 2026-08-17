@@ -28,6 +28,8 @@ struct EnsembleSurfaceView: View {
     @State private var dropIsTargeted = false
     /// Driven by MacTextEditor's laid-out content height (see the composer).
     @State private var composerHeight: CGFloat = 42
+    /// Turn being edited from the hover actions.
+    @State private var editingTurn: EnsembleTurn?
 
     /// A short, self-dismissing message shown centered in the controls bar.
     private struct ControlFlash {
@@ -68,6 +70,17 @@ struct EnsembleSurfaceView: View {
                 close: { viewModel.previewAttachment = nil }
             )
         }
+        .sheet(item: $editingTurn) { turn in
+            ChatMessageEditorSheet(
+                content: turn.content,
+                allowsEmpty: !turn.attachments.isEmpty,
+                onCancel: { editingTurn = nil },
+                onSave: { content in
+                    viewModel.updateTurnContent(id: turn.id, content: content)
+                    editingTurn = nil
+                }
+            )
+        }
     }
 
     // MARK: - Transcript
@@ -106,6 +119,21 @@ struct EnsembleSurfaceView: View {
     }
 
     private func turnRow(_ turn: EnsembleTurn) -> some View {
+        // Copy / edit / delete on hover, same affordance as Solo. Editing the
+        // transcript is how a flattening conversation gets steered: the cast only
+        // ever reads `turns`, so trimming a repeated line changes what comes next.
+        TranscriptHoverActions(
+            entryID: turn.id,
+            copyText: turn.content,
+            canModify: !viewModel.isRunning,
+            onEdit: { editingTurn = turn },
+            onDelete: { viewModel.deleteTurn(id: turn.id) }
+        ) {
+            turnBody(turn)
+        }
+    }
+
+    private func turnBody(_ turn: EnsembleTurn) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
                 Text(turn.speakerName)
@@ -137,10 +165,15 @@ struct EnsembleSurfaceView: View {
                 .padding(.top, 2)
             }
             if !turn.content.isEmpty || turn.wasCutOff {
-                Text(turn.content + (turn.wasCutOff ? "  — [cut off]" : ""))
-                    .font(Theme.fontSM)
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Same renderer Solo uses — tables, fenced code and inline
+                // styling. Plain dialogue (nearly every turn) takes the fast
+                // path and never touches the parser, which matters because this
+                // transcript re-renders on every streamed token.
+                MarkdownProseView(
+                    source: turn.content + (turn.wasCutOff ? "  — [cut off]" : ""),
+                    textColor: Theme.textPrimary,
+                    codeBackground: Theme.bgTertiary
+                )
             }
         }
         .padding(Theme.space3)

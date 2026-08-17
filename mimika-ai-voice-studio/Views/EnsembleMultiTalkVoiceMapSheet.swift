@@ -78,7 +78,9 @@ struct EnsembleMultiTalkVoiceMapSheet: View {
             }
             .padding(Theme.space6)
         }
-        .frame(minWidth: 440, minHeight: 280)
+        // Wide enough that a full character name ("Lt. Commander Cock-gobbler")
+        // sits beside a 220pt voice picker without truncating.
+        .frame(minWidth: 560, minHeight: 280)
         .accessibilityIdentifier("ensemble.voiceMap.sheet")
     }
 
@@ -87,18 +89,20 @@ struct EnsembleMultiTalkVoiceMapSheet: View {
     private func characterRow(_ name: String) -> some View {
         HStack(spacing: Theme.space3) {
             VStack(alignment: .leading, spacing: 2) {
+                // Wrap rather than truncate — these are user-chosen character
+                // names and can be arbitrarily long.
                 Text(name)
                     .font(Theme.fontSM)
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(name)
                 Text("Your character")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
             }
-            .frame(minWidth: 100, alignment: .leading)
-
-            Spacer(minLength: Theme.space2)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             voicePicker(for: name)
                 .frame(width: 220)

@@ -218,6 +218,39 @@ nonisolated enum ChatThreadStore {
         }
     }
 
+    /// User-driven rename: sets the sidebar title and its one-line description,
+    /// and marks the title custom so the per-turn save stops re-deriving it from
+    /// the first message. Async — nothing needs the result, and this used to be
+    /// the shape that blocked the main thread on a busy I/O queue.
+    static func rename(
+        id: UUID,
+        kind: ChatThreadKind,
+        title: String,
+        theme: String,
+        completion: @escaping @MainActor () -> Void = {}
+    ) {
+        let cleanTitle = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        let cleanTheme = String(theme.trimmingCharacters(in: .whitespacesAndNewlines).prefix(140))
+        guard !cleanTitle.isEmpty else { return }
+        ioQueue.async {
+            if deletedIDs.contains(id) { return }
+            var index = loadIndexUnlocked()
+            if let i = index.entries.firstIndex(where: { $0.id == id }) {
+                index.entries[i].title = cleanTitle
+                index.entries[i].theme = cleanTheme
+                index.entries[i].titleIsCustom = true
+                writeIndex(index)
+            }
+            if var record = loadUnlocked(id: id, kind: kind) {
+                record.title = cleanTitle
+                record.theme = cleanTheme
+                record.titleIsCustom = true
+                writeAtomically(record, to: fileURL(id: id, kind: kind))
+            }
+            DispatchQueue.main.async { completion() }
+        }
+    }
+
     static func updateTheme(id: UUID, kind: ChatThreadKind, theme: String) {
         let trimmed = theme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -280,6 +313,13 @@ nonisolated enum ChatThreadStore {
             var merged = entry
             merged.pinned = index.entries[i].pinned || entry.pinned
             merged.theme = entry.theme.isEmpty ? index.entries[i].theme : entry.theme
+            // A user rename outranks the title a routine save derived from the
+            // first message — otherwise the next turn would overwrite it.
+            let wasCustom = index.entries[i].titleIsCustom == true
+            merged.titleIsCustom = wasCustom || entry.titleIsCustom == true
+            if wasCustom, entry.titleIsCustom != true {
+                merged.title = index.entries[i].title
+            }
             index.entries[i] = merged
         } else {
             index.entries.insert(entry, at: 0)

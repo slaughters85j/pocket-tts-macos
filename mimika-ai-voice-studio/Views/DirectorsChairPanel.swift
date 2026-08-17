@@ -357,7 +357,12 @@ private struct DirectorsChairCompactMeter: View {
                     .font(Theme.fontXS)
                     .foregroundStyle(EnsembleSettingsView.chairLabelColor)
                 if let pct = viewModel.contextFillPercent {
-                    Text("~\(pct)%")
+                    // Bare percentage — no "~" or "≈" prefix. At 10pt on a 4K
+                    // display an approximation glyph reads as a minus sign in
+                    // front of the digits; it was reported as a negative value
+                    // twice. "Approximate" is already said in the help popover,
+                    // where there is room to say it in words. Don't add it back.
+                    Text("\(pct)%")
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(compactIconColor)
