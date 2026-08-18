@@ -2,10 +2,7 @@
 //  ChatThreadModels.swift
 //  mimika-ai-voice-studio
 //
-//  Lightweight JSON shapes for Solo / Ensemble conversation threads.
-//  Catalog + per-thread files live under Application Support (same tree
-//  as saved-voices/). Images stay session-only — Codable ChatMessage
-//  already drops attachment bytes.
+//  Lightweight JSON shapes for Solo / Ensemble conversation threads. Catalog + per-thread files live under Application Support (same tree as saved-voices/). Images stay session-only — Codable ChatMessage already drops attachment bytes.
 //
 
 import Foundation
@@ -20,8 +17,7 @@ nonisolated enum ChatThreadKind: String, Codable, Sendable {
 
 // MARK: - Index row
 
-/// One sidebar card. Theme is the model-written one-liner; createdAt is
-/// the date shown on the trailing edge (Messages-style).
+/// One sidebar card. Theme is the model-written one-liner; createdAt is the date shown on the trailing edge (Messages-style).
 nonisolated struct ChatThreadIndexEntry: Identifiable, Equatable, Codable, Sendable {
     var id: UUID
     var kind: ChatThreadKind
@@ -30,14 +26,9 @@ nonisolated struct ChatThreadIndexEntry: Identifiable, Equatable, Codable, Senda
     var createdAt: Date
     var updatedAt: Date
     var pinned: Bool
-    /// Set once the user renames the thread, so the per-turn save stops
-    /// re-deriving the title from the first message.
+    /// Set once the user renames the thread, so the per-turn save stops re-deriving the title from the first message.
     ///
-    /// Optional on purpose: synthesized `Codable` THROWS on a missing key, so a
-    /// non-optional field here would make every thread file written before this
-    /// build fail to decode — and `loadIndexUnlocked` turns a decode failure into
-    /// an empty index, which the next save then writes over the top of. Optional
-    /// decodes as `nil` for old files.
+    /// Optional on purpose: synthesized `Codable` THROWS on a missing key, so a non-optional field here would make every thread file written before this build fail to decode — and `loadIndexUnlocked` turns a decode failure into an empty index, which the next save then writes over the top of. Optional decodes as `nil` for old files.
     var titleIsCustom: Bool?
 }
 
@@ -59,8 +50,7 @@ nonisolated struct ChatThreadRecord: Identifiable, Codable, Sendable {
     var pinned: Bool
     var soloMessages: [ChatMessage]
     var ensemble: EnsembleThreadPayload?
-    /// See `ChatThreadIndexEntry.titleIsCustom` — Optional for the same
-    /// backward-compatibility reason.
+    /// See `ChatThreadIndexEntry.titleIsCustom` — Optional for the same backward-compatibility reason.
     var titleIsCustom: Bool?
 
     init(
@@ -102,11 +92,7 @@ nonisolated struct ChatThreadRecord: Identifiable, Codable, Sendable {
 }
 
 // MARK: - Tolerant decoding
-// Synthesized `Codable` THROWS on any missing key, and `ChatThreadStore.loadIndexUnlocked` turns a decode
-// failure into an EMPTY index — which the very next save then writes over the top of. One added field, one
-// hand-edited file or one partial write would therefore cost the user every thread they own. These
-// decoders mirror `ChatSettings`: `id` and `kind` stay required because a row without them addresses no
-// file, and everything else falls back to a sane default. `encode(to:)` + `CodingKeys` stay synthesized.
+// Synthesized `Codable` THROWS on any missing key, and `ChatThreadStore.loadIndexUnlocked` turns a decode failure into an EMPTY index — which the very next save then writes over the top of. One added field, one hand-edited file or one partial write would therefore cost the user every thread they own. These decoders mirror `ChatSettings`: `id` and `kind` stay required because a row without them addresses no file, and everything else falls back to a sane default. `encode(to:)` + `CodingKeys` stay synthesized.
 
 extension ChatThreadIndexEntry {
     nonisolated init(from decoder: Decoder) throws {
@@ -160,8 +146,7 @@ private nonisolated struct SalvagedIndexRow: Decodable {
 
 // MARK: - Ensemble snapshot
 
-/// Frozen cast + transcript for one Ensemble thread. Restart copies this
-/// into a *new* record so the source thread is never overwritten.
+/// Frozen cast + transcript for one Ensemble thread. Restart copies this into a *new* record so the source thread is never overwritten.
 nonisolated struct EnsembleThreadPayload: Codable, Equatable, Sendable {
     var scene: String
     var mood: String

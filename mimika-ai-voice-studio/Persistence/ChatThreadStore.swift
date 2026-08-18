@@ -16,11 +16,7 @@ import Foundation
 
 /// File I/O lives off the main actor (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`).
 ///
-/// **The public surface is deliberately async-only.** Every entry point either `await`s a continuation or
-/// enqueues fire-and-forget work; none of them ever `ioQueue.sync`. Blocking variants used to exist beside
-/// the async ones with no production callers, which made a main-thread stall one autocomplete away — the
-/// exact failure this store already caused once. Mutations the UI applies optimistically (delete, pin,
-/// rename, theme) return immediately and never report a result, because nothing needs one.
+/// **The public surface is deliberately async-only.** Every entry point either `await`s a continuation or enqueues fire-and-forget work; none of them ever `ioQueue.sync`. A blocking variant beside an async one is a main-thread stall one autocomplete away — the exact failure this store already caused once. Mutations the UI applies optimistically (delete, pin, rename, theme) return immediately and never report a result, because nothing needs one.
 nonisolated enum ChatThreadStore {
     static let maxUnpinnedPerKind = 30
 
@@ -49,18 +45,9 @@ nonisolated enum ChatThreadStore {
             .appendingPathComponent("chat-threads", isDirectory: true)
     }
 
-    /// Under XCTest, writes go to a per-process temp dir unless a test set an
-    /// explicit `directoryOverride`.
+    /// Under XCTest, writes go to a per-process temp dir unless a test set an explicit `directoryOverride`.
     ///
-    /// This is a data-integrity interlock, not a convenience. The unit tests run
-    /// inside the real app host, so a `ChatViewModel` that sends a turn persists a
-    /// real thread. Six test files construct a Chat/Ensemble view model and only
-    /// one remembered to set `directoryOverride` — the rest wrote fixture threads
-    /// into the user's live store, which surfaced as dozens of phantom sidebar
-    /// rows titled from test strings ("look", "go", "restore me") because
-    /// `soloThreadTitle` uses the first user message, plus a phantom Ensemble
-    /// cast. Isolation that each new test must remember is the wrong shape: the
-    /// cost of forgetting is corrupting real user data. Do not make this opt-in.
+    /// This is a data-integrity interlock, not a convenience. The unit tests run inside the real app host, so a `ChatViewModel` that sends a turn persists a real thread. Six test files construct a Chat/Ensemble view model and only one remembered to set `directoryOverride` — the rest wrote fixture threads into the user's live store, which surfaced as dozens of phantom sidebar rows titled from test strings ("look", "go", "restore me") because `soloThreadTitle` uses the first user message, plus a phantom Ensemble cast. Isolation that each new test must remember is the wrong shape: the cost of forgetting is corrupting real user data. Do not make this opt-in.
     private static let testSandboxDirectory: URL? = {
         let env = ProcessInfo.processInfo.environment
         guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
@@ -70,9 +57,7 @@ nonisolated enum ChatThreadStore {
             "chat-threads-testsandbox-\(ProcessInfo.processInfo.processIdentifier)",
             isDirectory: true
         )
-        // PIDs recycle. Without this a run landing on a previous run's pid
-        // inherits its index.json, so any future `list(kind:).count` assertion
-        // sees threads it never created.
+        // PIDs recycle. Without this a run landing on a previous run's pid inherits its index.json, so any future thread-count assertion sees threads it never created.
         try? FileManager.default.removeItem(at: url)
         return url
     }()
@@ -145,8 +130,7 @@ nonisolated enum ChatThreadStore {
         return try? decoder.decode(ChatThreadRecord.self, from: data)
     }
 
-    /// Encode + write off the main thread; hop back for UI (sidebar upsert).
-    /// Completion is skipped when the id was deleted before the write landed.
+    /// Encode + write off the main thread; hop back for UI (sidebar upsert). Completion is skipped when the id was deleted before the write landed.
     static func saveAsync(
         _ record: ChatThreadRecord,
         completion: @escaping @MainActor (ChatThreadRecord) -> Void
@@ -178,9 +162,7 @@ nonisolated enum ChatThreadStore {
         return next
     }
 
-    /// Tombstone the id and remove its file. The sidebar has already dropped the row, so nothing waits on
-    /// this — and the serial queue keeps ordering, so a `saveAsync` enqueued afterwards still sees the
-    /// tombstone and refuses to resurrect the file.
+    /// Tombstone the id and remove its file. The sidebar has already dropped the row, so nothing waits on this — and the serial queue keeps ordering, so a `saveAsync` enqueued afterwards still sees the tombstone and refuses to resurrect the file.
     static func delete(id: UUID, kind: ChatThreadKind) {
         ioQueue.async {
             deletedIDs.insert(id)
@@ -191,8 +173,7 @@ nonisolated enum ChatThreadStore {
         }
     }
 
-    /// Pin state, written to the index AND the record. Two full JSON round-trips, which is exactly why it
-    /// must not block the main thread behind a queued multi-megabyte transcript save.
+    /// Pin state, written to the index AND the record. Two full JSON round-trips, which is exactly why it must not block the main thread behind a queued multi-megabyte transcript save.
     static func setPinned(id: UUID, kind: ChatThreadKind, pinned: Bool) {
         ioQueue.async {
             if deletedIDs.contains(id) { return }
@@ -207,10 +188,7 @@ nonisolated enum ChatThreadStore {
         }
     }
 
-    /// User-driven rename: sets the sidebar title and its one-line description,
-    /// and marks the title custom so the per-turn save stops re-deriving it from
-    /// the first message. Async — nothing needs the result, and this used to be
-    /// the shape that blocked the main thread on a busy I/O queue.
+    /// User-driven rename: sets the sidebar title and its one-line description, and marks the title custom so the per-turn save stops re-deriving it from the first message. Async — nothing needs the result, and a sync variant here blocks the main thread on a busy I/O queue.
     static func rename(
         id: UUID,
         kind: ChatThreadKind,
@@ -240,8 +218,7 @@ nonisolated enum ChatThreadStore {
         }
     }
 
-    /// Model-written sidebar blurb. Fire-and-forget: it lands whenever the queue drains, and the sidebar
-    /// picks it up on the next list.
+    /// Model-written sidebar blurb. Fire-and-forget: it lands whenever the queue drains, and the sidebar picks it up on the next list.
     static func updateTheme(id: UUID, kind: ChatThreadKind, theme: String) {
         let trimmed = theme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -304,8 +281,7 @@ nonisolated enum ChatThreadStore {
             var merged = entry
             merged.pinned = index.entries[i].pinned || entry.pinned
             merged.theme = entry.theme.isEmpty ? index.entries[i].theme : entry.theme
-            // A user rename outranks the title a routine save derived from the
-            // first message — otherwise the next turn would overwrite it.
+            // A user rename outranks the title a routine save derived from the first message — otherwise the next turn would overwrite it.
             let wasCustom = index.entries[i].titleIsCustom == true
             merged.titleIsCustom = wasCustom || entry.titleIsCustom == true
             if wasCustom, entry.titleIsCustom != true {

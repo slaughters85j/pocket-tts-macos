@@ -15,9 +15,7 @@
 //  it was trained on, which produces audible mispronunciations
 //  (the original "friends → frainds" bug class).
 //
-//  XCTest, not Swift Testing — project convention (CLAUDE.md). This file used
-//  `@Suite`/`@Test`/`#expect`, which reports in a separate stream, so its five
-//  tests were invisible in the suite's headline count.
+//  XCTest, not Swift Testing — project convention (CLAUDE.md).
 //
 
 import Foundation

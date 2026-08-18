@@ -20,14 +20,11 @@ nonisolated struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var role: Role
     var content: String
-    /// Session-only image attachments. Custom Codable intentionally omits
-    /// these bytes so no existing persistence/export path can write them.
+    /// Session-only image attachments. Custom Codable intentionally omits these bytes so no existing persistence/export path can write them.
     var attachments: [ChatImageAttachment]
     /// HTTP acceptance state for user turns containing attachments.
     var deliveryState: ChatDeliveryState?
-    /// Sentences already piped to the TTS pipeline. Used by the ChatViewModel
-    /// to track how far auto-speak has advanced on a growing assistant message
-    /// so it doesn't re-synthesize earlier sentences if the model retries.
+    /// Sentences already piped to the TTS pipeline. Used by the ChatViewModel to track how far auto-speak has advanced on a growing assistant message so it doesn't re-synthesize earlier sentences if the model retries.
     var spokenSentences: Int
 
     init(
@@ -80,9 +77,7 @@ nonisolated enum ChatMarkdownSegment: Equatable, Sendable {
     case code(language: String?, content: String)
     /// GFM pipe table. `rows` excludes the header and the `---` separator.
     ///
-    /// Foundation's `AttributedString(markdown:)` has no table support at all —
-    /// it handles inline styling only — so a pipe table used to render as literal
-    /// `| Shift | Role |` text. Segmenting it here lets the view draw a real grid.
+    /// Foundation's `AttributedString(markdown:)` has no table support at all — it handles inline styling only — so a pipe table used to render as literal `| Shift | Role |` text. Segmenting it here lets the view draw a real grid.
     case table(header: [String], rows: [[String]])
 }
 
@@ -291,8 +286,7 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
     var multiTalkSystemPrompt: String
     var activeBackend: TTSBackendType
     var fishParams: FishGenParams
-    /// Read-Aloud / menu-bar feature (opt-in). When true, the app shows a
-    /// menu-bar voice picker and arms the system "Read Selection Aloud" service.
+    /// Read-Aloud / menu-bar feature (opt-in). When true, the app shows a menu-bar voice picker and arms the system "Read Selection Aloud" service.
     var readAloudEnabled: Bool
     /// Voice used by the menu-bar read-aloud + the Services handler.
     var readAloudVoiceID: String
@@ -348,26 +342,14 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
 nonisolated enum SettingsStore {
     private static let key = "com.slaughtersj.mimika-ai-voice-studio.chatSettings"
 
-    /// Pre-rename storage key. Commit `99bab45` (shipped v1.5.3) renamed this key alone and left its
-    /// neighbours — `chatSubMode`, `multiTalkTagDisplayMode`, `pocketTTSChunkBudget`, `whisperActiveModel` —
-    /// on the old prefix, so a user updating from v1.5.2 or earlier silently lost their endpoint, model and
-    /// all three hand-written system prompts. `load()` falls back to this key once and writes the result
-    /// forward. It is never written to, and deliberately never removed outside a full reset.
+    /// Pre-rename storage key. Commit `99bab45` (shipped v1.5.3) renamed this key alone and left its neighbours — `chatSubMode`, `multiTalkTagDisplayMode`, `pocketTTSChunkBudget`, `whisperActiveModel` — on the old prefix, so a user updating from v1.5.2 or earlier silently lost their endpoint, model and all three hand-written system prompts. `load()` falls back to this key once and writes the result forward. It is never written to, and deliberately never removed outside a full reset.
     private static let legacyKey = "com.slaughtersj.pocket-tts-macos.chatSettings"
 
-    /// Where settings actually live. Under XCTest this is a volatile scratch
-    /// suite, never the user's real domain.
+    /// Where settings actually live. Under XCTest this is a volatile scratch suite, never the user's real domain.
     ///
-    /// Data-integrity interlock, matching `ChatThreadStore` and `VoiceManager`.
-    /// The unit tests run inside the real app host, and six test classes call
-    /// `resetToDefaults()` in both `setUp` and `tearDown` while others write
-    /// fixture endpoints and models through `AppState.applyChatConfiguration`.
-    /// Against `.standard` that destroys the user's real `ChatSettings` blob —
-    /// which holds not just toggles but all three hand-written system prompts
-    /// (chat, single-voice, Multi-Talk), the endpoint, model, TTS voice,
-    /// backend, read-aloud settings and launch-at-login.
-    /// `nonisolated(unsafe)` is honest here: `UserDefaults` is documented
-    /// thread-safe, it is simply not annotated `Sendable`. Immutable after init.
+    /// Data-integrity interlock, matching `ChatThreadStore` and `VoiceManager`. The unit tests run inside the real app host, and six test classes call `resetToDefaults()` in both `setUp` and `tearDown` while others write fixture endpoints and models through `AppState.applyChatConfiguration`. Against `.standard` that destroys the user's real `ChatSettings` blob — which holds not just toggles but all three hand-written system prompts (chat, single-voice, Multi-Talk), the endpoint, model, TTS voice, backend, read-aloud settings and launch-at-login.
+    ///
+    /// `nonisolated(unsafe)` is honest here: `UserDefaults` is documented thread-safe, it is simply not annotated `Sendable`. Immutable after init.
     nonisolated(unsafe) private static let defaults: UserDefaults = {
         let env = ProcessInfo.processInfo.environment
         guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
@@ -380,8 +362,7 @@ nonisolated enum SettingsStore {
 
     /// Reads the stored settings, falling back once to the pre-rename key and writing that blob forward.
     ///
-    /// The current key is always tried first, so a user who re-entered their settings after the rename can
-    /// never have them overwritten by the older orphaned blob.
+    /// The current key is always tried first, so a user who re-entered their settings after the rename can never have them overwritten by the older orphaned blob.
     static func load() -> ChatSettings {
         if let current = decode(forKey: key) {
             return current
@@ -410,11 +391,7 @@ nonisolated enum SettingsStore {
 }
 
 // MARK: - ChatSettings migration-safe decoding
-// Synthesized Codable throws on a missing key, so adding a field would make
-// every existing saved settings blob fail to decode and silently reset to
-// defaults. This tolerant decoder defaults any absent field to `.default`, so
-// new fields (read-aloud, login item, …) can be added without losing prior
-// settings. `encode(to:)` + `CodingKeys` stay synthesized.
+// Synthesized Codable throws on a missing key, so adding a field would make every existing saved settings blob fail to decode and silently reset to defaults. This tolerant decoder defaults any absent field to `.default`, so new fields (read-aloud, login item, …) can be added without losing prior settings. `encode(to:)` + `CodingKeys` stay synthesized.
 
 extension ChatSettings {
     nonisolated init(from decoder: Decoder) throws {
