@@ -104,15 +104,13 @@ final class ChatVisionRecoveryTransitionTests: XCTestCase {
 
         XCTAssertTrue(viewModel.supportsVision)
         XCTAssertFalse(viewModel.showsVisionRecovery)
-        LLMStubURLProtocol.setResponse(
-            Data("data: [DONE]\n\n".utf8)
-        )
+        // Via `completeSend`, which picks the STREAMED request. Reading the last captured body races the thread auto-title call that fires the moment `activeTurn` clears — see that helper.
         viewModel.draft = "allowed"
-        viewModel.send()
-        await assertEventually { viewModel.activeTurn == nil }
+        let sentBody = try await completeSend(viewModel)
 
-        let body = try XCTUnwrap(LLMStubURLProtocol.capturedBody())
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(sentBody.utf8)) as? [String: Any]
+        )
         let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
         let blocks = try XCTUnwrap(messages.first?["content"] as? [[String: Any]])
         let imageURL = try XCTUnwrap(blocks.last?["image_url"] as? [String: Any])

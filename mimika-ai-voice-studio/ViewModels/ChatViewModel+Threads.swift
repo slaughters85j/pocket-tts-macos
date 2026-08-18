@@ -190,7 +190,8 @@ extension ChatViewModel {
                     messages: [ChatMessage(role: .user, content: source)],
                     model: model,
                     systemPrompt: ChatThreadStore.themeSystemPrompt,
-                    temperature: 0.3
+                    temperature: 0.3,
+                    reasoningEffort: LocalLLMClient.utilityReasoningEffort
                 )
                 let theme = ChatThreadStore.cleanedTheme(raw)
                 guard !theme.isEmpty, self.currentThreadID == id else { return }

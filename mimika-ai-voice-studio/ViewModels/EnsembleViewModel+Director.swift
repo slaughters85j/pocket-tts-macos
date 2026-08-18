@@ -29,9 +29,11 @@ extension EnsembleViewModel {
         let prompt = DirectorPrompt.build(cast: roster, turns: turnsForModel(), window: verbatimWindow)
         do {
             var raw = ""
+            // `reasoningEffort: "none"` is not optional here. Omitting the field lets the server apply its own per-model default, and with thinking on this call burns its entire 16-token budget mid-thought and returns nothing — so the director silently failed on EVERY turn and fell through to weighted-random. Picking a name needs no chain-of-thought, so this call always opts out regardless of the user's Thinking setting.
             let stream = makeClient().streamChat(
                 messages: [ChatMessage(role: .user, content: prompt.user)],
-                model: resolvedModel, systemPrompt: prompt.system, temperature: 0.3, maxTokens: 16
+                model: resolvedModel, systemPrompt: prompt.system, temperature: 0.3, maxTokens: 16,
+                reasoningEffort: LocalLLMClient.utilityReasoningEffort
             )
             for try await delta in stream { raw += delta }
             if let picked = DirectorPrompt.resolve(raw, cast: roster, excluding: lastSpeaker) {

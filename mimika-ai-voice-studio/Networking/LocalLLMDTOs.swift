@@ -104,6 +104,8 @@ nonisolated struct ChatStreamChunk: Decodable {
 
     struct Choice: Decodable {
         let delta: Delta
+        /// Why the server stopped. `"length"` means it hit `max_tokens` — for a reasoning model that usually means the thinking consumed the whole budget and no content was ever written. Without this the app cannot tell a deliberate short answer from a truncated one.
+        let finish_reason: String?
 
         struct Delta: Decodable {
             let content: String?

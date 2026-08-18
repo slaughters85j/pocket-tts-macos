@@ -214,11 +214,7 @@ struct ChatView: View {
             )
 
             ModelCapabilityBadges(state: viewModel.capabilityState)
-            EnsembleReasoningLock(
-                chat: viewModel,
-                ensemble: ensembleViewModel,
-                isEnsemble: subMode == .ensemble
-            )
+            ModelReasoningControl(viewModel: viewModel)
 
             // Ensemble-only: live run knobs without leaving the conversation.
             if subMode == .ensemble {
@@ -416,7 +412,4 @@ struct ChatView: View {
         .background(Theme.bgPrimary)
     }
 }
-
-// The workspace container, toolbar chips, export controls and run-status label live in
-// `ChatViewChrome.swift`. Each is a separate view for its own Observation scope — see that file.
 

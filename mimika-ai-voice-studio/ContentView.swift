@@ -269,6 +269,9 @@ struct ContentView: View {
 
             // Trailing controls, floated to the right over the centered title.
             HStack(spacing: Theme.space3) {
+                // Renders nothing unless the App Store is ahead of this build. It still has to be in the hierarchy at all times — it owns the `.task` that runs the throttled check.
+                UpdateAvailableBadge()
+
                 Button(action: { appState.showsVoiceManager = true }) {
                     HStack(spacing: 5) {
                         Image(systemName: "waveform.circle.fill")

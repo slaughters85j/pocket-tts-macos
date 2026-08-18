@@ -105,6 +105,8 @@ struct AppSettingsView: View {
                 Divider().background(Theme.borderColor)
                 readAloudSection
                 Divider().background(Theme.borderColor)
+                AppInformationSection()
+                Divider().background(Theme.borderColor)
                 actions
             }
             .frame(maxWidth: 560)

@@ -971,7 +971,8 @@ final class EnsembleViewModel {
             let stream = makeClient().streamChat(
                 messages: [ChatMessage(role: .user, content: user)],
                 model: resolvedModel, systemPrompt: system, temperature: 0.3,
-                maxTokens: Self.summaryMaxTokens
+                maxTokens: Self.summaryMaxTokens,
+                reasoningEffort: LocalLLMClient.utilityReasoningEffort
             )
             for try await delta in stream { raw += delta }
             return raw.trimmingCharacters(in: .whitespacesAndNewlines)

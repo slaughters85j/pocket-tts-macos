@@ -2,15 +2,9 @@
 //  ChatViewChrome.swift
 //  mimika-ai-voice-studio
 //
-//  Toolbar chips, export controls, run status and the workspace container for
-//  ChatView. Split out of ChatView.swift, which had grown past the 400-line
-//  limit with a self-contained block of chrome at its tail.
+//  Toolbar chips, export controls, run status and the workspace container for ChatView.
 //
-//  Every type here exists for ONE reason: its own Observation scope. Chat's
-//  toolbar reads connection state, run state and `canExport`, all of which
-//  change on a 1 s poll or on every streamed token. Inlined in ChatView's body
-//  they rebuilt the sidebar and the Director's Chair's Liquid Glass with them.
-//  Keep them separate, and keep `turns` out of anything but EnsembleExportControls.
+//  Every type here exists for ONE reason: its own Observation scope. Chat's toolbar reads connection state, run state and `canExport`, all of which change on a 1 s poll or on every streamed token. Inlined in ChatView's body they rebuilt the sidebar and the Director's Chair's Liquid Glass with them. Keep them separate, and keep `turns` out of anything but EnsembleExportControls.
 //
 
 import SwiftUI
@@ -62,23 +56,7 @@ struct ChatConnectionPill: View {
     }
 }
 
-/// Own Observation scope so `runState` / `isRunning` do not rebuild ChatView.
-struct EnsembleReasoningLock: View {
-    @Bindable var chat: ChatViewModel
-    @Bindable var ensemble: EnsembleViewModel
-    let isEnsemble: Bool
-
-    var body: some View {
-        ModelReasoningControl(
-            viewModel: chat,
-            isExternallyLocked: isEnsemble && ensemble.isRunning
-        )
-    }
-}
-
-/// Trailing Ensemble chrome. Nothing here may read `turns` — that fires on every
-/// streamed token and would rebuild the sidebar + Director's Chair glass with it.
-/// `canExport` is quarantined in `EnsembleExportControls`.
+/// Trailing Ensemble chrome. Nothing here may read `turns` — that fires on every streamed token and would rebuild the sidebar + Director's Chair glass with it. `canExport` is quarantined in `EnsembleExportControls`.
 struct EnsembleToolbarControls: View {
     @Bindable var viewModel: EnsembleViewModel
     @Bindable var browser: ChatThreadBrowser

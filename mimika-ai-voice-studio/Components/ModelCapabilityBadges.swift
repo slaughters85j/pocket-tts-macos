@@ -139,7 +139,6 @@ private struct ReasoningCapabilityGlyph: View {
 /// Reasoning toggle or effort picker derived from LM Studio metadata.
 struct ModelReasoningControl: View {
     @Bindable var viewModel: ChatViewModel
-    var isExternallyLocked = false
 
     @State private var showsInfo = false
 
@@ -163,9 +162,9 @@ struct ModelReasoningControl: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    // Locked only while a Solo turn is in flight, because that request was already built and cannot take the new value. An Ensemble RUN is deliberately not a lock: the loop reads the effort fresh for each speaker, so a change lands on the next turn — and being unable to fix a thinking setting without stopping the whole episode is worse than the change arriving one turn late.
                     .disabled(
                         viewModel.hasActiveTurn
-                            || isExternallyLocked
                             || configuration.allowedOptions.count < 2
                     )
                     .accessibilityLabel("Thinking level")
@@ -178,7 +177,6 @@ struct ModelReasoningControl: View {
                         .foregroundStyle(Theme.textSecondary)
                         .disabled(
                             viewModel.hasActiveTurn
-                                || isExternallyLocked
                                 || !canToggle
                         )
                         .accessibilityIdentifier("chat.reasoningEnabled")
