@@ -2,9 +2,7 @@
 //  ChatMessageActions.swift
 //  mimika-ai-voice-studio
 //
-//  Hover actions and in-place editor for transcript entries. Shared by Solo
-//  Chat messages and Ensemble turns — the bar takes the text and an id rather
-//  than a ChatMessage so both transcripts can use one implementation.
+//  Hover actions and in-place editor for transcript entries. Shared by Solo Chat messages and Ensemble turns — the bar takes the text and an id rather than a ChatMessage so both transcripts can use one implementation.
 //
 
 import AppKit
@@ -79,9 +77,7 @@ struct ChatMessageActionBar: View {
 
 /// Reveals `ChatMessageActionBar` beneath a transcript entry on hover.
 ///
-/// Owns its own hover state on purpose: with this on the parent, hovering any
-/// row would invalidate the entire transcript, which already re-renders on every
-/// streamed token.
+/// Owns its own hover state on purpose: with this on the parent, hovering any row would invalidate the entire transcript, which already re-renders on every streamed token.
 struct TranscriptHoverActions<Content: View>: View {
     let entryID: UUID
     /// Raw text the copy action puts on the pasteboard.

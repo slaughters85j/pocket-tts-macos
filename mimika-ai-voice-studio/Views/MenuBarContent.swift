@@ -2,9 +2,7 @@
 //  MenuBarContent.swift
 //  mimika-ai-voice-studio
 //
-//  The menu-bar dropdown (MenuBarExtra content): pick the read-aloud voice, Stop
-//  a read in progress, and reopen the main window. Shown only while the Read
-//  Aloud feature is on — the scene's `isInserted` binds to the setting.
+//  The menu-bar dropdown (MenuBarExtra content): pick the read-aloud voice, Stop a read in progress, and reopen the main window. Shown only while the Read Aloud feature is on — the scene's `isInserted` binds to the setting.
 //
 
 import AppKit
@@ -48,8 +46,7 @@ struct MenuBarContent: View {
         )
     }
 
-    /// Stock voices + the user's imported Pocket-TTS voices (mirrors
-    /// VoiceSelector's pocket-tts list so the menu offers the same voices).
+    /// Stock voices + the user's imported Pocket-TTS voices (mirrors VoiceSelector's pocket-tts list so the menu offers the same voices).
     private var voiceOptions: [(id: String, name: String)] {
         let stock = BundledVoice.stockIDs.sorted().map {
             (id: $0, name: BundledVoice(predefined: $0).name)

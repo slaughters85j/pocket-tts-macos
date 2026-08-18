@@ -2,14 +2,7 @@
 //  VoiceFromVideoView.swift
 //  mimika-ai-voice-studio
 //
-//  WP-VMI-2 — the "voice from video" import step hosted inside
-//  VoiceManagerView. Drives a dedicated SpeakerIsolatorViewModel
-//  (audio preservation forced ON so picked speech comes from the
-//  HTDemucs vocals stem whenever the model is installed) through
-//  load → diarize → [separate] → isolate, then lets the user audition
-//  each detected speaker and pick one as the new custom voice's
-//  reference audio. No revoicing, no exports — those live in the full
-//  Speaker Isolator sheet.
+//  WP-VMI-2 — the "voice from video" import step hosted inside VoiceManagerView. Drives a dedicated SpeakerIsolatorViewModel (audio preservation forced ON so picked speech comes from the HTDemucs vocals stem whenever the model is installed) through load → diarize → [separate] → isolate, then lets the user audition each detected speaker and pick one as the new custom voice's reference audio. No revoicing, no exports — those live in the full Speaker Isolator sheet.
 //
 
 import SwiftUI
@@ -18,8 +11,7 @@ struct VoiceFromVideoView: View {
 
     @Bindable var viewModel: SpeakerIsolatorViewModel
     let sourceURL: URL
-    /// Called with (temp reference WAV, suggested voice name) when the
-    /// user picks a speaker. The caller routes to Save Voice Preset.
+    /// Called with (temp reference WAV, suggested voice name) when the user picks a speaker. The caller routes to Save Voice Preset.
     var onUseVoice: (URL, String) -> Void
     var onCancel: () -> Void
 
@@ -92,8 +84,7 @@ struct VoiceFromVideoView: View {
         .padding(.vertical, Theme.space4)
     }
 
-    /// Status → label, trimmed to the phases this flow can actually hit
-    /// (no revoice / mux — this VM never runs those pipelines here).
+    /// Status → label, trimmed to the phases this flow can actually hit (no revoice / mux — this VM never runs those pipelines here).
     private var workingLabel: String {
         switch viewModel.status {
         case .downloadingModels(let progress):
@@ -153,10 +144,7 @@ struct VoiceFromVideoView: View {
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Soft-fallback surface (Phase 7 guardrail: the 287 MB
-            // HTDemucs model never auto-downloads). When it's missing,
-            // extraction proceeds from the original mix and this banner
-            // links to the Manage Separation Models sheet.
+            // Soft-fallback surface (Phase 7 guardrail: the 287 MB HTDemucs model never auto-downloads). When it's missing, extraction proceeds from the original mix and this banner links to the Manage Separation Models sheet.
             SeparationStatusBanner(
                 viewModel: viewModel,
                 showsManageSheet: $showsManageSheet
@@ -179,9 +167,7 @@ struct VoiceFromVideoView: View {
         }
     }
 
-    /// Condensed Number-of-Speakers control (same semantics as the full
-    /// Diarization Settings panel: merge down to N, closest-sounding
-    /// first; Auto lets detection decide; takes effect on Re-detect).
+    /// Condensed Number-of-Speakers control (same semantics as the full Diarization Settings panel: merge down to N, closest-sounding first; Auto lets detection decide; takes effect on Re-detect).
     private var speakerCountRow: some View {
         let count = viewModel.diarizationSettings.numberOfSpeakers ?? 0
         return HStack(alignment: .center, spacing: Theme.space2) {
@@ -260,9 +246,7 @@ struct VoiceFromVideoView: View {
                 segments: track.segmentRanges,
                 isPlaying: playingBinding(for: track.id)
             )
-            // Content fingerprint (same trick as SpeakerRow): after a
-            // Re-detect the track keeps its id but swaps samples; without
-            // this the cached preview player keeps playing stale audio.
+            // Content fingerprint (same trick as SpeakerRow): after a Re-detect the track keeps its id but swaps samples; without this the cached preview player keeps playing stale audio.
             .id(
                 track.isolatedSamples.count
                     ^ Int((track.isolatedSamples.last ?? 0).bitPattern)
@@ -288,9 +272,7 @@ struct VoiceFromVideoView: View {
 
     // MARK: - Pick → reference handoff
 
-    /// Collapse the picked speaker's track to a back-to-back speech clip
-    /// (silence stripped, joins crossfaded, capped at 30 s), write it to
-    /// a temp WAV, and hand it to the standard import flow.
+    /// Collapse the picked speaker's track to a back-to-back speech clip (silence stripped, joins crossfaded, capped at 30 s), write it to a temp WAV, and hand it to the standard import flow.
     private func useVoice(_ track: SpeakerIsolatorViewModel.SpeakerTrack) {
         playingSpeakerID = nil
         let reference = VoiceReferenceExtractor.extractReference(

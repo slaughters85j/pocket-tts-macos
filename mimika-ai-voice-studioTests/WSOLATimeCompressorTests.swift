@@ -2,25 +2,17 @@
 //  WSOLATimeCompressorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Phase 9. Sanity tests for WSOLATimeCompressor — the vDSP-based
-//  WSOLA time-compressor that lets TimelineAlignedRenderer shrink
-//  synthesized speech into its source-timed slot without sounding
-//  sped up.
+//  Phase 9. Sanity tests for WSOLATimeCompressor — the vDSP-based WSOLA time-compressor that lets TimelineAlignedRenderer shrink synthesized speech into its source-timed slot without sounding sped up.
 //
 //  What we check:
 //    * Identity / passthrough at ratio == 1.0
-//    * Output sample-count matches `Int(input.count / ratio)` within
-//      one sample (rounding tolerance)
-//    * Fundamental-frequency preservation on a pure sine wave —
-//      measured via zero-crossing rate, which must stay invariant
-//      under pitch-preserving compression (input crossings/sec ==
-//      output crossings/sec)
+//    * Output sample-count matches `Int(input.count / ratio)` within one sample (rounding tolerance)
+//    * Fundamental-frequency preservation on a pure sine wave — measured via zero-crossing rate, which must stay invariant under pitch-preserving compression (input crossings/sec == output crossings/sec)
 //    * No NaN / no Inf in the output
 //    * No DC offset accumulation (mean stays near zero)
 //    * Inputs shorter than one analysis frame pass through unchanged
 //    * Ratios ≤ 1.0 are no-ops (we don't stretch)
-//    * Ratios > 2.0 are clamped (defense-in-depth — the renderer caps
-//      at 1.30× anyway)
+//    * Ratios > 2.0 are clamped (defense-in-depth — the renderer caps at 1.30× anyway)
 
 import XCTest
 @testable import mimika_ai_voice_studio
@@ -58,8 +50,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
     }
 
     func testRatioBeyondMaxIsClamped() {
-        // Ratio of 5.0 should clamp to 2.0; output should be ~half
-        // the input length, not a fifth.
+        // Ratio of 5.0 should clamp to 2.0; output should be ~half the input length, not a fifth.
         let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 1.0)
         let output = WSOLATimeCompressor.compress(samples, ratio: 5.0)
         let expectedAtClamp = Int(Double(samples.count) / 2.0)
@@ -69,8 +60,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
     // MARK: - Edge cases
 
     func testShortInputPassthrough() {
-        // Inputs shorter than one frame (1024 samples) can't be
-        // meaningfully WSOLA'd — passthrough.
+        // Inputs shorter than one frame (1024 samples) can't be meaningfully WSOLA'd — passthrough.
         let samples: [Float] = Array(repeating: 0.1, count: 500)
         let output = WSOLATimeCompressor.compress(samples, ratio: 1.2)
         XCTAssertEqual(output, samples)
@@ -85,14 +75,9 @@ final class WSOLATimeCompressorTests: XCTestCase {
     // MARK: - Pitch preservation (the whole point)
 
     func testCompressPreservesFundamentalFrequency() {
-        // A 220 Hz sine wave compressed by 1.2× should still be 220 Hz
-        // (NOT 220 * 1.2 = 264 Hz — that'd be a chipmunk artifact from
-        // straight resampling, which is exactly what WSOLA avoids).
+        // A 220 Hz sine wave compressed by 1.2× should still be 220 Hz (NOT 220 * 1.2 = 264 Hz — that'd be a chipmunk artifact from straight resampling, which is exactly what WSOLA avoids).
         //
-        // We measure via zero-crossing rate (crossings / second). For
-        // a pure sine, ZCR = 2 * frequency. If pitch is preserved
-        // across compression, ZCR stays constant — i.e. fewer
-        // crossings in the shorter buffer at the same per-second rate.
+        // We measure via zero-crossing rate (crossings / second). For a pure sine, ZCR = 2 * frequency. If pitch is preserved across compression, ZCR stays constant — i.e. fewer crossings in the shorter buffer at the same per-second rate.
         let sampleRate = 24_000
         let frequency: Double = 220
         let inputDuration = 2.0  // longer signal = more reliable ZCR
@@ -108,17 +93,9 @@ final class WSOLATimeCompressorTests: XCTestCase {
         let inputZCR = Double(zeroCrossings(samples)) / inputDuration
         let outputZCR = Double(zeroCrossings(output)) / outputDuration
 
-        // Both should be ~440 (2 * 220). Tolerance is 20 % — pure
-        // sines are a degenerate case for WSOLA. The cross-correlation
-        // search has multiple equally-good candidates at every pitch-
-        // aligned offset, and OLA at non-integer-period hops introduces
-        // amplitude modulation that suppresses some near-zero crossings.
-        // Empirically this test signal lands at ~375 ZCR (15 % below
+        // Both should be ~440 (2 * 220). Tolerance is 20 % — pure sines are a degenerate case for WSOLA. The cross-correlation search has multiple equally-good candidates at every pitch-aligned offset, and OLA at non-integer-period hops introduces amplitude modulation that suppresses some near-zero crossings. Empirically this test signal lands at ~375 ZCR (15 % below
         // 440) on a working implementation; we set 20 % so the test
-        // catches gross errors (chipmunk effect would push ZCR to
-        // ~528 — well above tolerance) without firing on the inherent
-        // sine-signal imprecision. Real quasi-periodic speech tracks
-        // within a few percent.
+        // catches gross errors (chipmunk effect would push ZCR to ~528 — well above tolerance) without firing on the inherent sine-signal imprecision. Real quasi-periodic speech tracks within a few percent.
         XCTAssertEqual(outputZCR, inputZCR, accuracy: inputZCR * 0.20,
                        "Output ZCR (\(outputZCR)) should match input ZCR (\(inputZCR)) within 20 %")
     }
@@ -133,9 +110,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
     }
 
     func testNoDCOffsetAccumulation() {
-        // A pure sine wave has zero mean. WSOLA's window-multiply +
-        // OLA + normalize shouldn't shift that — if it does, we have
-        // a normalization bug.
+        // A pure sine wave has zero mean. WSOLA's window-multiply + OLA + normalize shouldn't shift that — if it does, we have a normalization bug.
         let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 1.0)
         let output = WSOLATimeCompressor.compress(samples, ratio: 1.2)
         let mean = output.reduce(0, +) / Float(output.count)
@@ -144,9 +119,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
     }
 
     func testAmplitudeStaysBounded() {
-        // Hann-OLA + per-position normalization should keep output
-        // peak ≤ input peak (no transient over-amplification). Allow
-        // +1 dB slack for windowing edge effects.
+        // Hann-OLA + per-position normalization should keep output peak ≤ input peak (no transient over-amplification). Allow +1 dB slack for windowing edge effects.
         let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 1.0)
         let inputPeak = samples.map(abs).max() ?? 0
         let output = WSOLATimeCompressor.compress(samples, ratio: 1.2)
@@ -157,8 +130,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Pure sine wave, mono, Float32. Used as a controlled signal for
-    /// pitch-preservation / numerical-stability checks.
+    /// Pure sine wave, mono, Float32. Used as a controlled signal for pitch-preservation / numerical-stability checks.
     private func makeSineWave(
         frequency: Double,
         sampleRate: Int,
@@ -173,9 +145,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
         return samples
     }
 
-    /// Zero-crossing count. For a noiseless sine this equals 2 * f * t.
-    /// Used as a pitch-rate proxy that's invariant under
-    /// pitch-preserving time-compression.
+    /// Zero-crossing count. For a noiseless sine this equals 2 * f * t. Used as a pitch-rate proxy that's invariant under pitch-preserving time-compression.
     private func zeroCrossings(_ samples: [Float]) -> Int {
         guard samples.count > 1 else { return 0 }
         var count = 0
@@ -190,8 +160,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
     // MARK: - Onset guard (WP-VIT-1)
 
     func testOnsetGuard_outputLengthUnchanged() {
-        // The guard shifts WHERE compression happens, never the total
-        // output length — the renderer sizes slots off input/ratio.
+        // The guard shifts WHERE compression happens, never the total output length — the renderer sizes slots off input/ratio.
         let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 2.0)
         let guarded = WSOLATimeCompressor.compress(samples, ratio: 1.3, onsetGuardSamples: 4_800)
         let plain = WSOLATimeCompressor.compress(samples, ratio: 1.3)
@@ -200,14 +169,11 @@ final class WSOLATimeCompressorTests: XCTestCase {
     }
 
     func testOnsetGuard_onsetPassesThroughUncompressed() {
-        // Inside the guard the walk is 1:1 with no alignment search, so
-        // the output tracks the input sample-for-sample (up to the OLA
-        // window taper right at t=0). Compare a mid-guard region.
+        // Inside the guard the walk is 1:1 with no alignment search, so the output tracks the input sample-for-sample (up to the OLA window taper right at t=0). Compare a mid-guard region.
         let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 2.0)
         let guardLen = 4_800  // 200 ms @ 24 kHz
         let output = WSOLATimeCompressor.compress(samples, ratio: 1.3, onsetGuardSamples: guardLen)
-        // Skip the first synthesis hop (OLA edge taper) and stop one
-        // frame before the guard boundary (the transition frame blends).
+        // Skip the first synthesis hop (OLA edge taper) and stop one frame before the guard boundary (the transition frame blends).
         let checkRange = 512..<(guardLen - 1_024)
         for i in checkRange where abs(output[i] - samples[i]) > 0.02 {
             XCTFail("onset sample \(i) diverged: \(output[i]) vs \(samples[i])")
@@ -223,9 +189,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
     }
 
     func testOnsetGuard_autoShrinksWhenRatioLeavesNoRemainder() {
-        // Guard bigger than the compressible budget (2L − N) must be
-        // shrunk internally, not corrupt the output length. ratio 2.0 →
-        // 2L − N == 0 → guard fully suppressed; output = N/2.
+        // Guard bigger than the compressible budget (2L − N) must be shrunk internally, not corrupt the output length. ratio 2.0 → 2L − N == 0 → guard fully suppressed; output = N/2.
         let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 1.0)
         let output = WSOLATimeCompressor.compress(samples, ratio: 2.0, onsetGuardSamples: 12_000)
         XCTAssertEqual(output.count, samples.count / 2)
@@ -234,8 +198,7 @@ final class WSOLATimeCompressorTests: XCTestCase {
 
     func testOnsetGuard_pitchStillPreservedInRemainder() {
         // The compressed remainder must still be pitch-preserving:
-        // zero-crossing RATE (crossings per output second) stays at the
-        // input's rate for the whole guarded output.
+        // zero-crossing RATE (crossings per output second) stays at the input's rate for the whole guarded output.
         let sampleRate = 24_000
         let samples = makeSineWave(frequency: 220, sampleRate: sampleRate, durationSec: 2.0)
         let output = WSOLATimeCompressor.compress(samples, ratio: 1.3, onsetGuardSamples: 4_800)

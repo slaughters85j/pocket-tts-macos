@@ -2,35 +2,15 @@
 //  SpeakerIsolator.swift
 //  mimika-ai-voice-studio
 //
-//  Pure function that takes PCM samples (mono or stereo) + diarization
-//  segments and produces one isolated PCM buffer per speaker. Direct
-//  port of the Python pyannote app's preserve-silence mechanism (see
-//  `mimika-ai-voice-studio-releases/pyannote/speaker_separation_gui.py:
-//  826-861`), generalized to `AudioBuffer` so the Phase 7 stereo
-//  44.1 kHz path carries through speaker isolation without a mono
-//  downmix.
+//  Pure function that takes PCM samples (mono or stereo) + diarization segments and produces one isolated PCM buffer per speaker. Direct port of the Python pyannote app's preserve-silence mechanism (see `mimika-ai-voice-studio-releases/pyannote/speaker_separation_gui.py:
+//  826-861`), generalized to `AudioBuffer` so the Phase 7 stereo 44.1 kHz path carries through speaker isolation without a mono downmix.
 //
 //  Two modes:
-//    * `preserveSilence == true` (default for video-overlay use):
-//        each speaker's output is the same length as the input.
-//        Their isolated buffer carries the original samples at each
-//        of their segment's timestamps; silence (zero samples)
-//        elsewhere. Output length = input length, per speaker.
-//        Python parity: lines 832-845 (`AudioSegment.silent(...).
-//        overlay(seg, position=start_ms)`).
+//    * `preserveSilence == true` (default for video-overlay use): each speaker's output is the same length as the input. Their isolated buffer carries the original samples at each of their segment's timestamps; silence (zero samples) elsewhere. Output length = input length, per speaker. Python parity: lines 832-845 (`AudioSegment.silent(...). overlay(seg, position=start_ms)`).
 //
-//    * `preserveSilence == false` (concatenate mode):
-//        each speaker's output is the back-to-back concatenation
-//        of just their spoken slices, with no silence in between.
-//        Output length per speaker = sum of their segment durations
-//        × sampleRate. Python parity: lines 846-848 (`AudioSegment.
-//        empty(); combined_audio += segment`).
+//    * `preserveSilence == false` (concatenate mode): each speaker's output is the back-to-back concatenation of just their spoken slices, with no silence in between. Output length per speaker = sum of their segment durations × sampleRate. Python parity: lines 846-848 (`AudioSegment. empty(); combined_audio += segment`).
 //
-//  Channel handling: mono input → mono output; stereo input → stereo
-//  output (per-channel masking using the same segment timing on both
-//  L and R). Sample rate is preserved end-to-end — the caller's
-//  `AudioBuffer.sampleRate` flows straight through to the per-speaker
-//  output's `sampleRate`.
+//  Channel handling: mono input → mono output; stereo input → stereo output (per-channel masking using the same segment timing on both L and R). Sample rate is preserved end-to-end — the caller's `AudioBuffer.sampleRate` flows straight through to the per-speaker output's `sampleRate`.
 //
 //  Pure logic — no Foundation I/O, no actor isolation. Easily testable.
 
@@ -45,11 +25,7 @@ nonisolated enum SpeakerIsolator {
     ///   - segments: chronologically sorted internally.
     ///   - preserveSilence: see top-of-file mode descriptions.
     ///
-    /// - Returns: per-speaker `(speakerID, samples)` tuples (samples
-    ///   as `AudioBuffer` matching the input's channel layout +
-    ///   sample rate), sorted by each speaker's first-utterance start
-    ///   time so the first speaker to talk in the original audio is
-    ///   index 0. Empty if `segments` is empty.
+    /// - Returns: per-speaker `(speakerID, samples)` tuples (samples as `AudioBuffer` matching the input's channel layout + sample rate), sorted by each speaker's first-utterance start time so the first speaker to talk in the original audio is index 0. Empty if `segments` is empty.
     static func isolate(
         input: AudioBuffer,
         segments: [DiarizedSegment],
@@ -59,8 +35,7 @@ nonisolated enum SpeakerIsolator {
 
         let sorted = segments.sorted { $0.startSec < $1.startSec }
 
-        // Group segments by speaker, preserving first-appearance order
-        // so the returned tuples are in "who-spoke-first" sequence.
+        // Group segments by speaker, preserving first-appearance order so the returned tuples are in "who-spoke-first" sequence.
         var orderedSpeakerIDs: [String] = []
         var bySpeaker: [String: [DiarizedSegment]] = [:]
         for seg in sorted {
@@ -87,10 +62,7 @@ nonisolated enum SpeakerIsolator {
         return result
     }
 
-    /// Compatibility shim for callers still on the `[Float]` API.
-    /// Forwards to the `AudioBuffer`-typed `isolate(...)` and unwraps
-    /// the mono samples. Used by existing tests + the v1 (AP-off)
-    /// pipeline path until they migrate to AudioBuffer.
+    /// Compatibility shim for callers still on the `[Float]` API. Forwards to the `AudioBuffer`-typed `isolate(...)` and unwraps the mono samples. Used by existing tests + the v1 (AP-off) pipeline path until they migrate to AudioBuffer.
     static func isolate(
         inputSamples: [Float],
         sampleRate: Int,
@@ -103,8 +75,7 @@ nonisolated enum SpeakerIsolator {
             if case let .mono(samples) = item.samples.channels {
                 return (speakerID: item.speakerID, samples: samples)
             }
-            // Shouldn't happen — mono input gives mono output. Fall back
-            // to a downmix so the call site doesn't crash.
+            // Shouldn't happen — mono input gives mono output. Fall back to a downmix so the call site doesn't crash.
             let dm = item.samples.downmixedToMono()
             if case let .mono(samples) = dm.channels {
                 return (speakerID: item.speakerID, samples: samples)
@@ -115,9 +86,7 @@ nonisolated enum SpeakerIsolator {
 
     // MARK: - Per-speaker slicing
 
-    /// Build one speaker's isolated AudioBuffer per the
-    /// `preserveSilence` mode. Internal helper to keep `isolate`
-    /// readable.
+    /// Build one speaker's isolated AudioBuffer per the `preserveSilence` mode. Internal helper to keep `isolate` readable.
     private static func sliceSpeaker(
         input: AudioBuffer,
         segments: [DiarizedSegment],
@@ -214,10 +183,7 @@ nonisolated enum SpeakerIsolator {
         }
     }
 
-    /// Convert a time-in-seconds boundary to a sample index, clamped
-    /// to `[0, totalSamples]`. Out-of-range segments (from a stale
-    /// diarization run or rounding artifacts at the end of the file)
-    /// get clipped instead of crashing.
+    /// Convert a time-in-seconds boundary to a sample index, clamped to `[0, totalSamples]`. Out-of-range segments (from a stale diarization run or rounding artifacts at the end of the file) get clipped instead of crashing.
     private static func clampedSampleIndex(
         _ seconds: Double,
         sampleRate: Int,
@@ -229,21 +195,11 @@ nonisolated enum SpeakerIsolator {
 
     // MARK: - Background extraction
 
-    /// Build a "background" PCM buffer containing everything in
-    /// `input` that is NOT covered by any speaker's diarization
-    /// segments. Captures non-speech content: music, SFX, ambient
-    /// noise, etc. The result is silence-padded to the full input
-    /// length (same shape as isolated speaker tracks) so the
-    /// downstream combine step in `MultiSpeakerRevoicer` can sum it
-    /// alongside speakers' tracks without special-casing.
+    /// Build a "background" PCM buffer containing everything in `input` that is NOT covered by any speaker's diarization segments. Captures non-speech content: music, SFX, ambient noise, etc. The result is silence-padded to the full input length (same shape as isolated speaker tracks) so the downstream combine step in `MultiSpeakerRevoicer` can sum it alongside speakers' tracks without special-casing.
     ///
-    /// Channel layout matches the input: mono in → mono out,
-    /// stereo in → stereo out.
+    /// Channel layout matches the input: mono in → mono out, stereo in → stereo out.
     ///
-    /// - Returns: A `(samples, ranges)` tuple, OR `nil` if there are
-    ///   no qualifying non-speech ranges (e.g. continuous speech with
-    ///   no gaps, or only inter-word breaths shorter than
-    ///   `minBackgroundChunkSec`).
+    /// - Returns: A `(samples, ranges)` tuple, OR `nil` if there are no qualifying non-speech ranges (e.g. continuous speech with no gaps, or only inter-word breaths shorter than `minBackgroundChunkSec`).
     static func extractBackground(
         input: AudioBuffer,
         speakerSegments: [DiarizedSegment],
@@ -252,13 +208,11 @@ nonisolated enum SpeakerIsolator {
     ) -> (samples: AudioBuffer, ranges: [ClosedRange<Double>])? {
         guard totalDurationSec > 0, input.sampleCount > 0 else { return nil }
 
-        // 1. Merge overlapping speaker ranges into a non-overlapping
-        //    "speech coverage" timeline.
+        // 1. Merge overlapping speaker ranges into a non-overlapping "speech coverage" timeline.
         let speakerRanges = speakerSegments.map { $0.startSec...$0.endSec }
         let merged = mergeOverlapping(speakerRanges)
 
-        // 2. Subtract merged speech ranges from [0, totalDurationSec]
-        //    → complement = non-speech ranges.
+        // 2. Subtract merged speech ranges from [0, totalDurationSec] → complement = non-speech ranges.
         let complement = computeComplement(merged, totalDurationSec: totalDurationSec)
 
         // 3. Drop sub-threshold slivers.
@@ -267,9 +221,7 @@ nonisolated enum SpeakerIsolator {
         }
         guard !significant.isEmpty else { return nil }
 
-        // 4. Build the silence-padded background buffer. Convert
-        //    `significant` to a synthetic single-speaker
-        //    `DiarizedSegment` list and reuse the per-channel slicer.
+        // 4. Build the silence-padded background buffer. Convert `significant` to a synthetic single-speaker `DiarizedSegment` list and reuse the per-channel slicer.
         let bgSegments = significant.map {
             DiarizedSegment(
                 speakerID: "_BG_",
@@ -285,8 +237,7 @@ nonisolated enum SpeakerIsolator {
         return (samples: bgBuffer, ranges: significant)
     }
 
-    /// Compatibility shim for the `[Float]` mono API. Forwards to the
-    /// AudioBuffer variant + unwraps.
+    /// Compatibility shim for the `[Float]` mono API. Forwards to the AudioBuffer variant + unwraps.
     static func extractBackground(
         inputSamples: [Float],
         sampleRate: Int,
@@ -311,9 +262,7 @@ nonisolated enum SpeakerIsolator {
         return nil
     }
 
-    /// Merge overlapping / touching time ranges into a non-overlapping
-    /// sorted list. Used as the "speech coverage" prep before
-    /// computing the complement.
+    /// Merge overlapping / touching time ranges into a non-overlapping sorted list. Used as the "speech coverage" prep before computing the complement.
     nonisolated static func mergeOverlapping(_ ranges: [ClosedRange<Double>]) -> [ClosedRange<Double>] {
         guard !ranges.isEmpty else { return [] }
         let sorted = ranges.sorted { $0.lowerBound < $1.lowerBound }
@@ -329,9 +278,7 @@ nonisolated enum SpeakerIsolator {
         return merged
     }
 
-    /// Subtract a sorted, non-overlapping list of ranges from
-    /// `[0, totalDurationSec]`. Returns the gaps between (and around)
-    /// the input ranges. Edge cases:
+    /// Subtract a sorted, non-overlapping list of ranges from `[0, totalDurationSec]`. Returns the gaps between (and around) the input ranges. Edge cases:
     ///   * Empty input → returns `[0...totalDurationSec]`.
     ///   * Input fully covers timeline → returns `[]`.
     ///   * Sub-zero or past-total ranges → clamped silently.

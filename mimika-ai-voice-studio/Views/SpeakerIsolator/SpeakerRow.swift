@@ -2,15 +2,9 @@
 //  SpeakerRow.swift
 //  mimika-ai-voice-studio
 //
-//  Per-speaker row extracted from `SpeakerIsolatorSheet`. Each row
-//  holds: editable display name, duration + segment count, voice
-//  picker (use original / discard / revoice via TTS voice),
-//  play/pause button that drives an inline `MiniAudioPlayer`, and
-//  a per-row export button. Background rows have a constrained
-//  voice picker (no `.revoice` options).
+//  Per-speaker row extracted from `SpeakerIsolatorSheet`. Each row holds: editable display name, duration + segment count, voice picker (use original / discard / revoice via TTS voice), play/pause button that drives an inline `MiniAudioPlayer`, and a per-row export button. Background rows have a constrained voice picker (no `.revoice` options).
 //
-//  Lives in its own file so the sheet stays manageable; behavior
-//  is unchanged from the inline version it replaces.
+//  Lives in its own file so the sheet stays manageable; behavior is unchanged from the inline version it replaces.
 
 import SwiftUI
 
@@ -54,10 +48,7 @@ struct SpeakerRow: View {
                 voicePicker
                     .frame(width: 160)
 
-                // Play button. Icon mirrors the ACTUAL playback
-                // state (not just the row's expansion) so the user
-                // can tell at a glance whether sound is coming out.
-                // Three cases on click — see `handlePlayTap`.
+                // Play button. Icon mirrors the ACTUAL playback state (not just the row's expansion) so the user can tell at a glance whether sound is coming out. Three cases on click — see `handlePlayTap`.
                 Button(action: { handlePlayTap() }) {
                     Image(systemName: isPlayingThis ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 18))
@@ -80,29 +71,9 @@ struct SpeakerRow: View {
             }
 
             if isExpanded {
-                // `.id(...)` fingerprint forces SwiftUI to tear down +
-                // rebuild MiniAudioPlayer when the underlying samples
-                // change. MiniAudioPlayer writes a temp WAV in its
-                // `.onAppear` and AVAudioPlayer plays from THAT file
-                // for the lifetime of the view — without an id-driven
-                // teardown, the diarize-first sequencing in
-                // `convertAndIsolate` (step 6 publishes mix-contaminated
-                // speakers immediately; step 10 swaps in the clean
-                // vocals-stem rebuild) leaves the player playing the
-                // STALE mix-contaminated temp WAV even though
-                // `speaker.isolatedSamples` was updated. Exports read
-                // the current array and sounded clean while preview
-                // playback stayed contaminated — exactly the symptom
-                // the conversion agent traced to this leak.
+                // `.id(...)` fingerprint forces SwiftUI to tear down + rebuild MiniAudioPlayer when the underlying samples change. MiniAudioPlayer writes a temp WAV in its `.onAppear` and AVAudioPlayer plays from THAT file for the lifetime of the view — without an id-driven teardown, the diarize-first sequencing in `convertAndIsolate` (step 6 publishes mix-contaminated speakers immediately; step 10 swaps in the clean vocals-stem rebuild) leaves the player playing the STALE mix-contaminated temp WAV even though `speaker.isolatedSamples` was updated. Exports read the current array and sounded clean while preview playback stayed contaminated — exactly the symptom the conversion agent traced to this leak.
                 //
-                // The XOR fingerprint (count ^ last sample's bit
-                // pattern) is O(1) and changes whenever either the
-                // length or the trailing content of the array changes
-                // — covers the step 6 → step 10 swap reliably for
-                // typical speech content. A statistical collision
-                // requires both arrays to have the same length AND
-                // identical last sample; vanishingly unlikely for real
-                // recorded audio.
+                // The XOR fingerprint (count ^ last sample's bit pattern) is O(1) and changes whenever either the length or the trailing content of the array changes — covers the step 6 → step 10 swap reliably for typical speech content. A statistical collision requires both arrays to have the same length AND identical last sample; vanishingly unlikely for real recorded audio.
                 MiniAudioPlayer(
                     samples: speaker.isolatedSamples,
                     sampleRate: 24_000,
@@ -135,9 +106,7 @@ struct SpeakerRow: View {
             Text("Use original audio").tag(SpeakerAction.useOriginal)
             Text("Discard (exclude from output)").tag(SpeakerAction.discard)
 
-            // Background row can't be re-voiced (you can't TTS
-            // music). Speaker rows show the full voice catalog
-            // grouped into Built-in + My Voices sections.
+            // Background row can't be re-voiced (you can't TTS music). Speaker rows show the full voice catalog grouped into Built-in + My Voices sections.
             if !isBackground {
                 Section("Built-in") {
                     ForEach(allBuiltIn, id: \.id) { v in
@@ -163,8 +132,7 @@ struct SpeakerRow: View {
 
     /// Row-level play-button handler with three cases:
     /// 1. Row not expanded → expand + start playing.
-    /// 2. Row expanded AND playing → pause (keep expanded so the
-    ///    scrubber stays available).
+    /// 2. Row expanded AND playing → pause (keep expanded so the scrubber stays available).
     /// 3. Row expanded AND paused → resume.
     private func handlePlayTap() {
         let speakerID = speaker.id
@@ -209,11 +177,7 @@ struct SpeakerRow: View {
         )
     }
 
-    /// Bidirectional play-state binding for THIS row. Setting it
-    /// to true makes THIS speaker the currently-playing one
-    /// (auto-pauses any other); setting false clears the field
-    /// iff THIS speaker is the current one (avoids racing against
-    /// a concurrent switch).
+    /// Bidirectional play-state binding for THIS row. Setting it to true makes THIS speaker the currently-playing one (auto-pauses any other); setting false clears the field iff THIS speaker is the current one (avoids racing against a concurrent switch).
     private var playingBinding: Binding<Bool> {
         let speakerID = speaker.id
         return Binding(

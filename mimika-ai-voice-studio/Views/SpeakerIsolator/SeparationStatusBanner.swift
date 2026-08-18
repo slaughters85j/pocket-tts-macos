@@ -2,18 +2,9 @@
 //  SeparationStatusBanner.swift
 //  mimika-ai-voice-studio
 //
-//  Persistent yellow banner shown when the user asked for audio
-//  preservation but the separator model wasn't installed — so the
-//  pipeline soft-fell-back to v1 mode (music goes silent under
-//  revoiced speech). Drives the user toward the Manage Separation
-//  Models sheet for the explicit download.
+//  Persistent yellow banner shown when the user asked for audio preservation but the separator model wasn't installed — so the pipeline soft-fell-back to v1 mode (music goes silent under revoiced speech). Drives the user toward the Manage Separation Models sheet for the explicit download.
 //
-//  The banner reads `viewModel.separationFellBackToV1`, which the
-//  VM flips inside `convertAndIsolate` when the gate condition
-//  (toggle on + separator wired + model on disk) doesn't hold AT
-//  RUN TIME. It's set to false at the start of each run, then set
-//  to true if separation was wanted but couldn't run. Hidden when
-//  false.
+//  The banner reads `viewModel.separationFellBackToV1`, which the VM flips inside `convertAndIsolate` when the gate condition (toggle on + separator wired + model on disk) doesn't hold AT RUN TIME. It's set to false at the start of each run, then set to true if separation was wanted but couldn't run. Hidden when false.
 
 import SwiftUI
 

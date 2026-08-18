@@ -4,24 +4,9 @@
 //
 //  Shared cancellation primitive for engine.synthesize streams.
 //
-//  Why this exists. The engines hand back an `AsyncStream<PCMFrame>`
-//  produced by an unstructured `Task { ... }` inside `AsyncStream { ... }`.
-//  Unstructured tasks do NOT inherit cancellation from the consuming
-//  task, so when a ViewModel calls `currentTask?.cancel()` on stop,
-//  the engine's producer keeps running — wasting CPU/GPU time and
-//  filling the console with synthesis logs the user thought they had
-//  cancelled.
+//  The engines hand back an `AsyncStream<PCMFrame>` produced by an unstructured `Task` inside `AsyncStream { … }`, and unstructured tasks do NOT inherit cancellation from the consuming task. So a ViewModel calling `currentTask?.cancel()` on stop left the producer running, burning GPU on audio nobody would hear.
 //
-//  The fix: every engine wires `AsyncStream.Continuation.onTermination`
-//  to flip a `CancellationFlag`, and the AR / generation loop polls
-//  the flag at chunk and frame boundaries to bail out early. When the
-//  consumer's task is cancelled, the for-await loop drops its iterator,
-//  the continuation terminates, the callback fires, the flag flips,
-//  and the producer notices on its next check.
-//
-//  Pattern mirrors the existing `AmplitudeRef` in `OrbView.swift`:
-//  reference-typed wrapper around an Atomic so Sendable closures can
-//  share it without copies.
+//  Instead every engine wires `AsyncStream.Continuation.onTermination` to flip a `CancellationFlag`, and its generation loop polls that flag at chunk and frame boundaries. Cancelling the consumer drops the iterator, which terminates the continuation, which fires the callback, which flips the flag — and the producer bails at its next check.
 
 import Foundation
 import Synchronization
@@ -38,28 +23,13 @@ final class CancellationFlag: @unchecked Sendable {
 
 // MARK: - SynthesisQuiescence
 
-/// App-wide registry of in-flight synthesis producer loops, used to gate
-/// process termination.
+/// App-wide registry of in-flight synthesis producer loops, used to gate process termination.
 ///
-/// Why this exists. `-[NSApplication terminate:]` calls `exit()`, which runs
-/// C++ static destructors on the main thread — including
-/// MetalPerformanceShadersGraph's global registries. If a Core ML
-/// `prediction(from:usingState:)` is still executing on the Swift Concurrency
-/// cooperative pool at that instant, MPSGraph dereferences its own destroyed
-/// globals and the process dies with EXC_BAD_ACCESS: a "quit unexpectedly"
-/// dialog on every quit-while-speaking, and a crash row in App Store Connect.
+/// `-[NSApplication terminate:]` calls `exit()`, which runs C++ static destructors on the main thread — including MetalPerformanceShadersGraph's global registries. A Core ML `prediction(from:usingState:)` still executing on the cooperative pool at that instant dereferences those destroyed globals and dies with EXC_BAD_ACCESS: a "quit unexpectedly" dialog on every quit-while-speaking, and a crash row in App Store Connect.
 ///
-/// The fix: every engine producer registers its `CancellationFlag` here for
-/// the lifetime of its loop. `AppDelegate.applicationShouldTerminate` calls
-/// `beginShutdown()` (flips every registered flag), defers termination with
-/// `.terminateLater` while `drain(timeout:)` waits for the producers to exit
-/// at their next frame-boundary cancellation check, and only then lets AppKit
-/// run `exit()`. A producer that starts AFTER shutdown began is cancelled at
-/// registration, so it bails before its first model call.
+/// So every producer registers its `CancellationFlag` here for the life of its loop. `AppDelegate.applicationShouldTerminate` flips them all via `beginShutdown()`, returns `.terminateLater` while `drain(timeout:)` waits for the producers to exit at their next frame boundary, and only then lets AppKit reach `exit()`. A producer starting AFTER shutdown began is cancelled at registration, before its first model call.
 ///
-/// `nonisolated` opts the whole type out of the target's MainActor-by-default
-/// isolation: `begin`/`end` are called from the engines' nonisolated producer
-/// tasks (including inside a synchronous `defer`), so they must not hop actors.
+/// `nonisolated` opts the whole type out of the target's MainActor-by-default isolation: `begin`/`end` are called from the engines' nonisolated producer tasks (including inside a synchronous `defer`), so they must not hop actors.
 nonisolated final class SynthesisQuiescence: Sendable {
 
     static let shared = SynthesisQuiescence()
@@ -73,9 +43,7 @@ nonisolated final class SynthesisQuiescence: Sendable {
 
     // MARK: Producer registration
 
-    /// Called by an engine's producer task before its first model call.
-    /// If termination has already begun, the flag is flipped immediately so
-    /// the producer's first cancellation check bails before any inference.
+    /// Called by an engine's producer task before its first model call. If termination has already begun, the flag is flipped immediately so the producer's first cancellation check bails before any inference.
     func begin(_ flag: CancellationFlag) {
         let cancelNow = state.withLock { s in
             s.active[ObjectIdentifier(flag)] = flag
@@ -98,10 +66,7 @@ nonisolated final class SynthesisQuiescence: Sendable {
 
     // MARK: Termination
 
-    /// Latch shutdown and cancel every registered producer. Returns `true` if
-    /// any producer is still active — the caller should defer termination and
-    /// `drain(timeout:)` before allowing `exit()`. Once latched, later
-    /// `begin(_:)` calls are auto-cancelled.
+    /// Latch shutdown and cancel every registered producer. Returns `true` if any producer is still active — the caller should defer termination and `drain(timeout:)` before allowing `exit()`. Once latched, later `begin(_:)` calls are auto-cancelled.
     func beginShutdown() -> Bool {
         let flags = state.withLock { s in
             s.isShuttingDown = true
@@ -111,10 +76,7 @@ nonisolated final class SynthesisQuiescence: Sendable {
         return hasActiveWork
     }
 
-    /// Waits until every registered producer has deregistered, or `timeout`
-    /// elapses — whichever comes first. Polls at 50 ms, well under the 80 ms
-    /// frame cadence the producers' cancellation checks run at; the loop
-    /// normally exits within one or two ticks.
+    /// Waits for every producer to deregister, or `timeout`. Polls at 50 ms, under the producers' 80 ms frame cadence, so it normally exits within a tick or two.
     func drain(timeout: Duration) async {
         let deadline = ContinuousClock.now + timeout
         while hasActiveWork && ContinuousClock.now < deadline {

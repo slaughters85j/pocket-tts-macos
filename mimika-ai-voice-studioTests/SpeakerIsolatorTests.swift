@@ -2,9 +2,7 @@
 //  SpeakerIsolatorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Pure-logic tests for the Voice Isolator. Uses a synthetic ramp
-//  buffer so it's trivial to assert which input samples got copied
-//  vs. left as zero.
+//  Pure-logic tests for the Voice Isolator. Uses a synthetic ramp buffer so it's trivial to assert which input samples got copied vs. left as zero.
 
 import XCTest
 @testable import mimika_ai_voice_studio
@@ -13,9 +11,7 @@ final class SpeakerIsolatorTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// 1 second of "ramp" samples at 24 kHz — sample i has value
-    /// `Float(i + 1)` so zero (silence) is unambiguously distinguishable
-    /// from any real input sample.
+    /// 1 second of "ramp" samples at 24 kHz — sample i has value `Float(i + 1)` so zero (silence) is unambiguously distinguishable from any real input sample.
     private let sampleRate = 24_000
     private lazy var oneSecondRamp: [Float] = (0..<sampleRate).map { Float($0 + 1) }
 
@@ -74,8 +70,7 @@ final class SpeakerIsolatorTests: XCTestCase {
     }
 
     func test_singleSpeakerPartialCoverage_concatenateMode() {
-        // Same input as above, but preserveSilence=false → the output
-        // is just the 0.25..0.75 slice, length = sampleRate / 2.
+        // Same input as above, but preserveSilence=false → the output is just the 0.25..0.75 slice, length = sampleRate / 2.
         let segs = [DiarizedSegment(speakerID: "SPEAKER_00", startSec: 0.25, endSec: 0.75)]
         let out = SpeakerIsolator.isolate(
             inputSamples: oneSecondRamp,
@@ -167,9 +162,7 @@ final class SpeakerIsolatorTests: XCTestCase {
     // MARK: - Speaker ordering
 
     func test_resultOrderingByFirstUtterance() {
-        // SPEAKER_07 speaks first (at 0.0s), SPEAKER_03 second (at
-        // 0.5s). Result should be ordered by first-utterance time,
-        // not by lexicographic speakerID.
+        // SPEAKER_07 speaks first (at 0.0s), SPEAKER_03 second (at 0.5s). Result should be ordered by first-utterance time, not by lexicographic speakerID.
         let segs = [
             DiarizedSegment(speakerID: "SPEAKER_07", startSec: 0.0, endSec: 0.4),
             DiarizedSegment(speakerID: "SPEAKER_03", startSec: 0.5, endSec: 0.9),
@@ -187,8 +180,7 @@ final class SpeakerIsolatorTests: XCTestCase {
     // MARK: - Boundary handling
 
     func test_outOfRangeSegmentClampedNotCrashing() {
-        // Segment that extends past the input audio length. Should
-        // clamp to [0, totalSamples) instead of crashing.
+        // Segment that extends past the input audio length. Should clamp to [0, totalSamples) instead of crashing.
         let segs = [DiarizedSegment(speakerID: "SPEAKER_00", startSec: 0.5, endSec: 5.0)]
         let out = SpeakerIsolator.isolate(
             inputSamples: oneSecondRamp,
@@ -234,8 +226,7 @@ final class SpeakerIsolatorTests: XCTestCase {
     }
 
     func test_mergeOverlapping_touchingRangesMerge() {
-        // Range ending at 1.0 and another starting at 1.0 are
-        // considered touching → merge into one [0.0...2.0].
+        // Range ending at 1.0 and another starting at 1.0 are considered touching → merge into one [0.0...2.0].
         let ranges: [ClosedRange<Double>] = [0.0...1.0, 1.0...2.0]
         XCTAssertEqual(SpeakerIsolator.mergeOverlapping(ranges), [0.0...2.0])
     }
@@ -288,8 +279,7 @@ final class SpeakerIsolatorTests: XCTestCase {
     }
 
     func test_extractBackground_returnsComplementSamples() {
-        // Speaker active only [0.25s..0.75s]; background should carry
-        // input samples in [0..0.25s] and [0.75s..1.0s], zero elsewhere.
+        // Speaker active only [0.25s..0.75s]; background should carry input samples in [0..0.25s] and [0.75s..1.0s], zero elsewhere.
         let segs = [DiarizedSegment(speakerID: "SPEAKER_00", startSec: 0.25, endSec: 0.75)]
         let bg = SpeakerIsolator.extractBackground(
             inputSamples: oneSecondRamp,
@@ -321,8 +311,7 @@ final class SpeakerIsolatorTests: XCTestCase {
     }
 
     func test_extractBackground_dropsSubThresholdSlivers() {
-        // 50ms gap between two speakers (under the 100ms default
-        // threshold) should be dropped from the background ranges.
+        // 50ms gap between two speakers (under the 100ms default threshold) should be dropped from the background ranges.
         let segs = [
             DiarizedSegment(speakerID: "SPEAKER_00", startSec: 0.0,  endSec: 0.45),
             DiarizedSegment(speakerID: "SPEAKER_01", startSec: 0.50, endSec: 1.0),
@@ -334,14 +323,12 @@ final class SpeakerIsolatorTests: XCTestCase {
             totalDurationSec: 1.0,
             minBackgroundChunkSec: 0.1
         )
-        // Only gap is 50ms (0.45..0.50) — below threshold → no
-        // background ranges → nil return.
+        // Only gap is 50ms (0.45..0.50) — below threshold → no background ranges → nil return.
         XCTAssertNil(bg)
     }
 
     func test_extractBackground_mergesOverlappingSpeakerRanges() {
-        // Two overlapping speakers covering 0..0.8s combined; gap is
-        // 0.8..1.0s → that's the only background range.
+        // Two overlapping speakers covering 0..0.8s combined; gap is 0.8..1.0s → that's the only background range.
         let segs = [
             DiarizedSegment(speakerID: "SPEAKER_00", startSec: 0.0, endSec: 0.6),
             DiarizedSegment(speakerID: "SPEAKER_01", startSec: 0.4, endSec: 0.8),
@@ -361,10 +348,7 @@ final class SpeakerIsolatorTests: XCTestCase {
 
 // MARK: - DiarizationSettings tests
 
-/// Unit coverage for the backend-agnostic settings struct that the
-/// Speaker Isolator UI surfaces and `SpeakerKitDiarizationProvider`
-/// translates into `PyannoteDiarizationOptions`. Pure value-type
-/// arithmetic — no diarizer involved.
+/// Unit coverage for the backend-agnostic settings struct that the Speaker Isolator UI surfaces and `SpeakerKitDiarizationProvider` translates into `PyannoteDiarizationOptions`. Pure value-type arithmetic — no diarizer involved.
 final class DiarizationSettingsTests: XCTestCase {
 
     func test_defaultInit_isAutoDetectAtDefaultSensitivity() {
@@ -374,31 +358,25 @@ final class DiarizationSettingsTests: XCTestCase {
     }
 
     func test_defaultSensitivity_mapsToPyannoteDefaultThreshold() {
-        // SpeakerKit's pyannote default for clusterDistanceThreshold
-        // is 0.6 (see SpeakerClustering.swift in the package). Our
-        // default sensitivity (0.5) must map onto 0.6 so the v1
-        // behavior is unchanged when the user doesn't touch the slider.
+        // SpeakerKit's pyannote default for clusterDistanceThreshold is 0.6 (see SpeakerClustering.swift in the package). Our default sensitivity (0.5) must map onto 0.6 so the v1 behavior is unchanged when the user doesn't touch the slider.
         let s = DiarizationSettings()
         XCTAssertEqual(s.pyannoteClusterDistanceThreshold, 0.6, accuracy: 0.0001)
     }
 
     func test_maxSensitivity_mapsToSmallestThreshold() {
-        // Pulling the slider all the way up should request the
-        // tightest clusters (most aggressive splits).
+        // Pulling the slider all the way up should request the tightest clusters (most aggressive splits).
         let s = DiarizationSettings(sensitivity: 1.0)
         XCTAssertEqual(s.pyannoteClusterDistanceThreshold, 0.3, accuracy: 0.0001)
     }
 
     func test_zeroSensitivity_mapsToLargestThreshold() {
-        // Pulling all the way down should request the loosest
-        // clusters (most aggressive merges).
+        // Pulling all the way down should request the loosest clusters (most aggressive merges).
         let s = DiarizationSettings(sensitivity: 0.0)
         XCTAssertEqual(s.pyannoteClusterDistanceThreshold, 0.9, accuracy: 0.0001)
     }
 
     func test_init_clampsSensitivityToValidRange() {
-        // The UI binding clamps too, but the init guard is the
-        // final defense against bad caller input.
+        // The UI binding clamps too, but the init guard is the final defense against bad caller input.
         XCTAssertEqual(DiarizationSettings(sensitivity: -1.5).sensitivity, 0.0)
         XCTAssertEqual(DiarizationSettings(sensitivity: 2.0).sensitivity, 1.0)
     }
@@ -423,9 +401,7 @@ final class DiarizationSettingsTests: XCTestCase {
     // MARK: - FluidAudio sensitivity → clustering-gate remap
 
     func test_sensitivityDefault_preservesStockClusteringThreshold() {
-        // Slider centre must still map to FluidAudio's stock effective
-        // gate (0.84) → clusteringThreshold 0.70, so out-of-box behaviour
-        // is unchanged by the remap.
+        // Slider centre must still map to FluidAudio's stock effective gate (0.84) → clusteringThreshold 0.70, so out-of-box behaviour is unchanged by the remap.
         let s = DiarizationSettings(sensitivity: 0.5)
         XCTAssertEqual(s.fluidAudioClusteringThreshold, 0.70, accuracy: 0.0005)
         XCTAssertEqual(
@@ -435,9 +411,7 @@ final class DiarizationSettingsTests: XCTestCase {
     }
 
     func test_sensitivityMergeEnd_staysBelowNeverSplitCeiling() {
-        // The old map sent the merge end to an effective gate of 1.14
-        // (>1.0 = "never split", a dead quarter of the slider). The remap
-        // caps it at 0.95 so the merge half actually does something.
+        // The old map sent the merge end to an effective gate of 1.14 (>1.0 = "never split", a dead quarter of the slider). The remap caps it at 0.95 so the merge half actually does something.
         let gate = DiarizationSettings.effectiveSpeakerGate(forSensitivity: 0.0)
         XCTAssertEqual(gate, 0.95, accuracy: 0.0005)
         XCTAssertLessThan(gate, 1.0, "merge end must stay under the never-split ceiling")
@@ -451,8 +425,7 @@ final class DiarizationSettingsTests: XCTestCase {
     }
 
     func test_effectiveGate_isMonotonicDecreasingAndNeverDead() {
-        // Across the whole travel: strictly decreasing (higher sensitivity
-        // ⇒ lower gate ⇒ more splits) and never in the >1.0 dead zone.
+        // Across the whole travel: strictly decreasing (higher sensitivity ⇒ lower gate ⇒ more splits) and never in the >1.0 dead zone.
         var previous = Float(2.0)
         for step in 0...20 {
             let sens = Double(step) / 20.0
@@ -478,7 +451,4 @@ final class DiarizationSettingsTests: XCTestCase {
     }
 }
 
-// The FluidAudio merge-map, re-voice precision, and timing-QA evaluator
-// suites live in their own sibling files (FluidAudioMergeMapTests.swift,
-// RevoicePrecisionTests.swift, TimingQAEvaluatorTests.swift) per the
-// one-suite-per-file convention.
+// The FluidAudio merge-map, re-voice precision, and timing-QA evaluator suites live in their own sibling files (FluidAudioMergeMapTests.swift, RevoicePrecisionTests.swift, TimingQAEvaluatorTests.swift) per the one-suite-per-file convention.

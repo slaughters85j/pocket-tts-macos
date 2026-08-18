@@ -2,8 +2,7 @@
 //  TextInput.swift
 //  mimika-ai-voice-studio
 //
-//  Ports Electron's TextInput.tsx — label bar + pause-insert + big textarea
-//  + word/char counters.
+//  Ports Electron's TextInput.tsx — label bar + pause-insert + big textarea + word/char counters.
 
 import AppKit
 import SwiftUI
@@ -17,16 +16,9 @@ struct TextInput: View {
     var onPauseClick: (() -> Void)?
     var onFormatClick: (() -> Void)?
     var accessibilityID: String = "single.textInput"
-    /// Optional cursor-aware insertion bridge. When passed, the editor swaps
-    /// to an NSTextView-backed view so the view model can call
-    /// `bridge.insertAtCursor(...)` to drop tags / markers at the caret
-    /// rather than at end-of-buffer. Single Voice doesn't pass one (no
-    /// inline insertion needed there).
+    /// Optional cursor-aware insertion bridge. When passed, the editor swaps to an NSTextView-backed view so the view model can call `bridge.insertAtCursor(...)` to drop tags / markers at the caret rather than at end-of-buffer. Single Voice doesn't pass one (no inline insertion needed there).
     var editorBridge: TextEditorBridge?
-    /// Optional per-tag-name colors passed through to the underlying
-    /// MacTextEditor. Multi-Talk uses this to color `{Speaker N}` tags.
-    /// nil → no colorization (Single Voice + any caller that doesn't
-    /// care about tags).
+    /// Optional per-tag-name colors passed through to the underlying MacTextEditor. Multi-Talk uses this to color `{Speaker N}` tags. nil → no colorization (Single Voice + any caller that doesn't care about tags).
     var tagColors: [String: NSColor]? = nil
 
     var body: some View {
@@ -94,15 +86,7 @@ struct TextInput: View {
 
             // Editor
             //
-            // Always use the NSTextView-backed `MacTextEditor`, even when
-            // there's no `editorBridge` (Single Voice doesn't need cursor-
-            // aware insertion). SwiftUI's `TextEditor` on macOS doesn't
-            // expose continuous spell-check or the smart-substitution
-            // toggles, both of which we need: spell-check so the user
-            // catches typos that would mispronounce, and the smart-sub
-            // toggles OFF so the OS doesn't quietly re-introduce curly
-            // punctuation that the byte-fallback tokenization can't
-            // handle. `MacTextEditor.makeNSView` sets all of that up.
+            // Always use the NSTextView-backed `MacTextEditor`, even when there's no `editorBridge` (Single Voice doesn't need cursor-aware insertion). SwiftUI's `TextEditor` on macOS doesn't expose continuous spell-check or the smart-substitution toggles, both of which we need: spell-check so the user catches typos that would mispronounce, and the smart-sub toggles OFF so the OS doesn't quietly re-introduce curly punctuation that the byte-fallback tokenization can't handle. `MacTextEditor.makeNSView` sets all of that up.
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(placeholder)
@@ -122,10 +106,7 @@ struct TextInput: View {
                     .padding(.horizontal, Theme.space4 - 4)
                     .padding(.vertical, Theme.space3 - 6)
             }
-            // Flex to fill the column rather than demanding a fixed tall
-            // height: the inner NSScrollView already scrolls, so the editor
-            // can shrink on short windows without clipping the surrounding
-            // chrome, and still expands to fill big displays.
+            // Flex to fill the column rather than demanding a fixed tall height: the inner NSScrollView already scrolls, so the editor can shrink on short windows without clipping the surrounding chrome, and still expands to fill big displays.
             .frame(minHeight: Theme.textEditorMinHeight, maxHeight: .infinity)
             .themeInputField()
 
@@ -134,11 +115,7 @@ struct TextInput: View {
                 Text("\(wordCount) words")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
-                // Discoverability hint — the editor's NSTextView already has
-                // usesFindBar enabled (MacTextEditor), and the standard macOS
-                // find bar (with replace) opens on ⌘F when the editor has
-                // focus. Hidden while the editor is read-only (during
-                // synthesis) — Replace silently no-ops there.
+                // Discoverability hint — the editor's NSTextView already has usesFindBar enabled (MacTextEditor), and the standard macOS find bar (with replace) opens on ⌘F when the editor has focus. Hidden while the editor is read-only (during synthesis) — Replace silently no-ops there.
                 if !disabled {
                     Text("⌘F to find & replace")
                         .font(Theme.fontXS)

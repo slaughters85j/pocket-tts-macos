@@ -2,13 +2,9 @@
 //  EnsembleCastEditorSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Post-creation cast editor: change each speaker's voice + sampling preset
-//  AFTER the cast was generated. Edits apply to the live conversation and
-//  persist to the saved cast (so reuse keeps them). Reuses the same voice +
-//  preset controls as the setup wizard's confirm-voices step.
+//  Post-creation cast editor: change each speaker's voice + sampling preset AFTER the cast was generated. Edits apply to the live conversation and persist to the saved cast (so reuse keeps them). Reuses the same voice + preset controls as the setup wizard's confirm-voices step.
 //
-//  WP-CAST-1: add/remove roster, import/export cast JSON.
-//  Run knobs live in the toolbar Director's Chair (not this sheet).
+//  WP-CAST-1: add/remove roster, import/export cast JSON. Run knobs live in the toolbar Director's Chair (not this sheet).
 //
 
 import SwiftUI
@@ -21,25 +17,17 @@ struct EnsembleCastEditorSheet: View {
     @State private var editTarget: PersonaEditTarget?
     /// Index pending removal confirmation (nil = no alert).
     @State private var personaToRemove: Int?
-    /// Local draft for YOU name — committed only on Done so intermediate
-    /// keystrokes do not pollute the Speaking-as roster or SwiftData.
+    /// Local draft for YOU name — committed only on Done so intermediate keystrokes do not pollute the Speaking-as roster or SwiftData.
     @State private var draftUserPeerName: String = ""
 
-    /// Identifiable wrapper driving the persona-editor `.sheet(item:)`.
-    /// Carries a SNAPSHOT of the persona's editable fields so the sheet
-    /// needs no index guard and no live array bindings (the write-back is
-    /// bounds-checked in the VM setters, on close).
+    /// Identifiable wrapper driving the persona-editor `.sheet(item:)`. Carries a SNAPSHOT of the persona's editable fields so the sheet needs no index guard and no live array bindings (the write-back is bounds-checked in the VM setters, on close).
     private struct PersonaEditTarget: Identifiable {
         let id: Int
         let name: String
         let prompt: String
     }
 
-    /// Persona name + script stay editable until the conversation has
-    /// actually produced turns — covering a freshly reused setup AND a
-    /// failed start (`.error` with zero turns: nothing happened yet, so
-    /// there is nothing to protect). Once turns exist, the personas are
-    /// part of the episode's history and the affordance disables.
+    /// Persona name + script stay editable until the conversation has actually produced turns — covering a freshly reused setup AND a failed start (`.error` with zero turns: nothing happened yet, so there is nothing to protect). Once turns exist, the personas are part of the episode's history and the affordance disables.
     private var canEditPersonas: Bool {
         guard viewModel.turns.isEmpty else { return false }
         switch viewModel.runState {
@@ -48,9 +36,7 @@ struct EnsembleCastEditorSheet: View {
         }
     }
 
-    /// Roster membership (add/remove) is allowed when the loop is not mid-turn.
-    /// Unlike pencil, this is NOT gated on `turns.isEmpty` — users can grow or
-    /// shrink the cast after the writer finishes and even mid-episode (parked).
+    /// Roster membership (add/remove) is allowed when the loop is not mid-turn. Unlike pencil, this is NOT gated on `turns.isEmpty` — users can grow or shrink the cast after the writer finishes and even mid-episode (parked).
     private var canMutateRoster: Bool {
         switch viewModel.runState {
         case .idle, .error, .awaitingStep: return true
@@ -94,10 +80,7 @@ struct EnsembleCastEditorSheet: View {
                 initialName: target.name,
                 initialPrompt: target.prompt
             ) { name, prompt in
-                // The editor worked on local copies; land them in the
-                // live cast and persist to the saved cast ONCE, on close.
-                // The VM setters bounds-check, so a cast rebuilt while
-                // the sheet was up drops the edit instead of trapping.
+                // The editor worked on local copies; land them in the live cast and persist to the saved cast ONCE, on close. The VM setters bounds-check, so a cast rebuilt while the sheet was up drops the edit instead of trapping.
                 viewModel.setPersonaName(at: target.id, name: name)
                 viewModel.setPersonaPrompt(at: target.id, prompt: prompt)
                 viewModel.commitPersonaEdit(at: target.id)
@@ -123,9 +106,7 @@ struct EnsembleCastEditorSheet: View {
 
     // MARK: - Scene & mood
 
-    /// Editable scene + mood at the top of Cast & Settings. Live values feed
-    /// `framedSystemPrompt` on the next turn; persistence + export/import
-    /// already carry both fields on the cast package.
+    /// Editable scene + mood at the top of Cast & Settings. Live values feed `framedSystemPrompt` on the next turn; persistence + export/import already carry both fields on the cast package.
     private var sceneMoodSection: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
             Text("SCENE & MOOD").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
@@ -168,10 +149,7 @@ struct EnsembleCastEditorSheet: View {
 
     // MARK: - Your character name
 
-    /// Optional proper noun for the human peer (same idea as New Cast wizard).
-    /// Empty keeps display "You" / model "Guest". A real name is required later
-    /// for Director's Chair "include me in turn order" (User turn).
-    /// Edits stay in `draftUserPeerName` until Done — not every keystroke.
+    /// Optional proper noun for the human peer (same idea as New Cast wizard). Empty keeps display "You" / model "Guest". A real name is required later for Director's Chair "include me in turn order" (User turn). Edits stay in `draftUserPeerName` until Done — not every keystroke.
     private var userPeerSection: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
             Text("YOU").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
@@ -190,8 +168,7 @@ struct EnsembleCastEditorSheet: View {
         onClose()
     }
 
-    /// Dismiss without writing the YOU name (live cast voice/preset edits
-    /// already applied — only the character-name field is deferred).
+    /// Dismiss without writing the YOU name (live cast voice/preset edits already applied — only the character-name field is deferred).
     private func discardAndClose() {
         onClose()
     }
@@ -343,8 +320,7 @@ struct EnsembleCastEditorSheet: View {
         "temp \(preset.temperature) · top-p \(preset.topP) · top-k \(preset.topK)"
     }
 
-    /// Stock built-ins + the user's imported Pocket-TTS voices (mirrors the
-    /// setup wizard's voiceOptions so the same picker list appears here).
+    /// Stock built-ins + the user's imported Pocket-TTS voices (mirrors the setup wizard's voiceOptions so the same picker list appears here).
     private var voiceOptions: [VoiceOption] {
         let builtIn = voices
             .filter { $0.type == .predefined }

@@ -2,8 +2,7 @@
 //  CapabilityOverrideSettingsSection.swift
 //  mimika-ai-voice-studio
 //
-//  Endpoint/model-scoped force-supported toggles for providers that do not
-//  publish LM Studio capability metadata.
+//  Endpoint/model-scoped force-supported toggles for providers that do not publish LM Studio capability metadata.
 
 import SwiftUI
 

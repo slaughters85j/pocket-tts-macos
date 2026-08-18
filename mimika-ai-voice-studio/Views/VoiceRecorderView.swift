@@ -2,10 +2,7 @@
 //  VoiceRecorderView.swift
 //  mimika-ai-voice-studio
 //
-//  The Voice Manager "Record Voice" screen. Walks the user through
-//  permission → record (with live level + countdown) → review (play back +
-//  quality feedback) → either discard or hand the take to the existing Save
-//  Voice Preset flow via `onUse`.
+//  The Voice Manager "Record Voice" screen. Walks the user through permission → record (with live level + countdown) → review (play back + quality feedback) → either discard or hand the take to the existing Save Voice Preset flow via `onUse`.
 //
 
 import AppKit
@@ -13,8 +10,7 @@ import SwiftUI
 
 struct VoiceRecorderView: View {
 
-    /// Called with the temp WAV URL + a suggested name once the user accepts a
-    /// take. The Voice Manager routes this into its existing Save Preset step.
+    /// Called with the temp WAV URL + a suggested name once the user accepts a take. The Voice Manager routes this into its existing Save Preset step.
     var onUse: (URL, String) -> Void
     /// Called when the user backs out without keeping a recording.
     var onCancel: () -> Void
@@ -271,8 +267,7 @@ struct VoiceRecorderView: View {
         }
     }
 
-    /// The Rainbow Passage — a phonetically rich paragraph that covers most
-    /// English sounds, so a short read gives the cloner broad coverage.
+    /// The Rainbow Passage — a phonetically rich paragraph that covers most English sounds, so a short read gives the cloner broad coverage.
     private static let cloningScript = "When the sunlight strikes raindrops in the air, they act as a prism and form a rainbow. The rainbow is a division of white light into many beautiful colors. These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon. There is, according to legend, a boiling pot of gold at one end. People look, but no one ever finds it. When a man looks for something beyond his reach, his friends say he is looking for the pot of gold at the end of the rainbow."
 
     // MARK: - Intents

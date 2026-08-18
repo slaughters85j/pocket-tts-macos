@@ -2,12 +2,9 @@
 //  FishEngine.swift
 //  mimika-ai-voice-studio
 //
-//  Fish Audio S2 Pro backend via mlx-audio-swift. Batch generation
-//  (not frame-streaming) — generates full audio, then yields as
-//  PCMFrames for StreamingPlayer compatibility.
+//  Fish Audio S2 Pro backend via mlx-audio-swift. Batch generation (not frame-streaming) — generates full audio, then yields as PCMFrames for StreamingPlayer compatibility.
 //
-//  Requires SPM: https://github.com/Blaizzy/mlx-audio-swift.git
-//  Add via Xcode → File → Add Package Dependencies if not yet added.
+//  Requires SPM: https://github.com/Blaizzy/mlx-audio-swift.git Add via Xcode → File → Add Package Dependencies if not yet added.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -43,8 +40,7 @@ actor FishEngine: TTSEngineProtocol {
     }
 
     private(set) var status: BootstrapStatus = .idle
-    // SpeechGenerationModel is AnyObject but not Sendable; the actor serialises all access,
-    // so nonisolated(unsafe) is correct here.
+    // SpeechGenerationModel is AnyObject but not Sendable; the actor serialises all access, so nonisolated(unsafe) is correct here.
     private nonisolated(unsafe) var model: (any SpeechGenerationModel)?
     private var sampleRate: Int = 44100
 
@@ -78,25 +74,17 @@ actor FishEngine: TTSEngineProtocol {
     nonisolated var prefersBatchPlayback: Bool { true }
 
     nonisolated func availableVoiceIDs() -> [String] {
-        // "fish-default" = no reference audio (Fish's built-in voice).
-        // Saved voices are discovered via VoiceManager at the UI layer.
+        // "fish-default" = no reference audio (Fish's built-in voice). Saved voices are discovered via VoiceManager at the UI layer.
         ["fish-default"]
     }
 
     nonisolated func synthesize(text: String, voiceID: String, options: SynthesisOptions) -> AsyncStream<PCMFrame> {
         AsyncStream { continuation in
-            // See SynthesisCancellation.swift for the why. MLX `generate`
-            // can't be interrupted mid-call, so cancellation here only
-            // bites between chunks (Multi-Talk) and during the yield
-            // loop after generation completes. Mid-generation cancel
-            // still finishes the current chunk's audio.
+            // See SynthesisCancellation.swift for the why. MLX `generate` can't be interrupted mid-call, so cancellation here only bites between chunks (Multi-Talk) and during the yield loop after generation completes. Mid-generation cancel still finishes the current chunk's audio.
             let cancel = CancellationFlag()
             continuation.onTermination = { _ in cancel.cancel() }
             Task {
-                // Quit-while-speaking gate — same wiring as TTSEngine; see
-                // SynthesisQuiescence in SynthesisCancellation.swift. MLX
-                // generate can't be interrupted mid-chunk, so the drain's
-                // timeout is the backstop here.
+                // Quit-while-speaking gate — same wiring as TTSEngine; see SynthesisQuiescence in SynthesisCancellation.swift. MLX generate can't be interrupted mid-chunk, so the drain's timeout is the backstop here.
                 SynthesisQuiescence.shared.begin(cancel)
                 defer { SynthesisQuiescence.shared.end(cancel) }
                 do {
@@ -120,19 +108,11 @@ actor FishEngine: TTSEngineProtocol {
     ) async throws {
         guard status == .ready else { throw FishError.notBootstrapped }
         guard let model else { throw FishError.notBootstrapped }
-        // Cast to the concrete `FishSpeechModel` once and reuse for
-        // every generate call. The protocol existential
-        // (`any SpeechGenerationModel`) is non-Sendable, so awaiting
-        // a method on it from this actor-isolated context trips
-        // Swift 6's sender check; the concrete class is Sendable and
-        // sidesteps the diagnostic. At runtime the loader returns a
-        // FishSpeechModel, so the cast is total — failing it is a
-        // bootstrap-state bug, surfaced as `.notBootstrapped`.
+        // Cast to the concrete `FishSpeechModel` once and reuse for every generate call. The protocol existential (`any SpeechGenerationModel`) is non-Sendable, so awaiting a method on it from this actor-isolated context trips Swift 6's sender check; the concrete class is Sendable and sidesteps the diagnostic. At runtime the loader returns a FishSpeechModel, so the cast is total — failing it is a bootstrap-state bug, surfaced as `.notBootstrapped`.
         guard let fishModel = model as? FishSpeechModel else {
             throw FishError.notBootstrapped
         }
-        // Early cancellation check — if the consumer dropped the stream
-        // before we even started, skip the entire chunk.
+        // Early cancellation check — if the consumer dropped the stream before we even started, skip the entire chunk.
         if cancel.isCancelled {
             print("[FishEngine] cancelled before start")
             return

@@ -7,9 +7,7 @@
 //    * EnsembleStore cast/persona CRUD + cascade delete
 //    * EnsembleStore.appendSession speaker ordering
 //    * .ensemble prompt scope seeds idempotently
-//    * Migration safety: an on-disk store written with the new schema (which
-//      includes the additive Ensemble models) preserves legacy rows across a
-//      reopen and keeps seeding idempotent.
+//    * Migration safety: an on-disk store written with the new schema (which includes the additive Ensemble models) preserves legacy rows across a reopen and keeps seeding idempotent.
 //
 
 import SwiftData
@@ -188,12 +186,7 @@ final class EnsemblePersistenceTests: XCTestCase {
         XCTAssertFalse(parts.contains { $0.allSatisfy(\.isWhitespace) })
     }
 
-    /// `prewarm()` must actually settle the load. It previously dispatched
-    /// `countTokens(" ")`, which took the not-ready branch and called `prewarm()`
-    /// again — an immortal spin loop on the global queue, one per Ensemble turn,
-    /// that starved the main thread and left the estimator permanently unloaded.
-    /// Passes whether or not the tokenizer resource is bundled: what regressed
-    /// was that the load never *settled*, not which branch it settled on.
+    /// `prewarm()` must actually settle the load. It previously dispatched `countTokens(" ")`, which took the not-ready branch and called `prewarm()` again — an immortal spin loop on the global queue, one per Ensemble turn, that starved the main thread and left the estimator permanently unloaded. Passes whether or not the tokenizer resource is bundled: what regressed was that the load never *settled*, not which branch it settled on.
     func test_qwenPrewarm_settlesTheLoadAndDoesNotReenter() async throws {
         QwenTokenEstimator.prewarm()
         // Repeat calls must be claimed-and-dropped, never seed a second parse.

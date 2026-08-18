@@ -2,18 +2,14 @@
 //  DirectorsChairComposer.swift
 //  mimika-ai-voice-studio
 //
-//  Shared Boot / Direct composer card for the Director's Chair. Extracted from
-//  DirectorsChairPanel because the two cards were near-identical copies AND
-//  because their text fields lived on the panel: every keystroke re-evaluated
-//  the whole Chair body — Liquid Glass card plus the full run-settings form.
+//  Shared Boot / Direct composer card for the Director's Chair. Extracted from DirectorsChairPanel because the two cards were near-identical copies AND because their text fields lived on the panel: every keystroke re-evaluated the whole Chair body — Liquid Glass card plus the full run-settings form.
 //
 
 import SwiftUI
 
 // MARK: - ChairComposerStyle
 
-/// Static copy + accessibility IDs for one composer flavor. Keeps the card
-/// itself free of Boot/Direct branching.
+/// Static copy + accessibility IDs for one composer flavor. Keeps the card itself free of Boot/Direct branching.
 struct ChairComposerStyle {
     let title: String
     let blurb: String
@@ -47,8 +43,7 @@ struct ChairComposerStyle {
 
 // MARK: - ChairComposerCard
 
-/// One composer card. Owns its `text` and focus so a keystroke invalidates this
-/// card only — never the glass panel hosting it.
+/// One composer card. Owns its `text` and focus so a keystroke invalidates this card only — never the glass panel hosting it.
 struct ChairComposerCard: View {
     let style: ChairComposerStyle
     let cast: [Persona]
@@ -103,8 +98,7 @@ struct ChairComposerCard: View {
             RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
                 .fill(Color.black.opacity(0.22))
         )
-        // Resign before teardown — AppKit fights a focused field being removed
-        // mid-animation (this is why the panel's collapse is delayed 60 ms).
+        // Resign before teardown — AppKit fights a focused field being removed mid-animation (this is why the panel's collapse is delayed 60 ms).
         .onDisappear { focused = false }
     }
 

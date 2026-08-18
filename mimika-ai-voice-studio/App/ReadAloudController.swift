@@ -2,10 +2,7 @@
 //  ReadAloudController.swift
 //  mimika-ai-voice-studio
 //
-//  The single "speak this text aloud" brain shared by the menu-bar item and the
-//  macOS "Read Selection Aloud" Service. Reuses the app's already-warm engine +
-//  player (mirrors SingleVoiceViewModel's synth loop, minus history/preview) so
-//  a read-aloud has no extra model-load cost. Cancels any in-flight read first.
+//  The single "speak this text aloud" brain shared by the menu-bar item and the macOS "Read Selection Aloud" Service. Reuses the app's already-warm engine + player (mirrors SingleVoiceViewModel's synth loop, minus history/preview) so a read-aloud has no extra model-load cost. Cancels any in-flight read first.
 //
 
 import Foundation

@@ -2,14 +2,9 @@
 //  VoiceImportQueueTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  WP-VMI-1. Semantics tests for VoiceImportQueue — the serial FIFO
-//  queue behind voice import / enhance / encode work.
+//  WP-VMI-1. Semantics tests for VoiceImportQueue — the serial FIFO queue behind voice import / enhance / encode work.
 //
-//  The regression these guard: the old single-slot Task cancelled the
-//  PREVIOUS voice's encode whenever a new import arrived, so rapid
-//  back-to-back imports left earlier voices half-encoded, and the Voice
-//  Manager recovery pass (one enqueue per incomplete voice, in a loop)
-//  healed exactly one voice per app session.
+//  The regression these guard: the old single-slot Task cancelled the PREVIOUS voice's encode whenever a new import arrived, so rapid back-to-back imports left earlier voices half-encoded, and the Voice Manager recovery pass (one enqueue per incomplete voice, in a loop) healed exactly one voice per app session.
 //
 //  What we check:
 //    * Jobs for different voices run strictly FIFO, never concurrently
@@ -69,9 +64,7 @@ final class VoiceImportQueueTests: XCTestCase {
         }
     }
 
-    /// Poll until `condition` holds. (Named to avoid colliding with
-    /// XCTestCase's thread-blocking `wait(for:)` — blocking the main
-    /// thread here would deadlock the MainActor-bound worker.)
+    /// Poll until `condition` holds. (Named to avoid colliding with XCTestCase's thread-blocking `wait(for:)` — blocking the main thread here would deadlock the MainActor-bound worker.)
     private func waitUntil(
         _ condition: @MainActor () -> Bool,
         timeout: TimeInterval = 5,
@@ -88,9 +81,7 @@ final class VoiceImportQueueTests: XCTestCase {
         }
     }
 
-    /// Executor that records start/finish around a short sleep. The sleep
-    /// yields the MainActor so enqueues interleave the way real pipeline
-    /// steps (actor calls) do.
+    /// Executor that records start/finish around a short sleep. The sleep yields the MainActor so enqueues interleave the way real pipeline steps (actor calls) do.
     private func sleepingExecutor(
         _ recorder: Recorder,
         sleepMS: Int = 30
@@ -102,9 +93,7 @@ final class VoiceImportQueueTests: XCTestCase {
         }
     }
 
-    /// Executor that spins until cancelled (bounded), recording the
-    /// cancellation — models a pipeline whose `Task.isCancelled` checks
-    /// fire between steps.
+    /// Executor that spins until cancelled (bounded), recording the cancellation — models a pipeline whose `Task.isCancelled` checks fire between steps.
     private func cancellableExecutor(
         _ recorder: Recorder
     ) -> @MainActor (VoiceImportQueue.Job) async -> Void {
@@ -142,8 +131,7 @@ final class VoiceImportQueueTests: XCTestCase {
     }
 
     func testRapidEnqueueAllVoicesComplete() async {
-        // The literal regression: 10 back-to-back imports — every voice
-        // must complete, not just the last one.
+        // The literal regression: 10 back-to-back imports — every voice must complete, not just the last one.
         let recorder = Recorder()
         let queue = VoiceImportQueue(executor: sleepingExecutor(recorder, sleepMS: 5))
         let ids = (0..<10).map { "voice-\($0)" }
@@ -179,12 +167,10 @@ final class VoiceImportQueueTests: XCTestCase {
         queue.enqueueEncode(voiceID: "A")
         await waitUntil({ recorder.started.count == 1 })
 
-        // Double-click-Enhance case: the running A job is cancelled and
-        // the new A job runs after it winds down.
+        // Double-click-Enhance case: the running A job is cancelled and the new A job runs after it winds down.
         queue.enqueueEnhance(voiceID: "A", denoise: false)
         await waitUntil({ recorder.cancelled.contains("A") })
-        // Let the replacement finish (it spins its full bounded loop only
-        // if never cancelled — cancel it to end the test quickly).
+        // Let the replacement finish (it spins its full bounded loop only if never cancelled — cancel it to end the test quickly).
         await waitUntil({ recorder.started.count == 2 })
         queue.cancel(voiceID: "A")
         await waitUntilIdle(queue)

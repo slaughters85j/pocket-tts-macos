@@ -2,12 +2,7 @@
 //  ActivePromptPicker.swift
 //  mimika-ai-voice-studio
 //
-//  Reusable row that surfaces a scope's active SystemPrompt + a
-//  shortcut into PromptManagerSheet. Used identically by
-//  ChatSettingsView and the ScriptGeneratorModal (Single Voice +
-//  Multi-Talk). Picker selects active prompt (writes through
-//  AppDataStore.setActive). "Edit prompts…" toggles the manager sheet
-//  the parent owns via `@Binding showsManager`.
+//  Reusable row that surfaces a scope's active SystemPrompt + a shortcut into PromptManagerSheet. Used identically by ChatSettingsView and the ScriptGeneratorModal (Single Voice + Multi-Talk). Picker selects active prompt (writes through AppDataStore.setActive). "Edit prompts…" toggles the manager sheet the parent owns via `@Binding showsManager`.
 
 import SwiftData
 import SwiftUI
@@ -15,9 +10,7 @@ import SwiftUI
 struct ActivePromptPicker: View {
     let scope: PromptScope
     let onEditInferenceSettings: ((SystemPrompt) -> Void)?
-    /// Caller toggles the PromptManagerSheet via this binding. Keeping
-    /// presentation state in the parent avoids "sheet inside a sheet"
-    /// gotchas on macOS.
+    /// Caller toggles the PromptManagerSheet via this binding. Keeping presentation state in the parent avoids "sheet inside a sheet" gotchas on macOS.
     @Binding var showsManager: Bool
 
     @Environment(\.modelContext) private var modelContext
@@ -84,9 +77,7 @@ struct ActivePromptPicker: View {
         prompts.first(where: \.isActive) ?? prompts.first
     }
 
-    /// Picker selection bound to the active prompt's UUID. Writing
-    /// flips active to the chosen one via `AppDataStore.setActive`
-    /// (which clears active on every other row in this scope).
+    /// Picker selection bound to the active prompt's UUID. Writing flips active to the chosen one via `AppDataStore.setActive` (which clears active on every other row in this scope).
     private var activeBinding: Binding<UUID> {
         Binding(
             get: { prompts.first(where: \.isActive)?.id ?? (prompts.first?.id ?? UUID()) },

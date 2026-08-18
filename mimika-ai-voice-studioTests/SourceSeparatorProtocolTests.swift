@@ -2,22 +2,11 @@
 //  SourceSeparatorProtocolTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Sanity tests for the `SourceSeparator` protocol + the
-//  `SeparatedStems` / `DemucsStemMap` value types. These aren't
-//  testing HTDemucs — that's `DemucsSourceSeparatorParityTests` in
-//  Commit 5. They're verifying:
+//  Sanity tests for the `SourceSeparator` protocol + the `SeparatedStems` / `DemucsStemMap` value types. These aren't testing HTDemucs — that's `DemucsSourceSeparatorParityTests` in Commit 5. They're verifying:
 //
-//    1. A trivial in-memory mock can conform to the protocol and
-//       round-trip an `AudioBuffer` → `SeparatedStems` without any
-//       Core ML / disk / network involvement, proving the surface
-//       area is clean enough for `MockSourceSeparator` (Commit 6) to
-//       drop into the VM tests.
-//    2. `SeparatedStems`'s derived properties (`sampleCount`,
-//       `durationSec`) compute against the right field.
-//    3. `DemucsStemMap`'s channel constants line up with the
-//       conversion script's flatten wrapper output — a regression
-//       net against someone "fixing" the indices without updating
-//       the Python conversion to match.
+//    1. A trivial in-memory mock can conform to the protocol and round-trip an `AudioBuffer` → `SeparatedStems` without any Core ML / disk / network involvement, proving the surface area is clean enough for `MockSourceSeparator` (Commit 6) to drop into the VM tests.
+//    2. `SeparatedStems`'s derived properties (`sampleCount`, `durationSec`) compute against the right field.
+//    3. `DemucsStemMap`'s channel constants line up with the conversion script's flatten wrapper output — a regression net against someone "fixing" the indices without updating the Python conversion to match.
 
 import XCTest
 @testable import mimika_ai_voice_studio
@@ -27,10 +16,7 @@ final class SourceSeparatorProtocolTests: XCTestCase {
 
     // MARK: - Mock impl
 
-    /// Minimal `SourceSeparator` impl that ignores the input audio
-    /// and returns canned stems. Not @testable-scoped (lives inside
-    /// the test class) so production code can't accidentally depend
-    /// on it.
+    /// Minimal `SourceSeparator` impl that ignores the input audio and returns canned stems. Not @testable-scoped (lives inside the test class) so production code can't accidentally depend on it.
     private struct StubSeparator: SourceSeparator {
         let cannedVocals: [Float]
         let cannedMusic: [Float]
@@ -41,8 +27,7 @@ final class SourceSeparatorProtocolTests: XCTestCase {
             _ input: AudioBuffer,
             onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
         ) async throws -> SeparatedStems {
-            // Drive the callback once so a non-nil consumer sees
-            // at least one tick. Real separators fire per chunk.
+            // Drive the callback once so a non-nil consumer sees at least one tick. Real separators fire per chunk.
             onProgress?(0, 1, nil)
             return SeparatedStems(
                 vocals: cannedVocals,
@@ -56,8 +41,7 @@ final class SourceSeparatorProtocolTests: XCTestCase {
         func ensureModelsReady(
             progress: (@Sendable (Progress) -> Void)?
         ) async throws {
-            // No-op: the stub is "always ready" so callers can
-            // exercise the protocol without staging downloads.
+            // No-op: the stub is "always ready" so callers can exercise the protocol without staging downloads.
         }
     }
 
@@ -99,9 +83,7 @@ final class SourceSeparatorProtocolTests: XCTestCase {
             cannedVocals: [], cannedMusic: [],
             cannedSampleRate: 24_000, modelDownloaded: true
         )
-        // The contract says it's a no-op when already downloaded —
-        // and the protocol allows passing nil for progress. Anything
-        // other than "returns cleanly" would be a contract break.
+        // The contract says it's a no-op when already downloaded — and the protocol allows passing nil for progress. Anything other than "returns cleanly" would be a contract break.
         try await stub.ensureModelsReady(progress: nil)
     }
 
@@ -110,9 +92,7 @@ final class SourceSeparatorProtocolTests: XCTestCase {
             cannedVocals: [], cannedMusic: [],
             cannedSampleRate: 24_000, modelDownloaded: true
         )
-        // Confirm a @Sendable closure compiles + executes — the
-        // type-system check is what we actually care about here,
-        // not whether the closure fires (the stub never fires it).
+        // Confirm a @Sendable closure compiles + executes — the type-system check is what we actually care about here, not whether the closure fires (the stub never fires it).
         try await stub.ensureModelsReady(progress: { _ in })
     }
 
@@ -137,17 +117,13 @@ final class SourceSeparatorProtocolTests: XCTestCase {
     }
 
     func test_separatedStems_durationSec_zeroSampleRateGuarded() {
-        // Defensive: a future codepath might construct with rate=0
-        // (e.g. a sentinel "empty" stems value). The accessor must
-        // not divide by zero.
+        // Defensive: a future codepath might construct with rate=0 (e.g. a sentinel "empty" stems value). The accessor must not divide by zero.
         let stems = SeparatedStems(vocals: [], music: [], sampleRate: 0)
         XCTAssertEqual(stems.durationSec, 0.0)
     }
 
     func test_separatedStems_emptyStems_areAllowed() {
-        // An init with empty vocals + empty music must succeed —
-        // it's the only natural sentinel value, and the
-        // precondition only fires on length MISMATCH.
+        // An init with empty vocals + empty music must succeed — it's the only natural sentinel value, and the precondition only fires on length MISMATCH.
         let stems = SeparatedStems(vocals: [], music: [], sampleRate: 24_000)
         XCTAssertEqual(stems.sampleCount, 0)
         XCTAssertEqual(stems.vocals.sampleCount, 0)
@@ -165,10 +141,7 @@ final class SourceSeparatorProtocolTests: XCTestCase {
     // MARK: - DemucsStemMap constants
 
     func test_demucsStemMap_channelsAreUniqueAndContiguous() {
-        // All 8 channels must be distinct + cover 0..7 — a typo
-        // (e.g. drums=(0,1) bass=(1,2)) would silently make drums
-        // and bass overlap and the music stem would double-count
-        // bass energy.
+        // All 8 channels must be distinct + cover 0..7 — a typo (e.g. drums=(0,1) bass=(1,2)) would silently make drums and bass overlap and the music stem would double-count bass energy.
         let allChannels: Set<Int> = [
             DemucsStemMap.drumsChannels.left, DemucsStemMap.drumsChannels.right,
             DemucsStemMap.bassChannels.left, DemucsStemMap.bassChannels.right,
@@ -191,13 +164,11 @@ final class SourceSeparatorProtocolTests: XCTestCase {
     }
 
     func test_demucsStemMap_stemOrderingMatchesConversionScript() {
-        // The Python `HTDemucsExport` wrapper in
-        // `02c_convert_surgical_patch.py` orders stems as:
+        // The Python `HTDemucsExport` wrapper in `02c_convert_surgical_patch.py` orders stems as:
         //     drums, bass, other, vocals
         // which translates to channel pairs:
         //     (0,1), (2,3), (4,5), (6,7).
-        // Mismatch here = music goes into the diarizer and the
-        // user hears their voice replaced with kick-drum samples.
+        // Mismatch here = music goes into the diarizer and the user hears their voice replaced with kick-drum samples.
         XCTAssertEqual(DemucsStemMap.drumsChannels.left, 0)
         XCTAssertEqual(DemucsStemMap.drumsChannels.right, 1)
         XCTAssertEqual(DemucsStemMap.bassChannels.left, 2)

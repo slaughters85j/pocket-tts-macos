@@ -2,18 +2,11 @@
 //  MultiSpeakerRevoicer.swift
 //  mimika-ai-voice-studio
 //
-//  Bridges Speaker Isolation → Voice Changer. Phase 7 stereo bed
-//  architecture: instead of summing per-speaker isolated mono tracks,
-//  the final mix is computed from a stereo `vocalsBed` + a stereo
-//  `musicBed`. Per-speaker actions modify the bed in place:
+//  Bridges Speaker Isolation → Voice Changer. Phase 7 stereo bed architecture: instead of summing per-speaker isolated mono tracks, the final mix is computed from a stereo `vocalsBed` + a stereo `musicBed`. Per-speaker actions modify the bed in place:
 //
-//      * `.useOriginal`  → no modification (speaker's content stays
-//                           in vocalsBed at native level).
-//      * `.discard`      → zero out the speaker's segmentRanges in
-//                           vocalsBed (silences them in the final).
-//      * `.revoice`      → zero out segmentRanges + sum TTS overlay
-//                           (mono 24 kHz from TTS, resampled to
-//                           bedSampleRate, duplicated to L+R).
+//      * `.useOriginal`  → no modification (speaker's content stays in vocalsBed at native level).
+//      * `.discard`      → zero out the speaker's segmentRanges in vocalsBed (silences them in the final).
+//      * `.revoice`      → zero out segmentRanges + sum TTS overlay (mono 24 kHz from TTS, resampled to bedSampleRate, duplicated to L+R).
 //
 //  Background row (`speakerID == backgroundSpeakerID`):
 //      * `.useOriginal`  → musicBed contributes to final.
@@ -24,38 +17,21 @@
 //          → per-channel soft-clip to ±1.
 //
 //  Why bed-based (vs. summing isolated rows):
-//      When ALL rows are `.useOriginal`, the per-row-sum approach
-//      reconstructs the original mix via summed per-channel mono
-//      slices, which lose ~3 dB on uncorrelated stereo content via
-//      the `(L+R)/2` downmix. Codex measured this against the Paul
-//      Wall test clip: summed mono rows landed ~5 LU under the
-//      source; raw stereo `vocals + music` reconstruction landed
-//      within 0.66 LU. Bed-based mix collapses the all-`.useOriginal`
-//      case to literally `vocalsBed + musicBed`, matching the raw-
-//      stem reconstruction. Only discarded / revoiced speakers
-//      surgically modify the bed.
+//      When ALL rows are `.useOriginal`, the per-row-sum approach reconstructs the original mix via summed per-channel mono slices, which lose ~3 dB on uncorrelated stereo content via the `(L+R)/2` downmix. Codex measured this against the Paul Wall test clip: summed mono rows landed ~5 LU under the source; raw stereo `vocals + music` reconstruction landed within 0.66 LU. Bed-based mix collapses the all-`.useOriginal` case to literally `vocalsBed + musicBed`, matching the raw-stem reconstruction. Only discarded / revoiced speakers surgically modify the bed.
 //
 //  AP-off (v1) compatibility:
-//      With Audio Preservation disabled, the VM passes `vocalsBed`
-//      = the original mono 24 kHz mix and `musicBed` = nil (no
-//      separation happened). The same code path then:
+//      With Audio Preservation disabled, the VM passes `vocalsBed` = the original mono 24 kHz mix and `musicBed` = nil (no separation happened). The same code path then:
 //          - `.useOriginal` keeps the speaker's audio in vocalsBed
-//          - `.discard` silences segmentRanges (including any music
-//            underneath — the v1 behavior)
+//          - `.discard` silences segmentRanges (including any music underneath — the v1 behavior)
 //          - `.revoice` silences segmentRanges + adds TTS
 //          - musicBed is nil so nothing else is added
-//      Output is mono 24 kHz, identical to the v1 per-row-sum
-//      behavior, no regression.
+//      Output is mono 24 kHz, identical to the v1 per-row-sum behavior, no regression.
 
 import Foundation
 
 // MARK: - MultiSpeakerRevoicing
 
-/// Protocol surface for the multi-speaker revoice + combine step.
-/// Lifted out of the concrete `MultiSpeakerRevoicer` actor so the
-/// Speaker Isolator VM can take `any MultiSpeakerRevoicing` for
-/// dependency injection — production wires the real revoicer;
-/// tests stub it to skip Voice Changer model loads entirely.
+/// Protocol surface for the multi-speaker revoice + combine step. Lifted out of the concrete `MultiSpeakerRevoicer` actor so the Speaker Isolator VM can take `any MultiSpeakerRevoicing` for dependency injection — production wires the real revoicer; tests stub it to skip Voice Changer model loads entirely.
 protocol MultiSpeakerRevoicing: Sendable {
     func revoice(
         vocalsBed: AudioBuffer,
@@ -90,35 +66,20 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         }
     }
 
-    /// Disposition for a single row in the user's per-speaker
-    /// mapping table. Maps onto `SpeakerAction` from the view-model
-    /// layer; restated here so the engine layer doesn't import view
-    /// model types.
+    /// Disposition for a single row in the user's per-speaker mapping table. Maps onto `SpeakerAction` from the view-model layer; restated here so the engine layer doesn't import view model types.
     enum Disposition: Sendable {
         case useOriginal
         case discard
         case revoice(voiceID: String)
     }
 
-    /// One row from the user's per-speaker voice-mapping table.
-    /// For Phase 7 bed-based mix: carries the speaker's time ranges
-    /// (for zero/replace ops on the bed) + a mono 24 kHz copy of
-    /// the speaker's isolated content (for STT input + RMS
-    /// normalization when revoicing).
+    /// One row from the user's per-speaker voice-mapping table. For Phase 7 bed-based mix: carries the speaker's time ranges (for zero/replace ops on the bed) + a mono 24 kHz copy of the speaker's isolated content (for STT input + RMS normalization when revoicing).
     struct SpeakerAssignment: Sendable {
         let speakerID: String
         let disposition: Disposition
-        /// Time ranges (seconds, original timeline) where this
-        /// speaker is active. Used by `.discard` to zero out the
-        /// bed and by `.revoice` to know where to place TTS audio.
-        /// For the Background row, this is empty / ignored —
-        /// Background is a global flag (musicBed in or out).
+        /// Time ranges (seconds, original timeline) where this speaker is active. Used by `.discard` to zero out the bed and by `.revoice` to know where to place TTS audio. For the Background row, this is empty / ignored — Background is a global flag (musicBed in or out).
         let segmentRanges: [ClosedRange<Double>]
-        /// Speaker's mono 24 kHz isolated content. Used ONLY when
-        /// `disposition == .revoice` (fed to STT for word timing
-        /// + used for RMS-target on the synthesized track). For
-        /// `.useOriginal` and `.discard` this can be an empty
-        /// array since it's never read.
+        /// Speaker's mono 24 kHz isolated content. Used ONLY when `disposition == .revoice` (fed to STT for word timing + used for RMS-target on the synthesized track). For `.useOriginal` and `.discard` this can be an empty array since it's never read.
         let isolatedMono24k: [Float]
 
         /// Designated init.
@@ -134,13 +95,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
             self.isolatedMono24k = isolatedMono24k
         }
 
-        /// Legacy init for tests that pre-date the bed-based revoice
-        /// architecture. Maps `isolatedSamples` onto
-        /// `isolatedMono24k` (the per-row preview format) and
-        /// supplies an empty `segmentRanges` (the legacy per-row sum
-        /// path doesn't need them — see the deprecated `revoice`
-        /// overload below). Production code should use the
-        /// designated init.
+        /// Legacy init for tests that pre-date the bed-based revoice architecture. Maps `isolatedSamples` onto `isolatedMono24k` (the per-row preview format) and supplies an empty `segmentRanges` (the legacy per-row sum path doesn't need them — see the deprecated `revoice` overload below). Production code should use the designated init.
         init(
             speakerID: String,
             isolatedSamples: [Float],
@@ -157,38 +112,21 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
 
     // MARK: - Constants
 
-    /// TTS native rate. Output of `TimelineAlignedRenderer` is always
-    /// mono PCM at this rate; we resample + upmix to bed format
-    /// before summing into the vocalsBed.
+    /// TTS native rate. Output of `TimelineAlignedRenderer` is always mono PCM at this rate; we resample + upmix to bed format before summing into the vocalsBed.
     ///
-    /// `nonisolated` because the project's `-default-isolation
-    /// MainActor` flag would otherwise force MainActor access on
-    /// the constant — and `addTTSOverlay` below is a nonisolated
-    /// static helper that reads it.
-    // Internal (not private): the timing-QA sibling file's extension
-    // (MultiSpeakerRevoicer+TimingQA.swift) reads it too.
+    /// `nonisolated` because the project's `-default-isolation MainActor` flag would otherwise force MainActor access on the constant — and `addTTSOverlay` below is a nonisolated static helper that reads it.
+    // Internal (not private): the timing-QA sibling file's extension (MultiSpeakerRevoicer+TimingQA.swift) reads it too.
     nonisolated static let ttsSampleRate: Int = 24_000
 
     // MARK: - Revoice (bed-based)
 
-    /// Bed-based revoice + combine. Returns the final mix as an
-    /// `AudioBuffer` matching the bed's layout: stereo 44.1 kHz when
-    /// AP-on (vocalsBed comes from HTDemucs); mono 24 kHz when AP-off
-    /// (vocalsBed = original mono mix, musicBed = nil).
+    /// Bed-based revoice + combine. Returns the final mix as an `AudioBuffer` matching the bed's layout: stereo 44.1 kHz when AP-on (vocalsBed comes from HTDemucs); mono 24 kHz when AP-off (vocalsBed = original mono mix, musicBed = nil).
     ///
     /// - Parameters:
-    ///   - vocalsBed: the substrate for speaker content. AP-on: stereo
-    ///     vocals stem from HTDemucs. AP-off: the original mono mix.
-    ///   - musicBed: stereo music stem from HTDemucs (AP-on) or nil
-    ///     (AP-off). When the user discards the Background row, the
-    ///     bed is dropped from the final sum.
-    ///   - totalDurationSec: total timeline length in seconds. Used
-    ///     to size the output and validate segment ranges.
-    ///   - assignments: per-speaker actions. The Background row's
-    ///     assignment (if present, with `speakerID ==
-    ///     SpeakerIsolatorConstants.backgroundSpeakerID`) gates
-    ///     whether `musicBed` is included; speaker rows modify
-    ///     `vocalsBed` per `.discard` / `.revoice` semantics.
+    ///   - vocalsBed: the substrate for speaker content. AP-on: stereo vocals stem from HTDemucs. AP-off: the original mono mix.
+    ///   - musicBed: stereo music stem from HTDemucs (AP-on) or nil (AP-off). When the user discards the Background row, the bed is dropped from the final sum.
+    ///   - totalDurationSec: total timeline length in seconds. Used to size the output and validate segment ranges.
+    ///   - assignments: per-speaker actions. The Background row's assignment (if present, with `speakerID == SpeakerIsolatorConstants.backgroundSpeakerID`) gates whether `musicBed` is included; speaker rows modify `vocalsBed` per `.discard` / `.revoice` semantics.
     func revoice(
         vocalsBed: AudioBuffer,
         musicBed: AudioBuffer?,
@@ -202,20 +140,14 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         let bedRate = vocalsBed.sampleRate
         let bedChannels = vocalsBed.channelCount
 
-        // 1. Normalize vocalsBed to a mutable stereo L/R pair for in-
-        //    place modification. Mono inputs are upmixed (L = R) so
-        //    the loop logic is uniform; the final return downmixes
-        //    back to mono if both beds were mono.
+        // 1. Normalize vocalsBed to a mutable stereo L/R pair for in-place modification. Mono inputs are upmixed (L = R) so the loop logic is uniform; the final return downmixes back to mono if both beds were mono.
         var (vocL, vocR) = Self.extractStereo(vocalsBed)
 
-        // 2. Apply per-speaker modifications in order. `.useOriginal`
-        //    is a no-op — speaker content naturally stays in the bed.
+        // 2. Apply per-speaker modifications in order. `.useOriginal` is a no-op — speaker content naturally stays in the bed.
         for assignment in assignments {
             try Task.checkCancellation()
             if Self.isBackgroundRow(assignment) {
-                // Background is handled below (musicBed gate). Skip
-                // here to keep the speaker loop focused on vocalsBed
-                // modifications.
+                // Background is handled below (musicBed gate). Skip here to keep the speaker loop focused on vocalsBed modifications.
                 continue
             }
             switch assignment.disposition {
@@ -230,16 +162,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
                 )
                 print("[Revoicer] \(assignment.speakerID) discarded — silenced segmentRanges in vocalsBed")
             case .revoice(let voiceID):
-                // Synthesize FIRST, then decide whether to modify the
-                // bed. If STT hallucinated `[BLANK _AUDIO]` for
-                // every segment (common when the speaker's slice has
-                // faint vocals + music bleed), TTS produces silence
-                // and zero-then-overlay would leave the bed silent
-                // at those ranges. Preserving the bed when TTS is
-                // empty means the user hears the original content
-                // instead of dead air — a strictly better failure
-                // mode for revoice runs against quiet / poorly-
-                // separated speakers.
+                // Synthesize FIRST, then decide whether to modify the bed. If STT hallucinated `[BLANK _AUDIO]` for every segment (common when the speaker's slice has faint vocals + music bleed), TTS produces silence and zero-then-overlay would leave the bed silent at those ranges. Preserving the bed when TTS is empty means the user hears the original content instead of dead air — a strictly better failure mode for revoice runs against quiet / poorly-separated speakers.
                 let ttsMono24k = try await revoiceSingleSpeaker(
                     assignment: assignment,
                     voiceID: voiceID,
@@ -261,10 +184,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
                     sampleRate: bedRate,
                     releaseTailSec: FluidAudioDiarizationProvider.segmentEndPadSec
                 )
-                // Convert TTS mono 24 k → bedRate, then upmix to L/R
-                // and ADD into the silenced segmentRanges. Whole-track
-                // sum is fine because the TTS array is already silence-
-                // padded to the full timeline at TTS rate.
+                // Convert TTS mono 24 k → bedRate, then upmix to L/R and ADD into the silenced segmentRanges. Whole-track sum is fine because the TTS array is already silence-padded to the full timeline at TTS rate.
                 Self.addTTSOverlay(
                     left: &vocL, right: &vocR,
                     ttsMono24k: ttsMono24k,
@@ -273,10 +193,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
             }
         }
 
-        // 3. Background row gate: include musicBed unless explicitly
-        //    discarded. Default behavior (no Background assignment
-        //    present) is to include — matches the natural state where
-        //    the bed exists + the user hasn't said otherwise.
+        // 3. Background row gate: include musicBed unless explicitly discarded. Default behavior (no Background assignment present) is to include — matches the natural state where the bed exists + the user hasn't said otherwise.
         let backgroundDiscarded = assignments.contains {
             Self.isBackgroundRow($0) && Self.isDiscarded($0.disposition)
         }
@@ -289,21 +206,14 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
             }
         }
 
-        // 4. Per-channel soft-clip — same piecewise function used in
-        //    the prior per-row-sum architecture. Identity below 0.9
-        //    knee, tanh-fold above.
+        // 4. Per-channel soft-clip — same piecewise function used in the prior per-row-sum architecture. Identity below 0.9 knee, tanh-fold above.
         Self.softClip(&vocL)
         Self.softClip(&vocR)
 
-        // 5. Return shape: if vocalsBed was mono AND musicBed is nil
-        //    or also mono, drop back to mono. Otherwise stereo. This
-        //    preserves the v1 mono-out behavior on the AP-off path
-        //    (vocalsBed = mono mix, musicBed = nil) while keeping the
-        //    AP-on stereo output.
+        // 5. Return shape: if vocalsBed was mono AND musicBed is nil or also mono, drop back to mono. Otherwise stereo. This preserves the v1 mono-out behavior on the AP-off path (vocalsBed = mono mix, musicBed = nil) while keeping the AP-on stereo output.
         let bothMono = bedChannels == 1 && (musicBed?.channelCount ?? 1) == 1
         if bothMono {
-            // L and R are identical (we upmixed identical mono into both);
-            // return either as the mono output.
+            // L and R are identical (we upmixed identical mono into both); return either as the mono output.
             return AudioBuffer.mono(vocL, sampleRate: bedRate)
         }
         return AudioBuffer.stereo(left: vocL, right: vocR, sampleRate: bedRate)
@@ -311,17 +221,9 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
 
     // MARK: - Legacy per-row sum (test compatibility)
 
-    /// Pre-Phase-7 per-row sum API. Kept for tests that exercise the
-    /// soft-clip + assignment-dispatch math without setting up
-    /// stereo beds. Production code uses the bed-based
-    /// `revoice(vocalsBed:musicBed:totalDurationSec:assignments:...)`
-    /// overload above.
+    /// Pre-Phase-7 per-row sum API. Kept for tests that exercise the soft-clip + assignment-dispatch math without setting up stereo beds. Production code uses the bed-based `revoice(vocalsBed:musicBed:totalDurationSec:assignments:...)` overload above.
     ///
-    /// Behavior: builds a mono [Float] buffer of length
-    /// `Int(totalDurationSec * sampleRate)`; for each assignment,
-    /// adds the speaker's `isolatedMono24k` (or TTS output for
-    /// `.revoice`) into the master, then applies the piecewise soft-
-    /// clip. Discards skip the sum. Identical to the v1 behavior.
+    /// Behavior: builds a mono [Float] buffer of length `Int(totalDurationSec * sampleRate)`; for each assignment, adds the speaker's `isolatedMono24k` (or TTS output for `.revoice`) into the master, then applies the piecewise soft-clip. Discards skip the sum. Identical to the v1 behavior.
     @available(*, deprecated, message: "Use revoice(vocalsBed:musicBed:...) for production; this overload exists only for legacy tests.")
     func revoice(
         sampleRate: Int,
@@ -365,32 +267,22 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
 
     // MARK: - Soft clip
 
-    /// Piecewise soft-clip applied per-channel to the combined mix.
-    /// Replaces the v1 brick-wall hard-clip — but does NOT color
-    /// in-range samples (the failure mode of a global
-    /// `tanh(x * 0.9)` curve).
+    /// Piecewise soft-clip applied per-channel to the combined mix. Replaces the v1 brick-wall hard-clip — but does NOT color in-range samples (the failure mode of a global `tanh(x * 0.9)` curve).
     ///
     /// Curve:
     ///   * |x| ≤ knee (= 0.9)          → output = x (identity)
-    ///   * |x| > knee                  → output = sign(x) * (
-    ///         knee + (1 - knee) * tanh((|x| - knee) / (1 - knee)) )
+    ///   * |x| > knee                  → output = sign(x) * ( knee + (1 - knee) * tanh((|x| - knee) / (1 - knee)) )
     ///
-    /// The identity branch guarantees ZERO coloration on typical-
-    /// content samples. Above the knee, the tanh-shaped folding curve
-    /// brings any overload smoothly toward ±1 instead of producing
-    /// the audible "pop" of a brick-wall limiter.
+    /// The identity branch guarantees ZERO coloration on typical-content samples. Above the knee, the tanh-shaped folding curve brings any overload smoothly toward ±1 instead of producing the audible "pop" of a brick-wall limiter.
     ///
-    /// `nonisolated static` so tests can exercise the curve directly
-    /// without spinning up the revoice pipeline.
+    /// `nonisolated static` so tests can exercise the curve directly without spinning up the revoice pipeline.
     nonisolated static func softClip(_ samples: inout [Float]) {
         for i in 0..<samples.count {
             samples[i] = softClip(samples[i])
         }
     }
 
-    /// Single-sample variant. Lets tests assert curve points
-    /// (monotonicity, asymptote, in-range identity) without
-    /// allocating arrays.
+    /// Single-sample variant. Lets tests assert curve points (monotonicity, asymptote, in-range identity) without allocating arrays.
     nonisolated static func softClip(_ value: Float) -> Float {
         let knee: Float = 0.9
         let absX = abs(value)
@@ -405,11 +297,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
 
     // MARK: - Per-speaker revoice (synthesis)
 
-    /// Run STT → TTS for one `.revoice` row. Returns mono 24 kHz PCM
-    /// silence-padded to the full timeline (so the caller can sum it
-    /// directly without offset math). RMS-normalized against the
-    /// speaker's original isolated content so the synthesized voice
-    /// doesn't sound louder/quieter than the original.
+    /// Run STT → TTS for one `.revoice` row. Returns mono 24 kHz PCM silence-padded to the full timeline (so the caller can sum it directly without offset math). RMS-normalized against the speaker's original isolated content so the synthesized voice doesn't sound louder/quieter than the original.
     private func revoiceSingleSpeaker(
         assignment: SpeakerAssignment,
         voiceID: String,
@@ -419,29 +307,15 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         matchOriginalPace: Bool,
         onProgress: (@Sendable (String, Int, Int) -> Void)?
     ) async throws -> [Float] {
-        // Stage the speaker's mono 24 kHz isolated audio as a temp
-        // WAV for STT. AGC-style pre-boost first: faint speakers
-        // (HTDemucs's vocals stem at -40 dBFS RMS, broadcast dialog
-        // under -35 LUFS, etc.) get amplified to ~-20 dBFS before
-        // the ASR backend sees them. Very quiet chunks historically
-        // produced blank-audio hallucinations even when there was
-        // real speech. Boosting brings the signal into the ASR's
-        // robust range. Soft-clip the boost so transient peaks that go
-        // past ±1.0 fold back gracefully instead of hard-clipping.
+        // Stage the speaker's mono 24 kHz isolated audio as a temp WAV for STT. AGC-style pre-boost first: faint speakers (HTDemucs's vocals stem at -40 dBFS RMS, broadcast dialog under -35 LUFS, etc.) get amplified to ~-20 dBFS before the ASR backend sees them. Very quiet chunks historically produced blank-audio hallucinations even when there was real speech. Boosting brings the signal into the ASR's robust range. Soft-clip the boost so transient peaks that go past ±1.0 fold back gracefully instead of hard-clipping.
         //
-        // The boost is applied ONLY to the WAV fed to STT — the
-        // un-boosted `assignment.isolatedMono24k` is used as the
-        // RMS-normalize target below, so the synthesized TTS still
-        // lands at the original speaker's perceived level in the
-        // final mix.
+        // The boost is applied ONLY to the WAV fed to STT — the un-boosted `assignment.isolatedMono24k` is used as the RMS-normalize target below, so the synthesized TTS still lands at the original speaker's perceived level in the final mix.
         let speakerRMS = Self.rmsOfActiveSamples(assignment.isolatedMono24k)
         let sttTargetRMS: Float = 0.1   // -20 dBFS RMS, ASR sweet spot
         let boostFactor: Float
         if speakerRMS > 0 {
             let raw = sttTargetRMS / speakerRMS
-            // Floor at 1.0 (never attenuate input for STT) + cap at
-            // 50x (~+34 dB) so a genuinely-empty slice doesn't get
-            // its noise floor amplified into faux speech.
+            // Floor at 1.0 (never attenuate input for STT) + cap at 50x (~+34 dB) so a genuinely-empty slice doesn't get its noise floor amplified into faux speech.
             boostFactor = min(max(1.0, raw), 50.0)
         } else {
             boostFactor = 1.0
@@ -476,14 +350,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         var options = SynthesisOptions()
         options.matchOriginalPace = matchOriginalPace
 
-        // Word-level timings drive the timing-QA + adaptive re-render
-        // loop (lip-sync precision). Backends without per-token timings
-        // (Apple Speech, test mocks, Parakeet files with no tokenTimings)
-        // return [] → single-pass fallback on the coalesced segments,
-        // unchanged from before. A THROWN error is a real STT failure and
-        // surfaces as one — falling back on it would silently repeat the
-        // full model-load/ASR attempt and misreport the eventual error as
-        // coming from the fallback path.
+        // Word-level timings drive the timing-QA + adaptive re-render loop (lip-sync precision). Backends without per-token timings (Apple Speech, test mocks, Parakeet files with no tokenTimings) return [] → single-pass fallback on the coalesced segments, unchanged from before. A THROWN error is a real STT failure and surfaces as one — falling back on it would silently repeat the full model-load/ASR attempt and misreport the eventual error as coming from the fallback path.
         let originalWords: [TimedWord]
         do {
             originalWords = try await stt.transcribeWords(tempURL)
@@ -499,9 +366,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
                 throw RevoicerError.sttFailed(speakerID: assignment.speakerID, error)
             }
             print("[Revoicer] STT for \(speakerID) → \(segments.count) segments (no word timings — QA loop skipped)")
-            // Console log every transcribed segment so we can spot
-            // transcription artifacts that aren't in the strip whitelist
-            // yet.
+            // Console log every transcribed segment so we can spot transcription artifacts that aren't in the strip whitelist yet.
             for seg in segments {
                 print(String(format: "[Revoicer]   %@ %.2f-%.2f: %@",
                              speakerID, seg.startSec, seg.endSec, seg.text))
@@ -528,33 +393,15 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
             )
         }
 
-        // Match the synthesized track's loudness to the speaker's
-        // original audio. The STT pre-boost above amplified the
-        // input for STT's benefit; this step brings the TTS
-        // output DOWN to the original speaker's perceived level so
-        // the final mix matches the source loudness even when the
-        // source is quiet (broadcast dialog, post-separation vocals
-        // stems, etc.). Compares against the UN-boosted speaker RMS
-        // (`speakerRMS` computed above) so the target is the real
-        // perceived level, not the STT-pre-boost target.
+        // Match the synthesized track's loudness to the speaker's original audio. The STT pre-boost above amplified the input for STT's benefit; this step brings the TTS output DOWN to the original speaker's perceived level so the final mix matches the source loudness even when the source is quiet (broadcast dialog, post-separation vocals stems, etc.). Compares against the UN-boosted speaker RMS (`speakerRMS` computed above) so the target is the real perceived level, not the STT-pre-boost target.
         let inputRMS = speakerRMS
         let outputRMS = Self.rmsOfActiveSamples(synthesized)
         if inputRMS > 0, outputRMS > 0 {
             // Gain bounds:
             //   upper 4.0x (+12 dB)  → cap amplification so loud
-            //       originals don't blow TTS into clipping. ±12 dB
-            //       is plenty of headroom for typical content.
+            //       originals don't blow TTS into clipping. ±12 dB is plenty of headroom for typical content.
             //   lower 0.001x (-60 dB) → effectively unlimited
-            //       attenuation. The pre-boost did the heavy lifting
-            //       for STT; this trim just needs to land TTS at the
-            //       original speaker's level. Earlier 0.25x and 0.05x
-            //       floors left a residual +7-16 LU overshoot on
-            //       quiet inputs (Die Hard's quieter speakers; the
-            //       2-speaker no-music clip at -33 LUFS). At -60 dB
-            //       the only thing this protects against is total
-            //       silence in the target (which is also fine —
-            //       inaudible TTS for inaudible originals is the
-            //       correct behavior).
+            //       attenuation. The pre-boost did the heavy lifting for STT; this trim just needs to land TTS at the original speaker's level. Earlier 0.25x and 0.05x floors left a residual +7-16 LU overshoot on quiet inputs (Die Hard's quieter speakers; the 2-speaker no-music clip at -33 LUFS). At -60 dB the only thing this protects against is total silence in the target (which is also fine — inaudible TTS for inaudible originals is the correct behavior).
             let raw = inputRMS / outputRMS
             let clamped = max(0.001, min(raw, 4.0))
             print(String(format: "[Revoicer] %@ RMS normalize: input=%.4f output=%.4f gain=%.3fx (clamped from %.3fx)",
@@ -570,16 +417,11 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         }
     }
 
-    // The timing-QA adaptive re-render loop (renderWithTimingLoop +
-    // transcribeRendered) lives in MultiSpeakerRevoicer+TimingQA.swift.
+    // The timing-QA adaptive re-render loop (renderWithTimingLoop + transcribeRendered) lives in MultiSpeakerRevoicer+TimingQA.swift.
 
     // MARK: - RMS
 
-    /// Mean-squared average of samples whose magnitude exceeds a
-    /// silence threshold. Skipping near-zero samples gives a fair
-    /// comparison between silence-padded isolated tracks and the
-    /// TTS output (which has small non-zero values during pause
-    /// regions due to fade ramps).
+    /// Mean-squared average of samples whose magnitude exceeds a silence threshold. Skipping near-zero samples gives a fair comparison between silence-padded isolated tracks and the TTS output (which has small non-zero values during pause regions due to fade ramps).
     nonisolated static func rmsOfActiveSamples(_ samples: [Float], silenceThreshold: Float = 0.001) -> Float {
         var sumSq: Double = 0
         var n: Int = 0
@@ -593,9 +435,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
 
     // MARK: - Static helpers (bed manipulation)
 
-    /// Pull L/R Float arrays out of an AudioBuffer. Mono inputs are
-    /// upmixed (L = R = the mono samples) so the bed-modification
-    /// loop can always work in a uniform stereo layout.
+    /// Pull L/R Float arrays out of an AudioBuffer. Mono inputs are upmixed (L = R = the mono samples) so the bed-modification loop can always work in a uniform stereo layout.
     nonisolated static func extractStereo(_ buffer: AudioBuffer) -> (left: [Float], right: [Float]) {
         switch buffer.channels {
         case let .mono(samples):
@@ -605,19 +445,9 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         }
     }
 
-    /// Zero out `ranges` (in seconds) on both `left` and `right` at
-    /// `sampleRate`. Used by `.discard` and `.revoice` to silence the
-    /// speaker's contribution to the bed before optionally adding TTS.
+    /// Zero out `ranges` (in seconds) on both `left` and `right` at `sampleRate`. Used by `.discard` and `.revoice` to silence the speaker's contribution to the bed before optionally adding TTS.
     ///
-    /// `releaseTailSec` (default 0 = hard edges, the original behavior)
-    /// ramps the bed back in linearly across the final stretch of each
-    /// range instead of hard-zeroing it. The diarization end-pad extends
-    /// every segment ~0.5 s past the detected speech end to recapture
-    /// VAD-trimmed tails; hard-zeroing that pad mutes background
-    /// music/SFX after every utterance in Audio-Preservation-off mode
-    /// (where the bed is the raw mix). The ramp keeps the suppression
-    /// where a speech tail may linger (early pad ≈ silent) while letting
-    /// the background swell back in instead of dropping out.
+    /// `releaseTailSec` (default 0 = hard edges, the original behavior) ramps the bed back in linearly across the final stretch of each range instead of hard-zeroing it. The diarization end-pad extends every segment ~0.5 s past the detected speech end to recapture VAD-trimmed tails; hard-zeroing that pad mutes background music/SFX after every utterance in Audio-Preservation-off mode (where the bed is the raw mix). The ramp keeps the suppression where a speech tail may linger (early pad ≈ silent) while letting the background swell back in instead of dropping out.
     nonisolated static func zeroOutRanges(
         left: inout [Float],
         right: inout [Float],
@@ -645,10 +475,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         }
     }
 
-    /// Resample mono TTS (24 kHz) to `targetSampleRate` and ADD into
-    /// `left` + `right` (duplicated). Used by `.revoice` to place
-    /// synthesized speech back into the silenced segmentRanges of the
-    /// vocals bed. No-op when ttsMono24k is empty.
+    /// Resample mono TTS (24 kHz) to `targetSampleRate` and ADD into `left` + `right` (duplicated). Used by `.revoice` to place synthesized speech back into the silenced segmentRanges of the vocals bed. No-op when ttsMono24k is empty.
     nonisolated static func addTTSOverlay(
         left: inout [Float],
         right: inout [Float],
@@ -661,10 +488,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
             resampled = ttsMono24k
         } else {
             do {
-                // Use DemucsResampler — it's the established
-                // AVAudioConverter-backed helper. Target length is
-                // computed to match the bed's sample count where the
-                // TTS would land.
+                // Use DemucsResampler — it's the established AVAudioConverter-backed helper. Target length is computed to match the bed's sample count where the TTS would land.
                 let targetLength = Int(
                     Double(ttsMono24k.count) * Double(targetSampleRate) / Double(ttsSampleRate)
                 )
@@ -699,10 +523,7 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         return false
     }
 
-    /// Convert a time-in-seconds boundary to a sample index, clamped
-    /// to `[0, totalSamples]`. Shared with `SpeakerIsolator`'s
-    /// internal helper; restated here to avoid a cross-module
-    /// dependency.
+    /// Convert a time-in-seconds boundary to a sample index, clamped to `[0, totalSamples]`. Shared with `SpeakerIsolator`'s internal helper; restated here to avoid a cross-module dependency.
     nonisolated static func clampedSampleIndex(
         _ seconds: Double,
         sampleRate: Int,

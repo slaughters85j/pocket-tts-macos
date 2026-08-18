@@ -2,11 +2,8 @@
 //  FirstLaunchSetupView.swift
 //  mimika-ai-voice-studio
 //
-//  Phase 8 — first-launch download UI for the Core ML mlpackages
-//  the engine needs to synthesize. Renders FULL-SCREEN (not a
-//  modal sheet) because there's no underlying UI to overlay yet:
-//  the engine hasn't bootstrapped, so the main TabBar + ContentView
-//  body would be empty anyway.
+//  Phase 8 — first-launch download UI for the Core ML mlpackages the engine needs to synthesize. Renders FULL-SCREEN (not a modal sheet) because there's no underlying UI to overlay yet:
+//  the engine hasn't bootstrapped, so the main TabBar + ContentView body would be empty anyway.
 //
 //  States this view drives the user through:
 //
@@ -15,22 +12,16 @@
 //      │  per-model rows w/ size     │
 //      │  ─ [ Quit ]  [ Start ] ─    │
 //      └──────────────┬──────────────┘
-//                     │ user taps Start
-//                     ▼
+//                     │ user taps Start ▼
 //      ┌──────── downloading ────────┐
 //      │  per-model live phase + bar │
 //      │  ─ [ Cancel ] ─             │
 //      └──────────────┬──────────────┘
-//                     │ all models ready
-//                     ▼
+//                     │ all models ready ▼
 //                callback: appState.bootstrapIfNeeded()
-//                  → engineStatus flips to .ready
-//                  → ContentView swaps to readyView
+//                  → engineStatus flips to .ready → ContentView swaps to readyView
 //
-//  Error path: any failure within `downloadAndInstallAll()` lands
-//  in the catch below — banner shows + Start button becomes Retry.
-//  Cancellation rewinds to the intro state without surfacing an
-//  error banner (it was an intentional user action).
+//  Error path: any failure within `downloadAndInstallAll()` lands in the catch below — banner shows + Start button becomes Retry. Cancellation rewinds to the intro state without surfacing an error banner (it was an intentional user action).
 
 import SwiftUI
 
@@ -38,20 +29,13 @@ import SwiftUI
 
 struct FirstLaunchSetupView: View {
 
-    /// The shared singleton. @Bindable so the UI re-renders when
-    /// per-model state changes (downloadProgress / downloadState /
-    /// installed).
+    /// The shared singleton. @Bindable so the UI re-renders when per-model state changes (downloadProgress / downloadState / installed).
     @Bindable var manager: BundledMLModelManager
 
-    /// Closure called once all four models are installed. AppState
-    /// passes `bootstrapIfNeeded` here so the engine boots on
-    /// completion without this view having to know AppState's API
-    /// shape.
+    /// Closure called once all four models are installed. AppState passes `bootstrapIfNeeded` here so the engine boots on completion without this view having to know AppState's API shape.
     let onSetupComplete: () async -> Void
 
-    /// Last error from a `downloadAndInstallAll` attempt, if any.
-    /// Surfaces as a banner above the Start button. Cleared the
-    /// moment the user taps Start (or Retry) for the next attempt.
+    /// Last error from a `downloadAndInstallAll` attempt, if any. Surfaces as a banner above the Start button. Cleared the moment the user taps Start (or Retry) for the next attempt.
     @State private var lastError: String?
 
     var body: some View {
@@ -251,9 +235,7 @@ struct FirstLaunchSetupView: View {
     @ViewBuilder
     private var primaryButton: some View {
         if manager.isDownloading {
-            // Mid-download — secondary "Cancel" hits the manager
-            // (NOT terminate), so the user can back out without
-            // closing the app.
+            // Mid-download — secondary "Cancel" hits the manager (NOT terminate), so the user can back out without closing the app.
             Button(action: cancel) {
                 Text("Cancel Download")
                     .font(Theme.fontSMBold)
@@ -286,12 +268,10 @@ struct FirstLaunchSetupView: View {
         Task { @MainActor in
             do {
                 try await manager.downloadAndInstallAll()
-                // All four ready — re-enter AppState's boot flow
-                // which will now pass the readiness gate.
+                // All four ready — re-enter AppState's boot flow which will now pass the readiness gate.
                 await onSetupComplete()
             } catch is CancellationError {
-                // User-initiated cancel — no banner, just rewind
-                // the per-model spinners to idle on next pass.
+                // User-initiated cancel — no banner, just rewind the per-model spinners to idle on next pass.
             } catch {
                 lastError = String(describing: error)
             }

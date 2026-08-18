@@ -2,18 +2,14 @@
 //  OrbView.swift
 //  mimika-ai-voice-studio
 //
-//  Metal-backed audio-reactive orb visualization. Wraps an MTKView
-//  that runs the raymarched plasma shader at 60fps, driven by
-//  real-time amplitude from the StreamingPlayer.
+//  Metal-backed audio-reactive orb visualization. Wraps an MTKView that runs the raymarched plasma shader at 60fps, driven by real-time amplitude from the StreamingPlayer.
 
 import MetalKit
 import SwiftUI
 import Synchronization
 
 // MARK: - AmplitudeRef
-// Reference-type wrapper around Atomic<Float> so that SwiftUI structs and
-// Metal renderers can share a single amplitude value without running into
-// Swift 6's noncopyable-type restrictions on struct stored properties.
+// Reference-type wrapper around Atomic<Float> so that SwiftUI structs and Metal renderers can share a single amplitude value without running into Swift 6's noncopyable-type restrictions on struct stored properties.
 
 @preconcurrency
 final class AmplitudeRef: @unchecked Sendable {

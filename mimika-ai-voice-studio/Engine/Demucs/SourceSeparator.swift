@@ -2,46 +2,14 @@
 //  SourceSeparator.swift
 //  mimika-ai-voice-studio
 //
-//  Pluggable spectral-source-separation interface used by the Speaker
-//  Isolator pipeline to preserve background music + ambient sound
-//  underneath revoiced speech. Mirrors the `DiarizationProvider` /
-//  `STTProvider` shapes: implementations pick the backend (HTDemucs
-//  via Core ML for v1, possible MLX or MPSGraph alternatives later)
-//  and the caller only handles the `SeparatedStems` value coming
-//  back.
+//  Pluggable source separation, used by the Speaker Isolator pipeline to keep background music and ambience alive underneath revoiced speech. Mirrors the `DiarizationProvider` / `STTProvider` shapes. The view model holds `(any SourceSeparator)?`, so `nil` simply means separation is off — no NoOp stub needed.
 //
 //  Contract:
-//    * `separate(_:)` takes an `AudioBuffer` (stereo 44.1 kHz
-//      preferred — mono inputs MAY be silently upmixed by the
-//      backend if the model requires stereo) and returns mono 24 kHz
-//      vocals + music stems.
-//    * Empty input → throws (NOT empty stems). Diarization needs at
-//      least one sample to align segments against; an empty stem
-//      would silently produce zero speakers and the user would see
-//      "no speakers found" instead of "your file is empty".
-//    * `isModelDownloaded()` is a fast, synchronous probe — safe to
-//      call from the UI on every render to gate a download button.
-//      MUST NOT touch the network.
-//    * `ensureModelsReady(progress:)` is the slow download path.
-//      Idempotent: if the model is already installed, returns
-//      immediately without touching the network. Throws on download
-//      / verification failure.
-//    * `progress` callback is `@Sendable` because the UI typically
-//      lives on `@MainActor` while the downloader runs off-actor.
-//      Pass-through of `Foundation.Progress` lets `NSProgress`-aware
-//      SwiftUI views (`ProgressView(progress)`) render without an
-//      extra adapter.
-//
-//  Why a protocol at all (not a concrete `DemucsSourceSeparator`
-//  type only)?
-//    * The VM holds `(any SourceSeparator)?` so `nil` = disabled
-//      (no separation, shipping v1 behavior). Avoids a second
-//      "NoOp" stub type.
-//    * Test code substitutes `MockSourceSeparator` (under
-//      `mimika-ai-voice-studioTests/Mocks/`) to exercise the pipeline
-//      without loading 80 MB of Core ML weights.
-//    * Phase 8 may add an MLX backend; protocol locks the surface
-//      area now so the swap is cheap.
+//    * `separate(_:)` takes an `AudioBuffer`, stereo 44.1 kHz preferred; a backend MAY upmix mono if its model requires stereo. Stems come back at the model's native rate — see `SeparatedStems`.
+//    * Empty input THROWS rather than returning empty stems. Diarization needs a sample to align against, and empty stems would report "no speakers found" when the truth is "your file is empty".
+//    * `isModelDownloaded()` must be cheap enough for a SwiftUI `body` and must never touch the network.
+//    * `ensureModelsReady(progress:)` is the slow path, idempotent, and throws on download or verification failure.
+//    * Both `progress` callbacks are `@Sendable`: the UI is on `@MainActor` while the downloader runs off-actor.
 
 import Foundation
 
@@ -49,18 +17,9 @@ protocol SourceSeparator: Sendable {
 
     // MARK: - Separation
 
-    /// Run the model on `input` and return the post-downsample,
-    /// post-mono-downmix vocals + music stems at 24 kHz.
+    /// Run the model on `input` and return the vocals and music stems.
     ///
-    /// Implementations MAY chunk the input internally (HTDemucs
-    /// has a fixed 7.8 s window, so a 5-minute clip needs ~38
-    /// forward passes). The `onProgress` callback — when
-    /// non-nil — fires BEFORE each chunk is processed with the
-    /// current chunk index, the total chunk count, and a rolling
-    /// ETA estimate based on observed chunk timing (nil during
-    /// the first chunk, when no timing sample yet exists). The
-    /// callback is `@Sendable` so a `@MainActor` caller can
-    /// dispatch UI updates from it safely.
+    /// Implementations MAY chunk internally — HTDemucs has a fixed 7.8 s window, so a 5-minute clip is ~38 forward passes. `onProgress` fires BEFORE each chunk with its index, the total, and a rolling ETA (nil on the first chunk, before any timing sample exists).
     func separate(
         _ input: AudioBuffer,
         onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
@@ -68,41 +27,23 @@ protocol SourceSeparator: Sendable {
 
     // MARK: - Model lifecycle
 
-    /// True iff the backend's model weights are installed locally and
-    /// loadable without further network I/O. Designed to be called
-    /// from a SwiftUI `body` — must be cheap (no disk hash, no model
-    /// compile). A common impl checks for the presence of a single
-    /// sentinel file under Application Support and returns immediately.
+    /// True when the weights are installed and loadable with no further network I/O. Called from a SwiftUI `body`, so no disk hash and no model compile — a sentinel-file check.
     ///
-    /// Marked `nonisolated` so the fast synchronous probe can be called
-    /// from the pipeline `actor` (non-`@MainActor`) without an `await`
-    /// hop, despite the project's `-default-isolation MainActor` flag.
+    /// `nonisolated` so the pipeline actor can call it without an `await` hop, despite the project's `-default-isolation MainActor`.
     nonisolated func isModelDownloaded() -> Bool
 
-    /// Download + install the model if it isn't already present.
-    /// Idempotent — a no-op when `isModelDownloaded()` is already
-    /// true.
+    /// Download and install the model. A no-op when `isModelDownloaded()` is already true.
     ///
-    /// - Parameter progress: optional callback fed a `Foundation.Progress`
-    ///   from the underlying `URLSession` download. `nil` means "I
-    ///   don't care about progress, just return when you're done".
-    ///   The closure is `@Sendable` so the caller can dispatch UI
-    ///   updates from any actor.
+    /// - Parameter progress: fed the `URLSession` download's `Foundation.Progress`; `nil` to just wait for completion.
     ///
-    /// - Throws: any network / SHA / unzip / install failure. The
-    ///   contract is that on throw, no half-installed state is left
-    ///   on disk (impl is responsible for staging-dir cleanup —
-    ///   see `DemucsModelManager`).
+    /// - Throws: on any network, SHA, unzip or install failure. On throw NO half-installed state may remain on disk — the implementation cleans its staging dir, see `DemucsModelManager`.
     func ensureModelsReady(
         progress: (@Sendable (Progress) -> Void)?
     ) async throws
 }
 
 extension SourceSeparator {
-    /// Convenience for callers that don't need per-chunk progress.
-    /// Forwards to the progress-aware variant with `nil`. Lets
-    /// tests + the `SourceSeparatorProtocolTests` stub keep their
-    /// existing `separator.separate(input)` call shape.
+    /// For callers that don't need per-chunk progress.
     func separate(_ input: AudioBuffer) async throws -> SeparatedStems {
         try await separate(input, onProgress: nil)
     }

@@ -2,12 +2,7 @@
 //  VoiceChangerSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Modal sheet for the Voice Changer feature. Input audio → STT
-//  (Parakeet via FluidAudio) → silence-preserving script → TTS in
-//  the chosen voice.
-//  Result-panel reuses the existing AudioPlayer component so WAV/AAC
-//  export comes for free (and inherits the .m4a/.mp4 fix shipped in
-//  commit 4aa82da).
+//  Modal sheet for the Voice Changer feature. Input audio → STT (Parakeet via FluidAudio) → silence-preserving script → TTS in the chosen voice. Result-panel reuses the existing AudioPlayer component so WAV/AAC export comes for free (and inherits the .m4a/.mp4 fix shipped in commit 4aa82da).
 //
 //  Reachable from:
 //    * Single Voice sidebar's "Change Voice" button (sidebar VStack).
@@ -26,8 +21,7 @@ struct VoiceChangerSheet: View {
 
     @State private var showImporter: Bool = false
     @State private var isDropTargeted: Bool = false
-    /// Shared across the Voice Changer + Speaker Isolator sheets via
-    /// the same `@AppStorage` key — one user preference, two surfaces.
+    /// Shared across the Voice Changer + Speaker Isolator sheets via the same `@AppStorage` key — one user preference, two surfaces.
     @AppStorage("matchOriginalPace") private var matchOriginalPace: Bool = true
 
     var body: some View {

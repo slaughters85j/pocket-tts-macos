@@ -2,19 +2,12 @@
 //  AppSettingsView.swift
 //  mimika-ai-voice-studio
 //
-//  App-wide settings reachable from any tab via the gear icon in the
-//  global header (next to the Voice Manager) or via Cmd+,. Contains
-//  configuration that applies across tabs:
+//  App-wide settings reachable from any tab via the gear icon in the global header (next to the Voice Manager) or via Cmd+,. Contains configuration that applies across tabs:
 //
-//    * Local LLM endpoint base URL + model. Drives the AI Writer in Single Voice
-//      and Multi-Talk *and* the Chat tab — was previously locked inside
-//      the Chat settings sheet, which made no sense as those features
-//      moved out of Chat-only territory.
-//    * Pocket-TTS chunk-budget slider. Affects every synthesize call in
-//      Single Voice, Multi-Talk, and Chat.
+//    * Local LLM endpoint base URL + model. Drives the AI Writer in Single Voice and Multi-Talk *and* the Chat tab — was previously locked inside the Chat settings sheet, which made no sense as those features moved out of Chat-only territory.
+//    * Pocket-TTS chunk-budget slider. Affects every synthesize call in Single Voice, Multi-Talk, and Chat.
 //
-//  Chat-scoped fields (voice for chat replies, chat system prompt) live
-//  in ChatSettingsView, reachable only from the Chat tab's own gear icon.
+//  Chat-scoped fields (voice for chat replies, chat system prompt) live in ChatSettingsView, reachable only from the Chat tab's own gear icon.
 
 import AppKit
 import SwiftData
@@ -23,14 +16,9 @@ import SwiftUI
 struct AppSettingsView: View {
     @Binding var isPresented: Bool
     @Binding var settings: ChatSettings
-    /// Two-way binding to AppState's `pocketTTSChunkBudget`. Edited live
-    /// from the slider in this view; persistence is handled by
-    /// `AppState.didSet` so no save button is needed for this field.
+    /// Two-way binding to AppState's `pocketTTSChunkBudget`. Edited live from the slider in this view; persistence is handled by `AppState.didSet` so no save button is needed for this field.
     @Binding var chunkBudget: Int
-    /// The SwiftData endpoint row holding `baseURL`. We don't `@Bindable`
-    /// it directly — the view keeps a snapshot in `workingBaseURL` so
-    /// Cancel can discard edits, matching the rest of the Done/Cancel
-    /// UX. Done writes back to `endpoint.baseURL`.
+    /// The SwiftData endpoint row holding `baseURL`. We don't `@Bindable` it directly — the view keeps a snapshot in `workingBaseURL` so Cancel can discard edits, matching the rest of the Done/Cancel UX. Done writes back to `endpoint.baseURL`.
     let endpoint: LocalLLMEndpoint
     let onSave: (ChatSettings, String) -> Void
 
@@ -297,8 +285,7 @@ struct AppSettingsView: View {
         return ta == tb
     }
 
-    /// Badge that deep-links to LM Studio’s macOS arm64 download when the app
-    /// isn’t installed; grayed out when `LM Studio.app` is already on disk.
+    /// Badge that deep-links to LM Studio’s macOS arm64 download when the app isn’t installed; grayed out when `LM Studio.app` is already on disk.
     private var lmStudioDownloadBadge: some View {
         let installed = LMStudioInstall.isInstalled
         return Button {
@@ -396,8 +383,7 @@ struct AppSettingsView: View {
         }
     }
 
-    /// Validate the entered Anthropic key against /v1/models (debounced). The
-    /// key isn't saved until Done — this probes the in-field value live.
+    /// Validate the entered Anthropic key against /v1/models (debounced). The key isn't saved until Done — this probes the in-field value live.
     private func probeAnthropicKey() async {
         guard personaConfig.kind == .anthropic else { anthropicProbe = .idle; return }
         let key = anthropicKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -497,8 +483,7 @@ struct AppSettingsView: View {
         }
     }
 
-    /// Stock + imported Pocket-TTS voices for the read-aloud picker (mirrors the
-    /// menu-bar list).
+    /// Stock + imported Pocket-TTS voices for the read-aloud picker (mirrors the menu-bar list).
     private var readAloudVoiceOptions: [(id: String, name: String)] {
         let stock = BundledVoice.stockIDs.sorted().map {
             (id: $0, name: BundledVoice(predefined: $0).name)
@@ -587,9 +572,7 @@ struct AppSettingsView: View {
             } else {
                 modelLoadError = nil
             }
-            // Prefer keeping the saved pick if it's still in the catalog.
-            // Only auto-jump when empty/missing — never jump to an embedding model
-            // when a chat LLM is available. Suppress auto-load for programmatic sets.
+            // Prefer keeping the saved pick if it's still in the catalog. Only auto-jump when empty/missing — never jump to an embedding model when a chat LLM is available. Suppress auto-load for programmatic sets.
             suppressModelAutoLoad = true
             defer { suppressModelAutoLoad = false }
             if workingCopy.model.isEmpty
@@ -612,8 +595,7 @@ struct AppSettingsView: View {
         }
     }
 
-    /// Unload others + load `model` in LM Studio, then **poll** until the serving
-    /// list confirms it (or we time out). Status UI stays honest the whole way.
+    /// Unload others + load `model` in LM Studio, then **poll** until the serving list confirms it (or we time out). Status UI stays honest the whole way.
     private func loadSelectedModel(userPicked model: String) async {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -679,8 +661,7 @@ struct AppSettingsView: View {
         }
     }
 
-    /// Prove the server is reachable **and** has a model loaded for chat.
-    /// Does not treat the downloaded catalog as “connected.”
+    /// Prove the server is reachable **and** has a model loaded for chat. Does not treat the downloaded catalog as “connected.”
     private func testConnection() async {
         probeState = .probing
         guard let url = URL(string: workingBaseURL) else {

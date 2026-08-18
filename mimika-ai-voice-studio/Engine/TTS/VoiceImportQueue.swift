@@ -4,17 +4,9 @@
 //
 //  WP-VMI-1. Serial FIFO queue for voice import / enhance / encode jobs.
 //
-//  Replaces the old single-slot `inFlightVoiceImportTask` in ContentView,
-//  whose cancel-on-new behavior meant every new import cancelled the
-//  previous voice's Fish encode + Pocket-TTS KV bake. Rapid back-to-back
-//  imports left earlier voices half-encoded ("Partial" badge, missing KV),
-//  and the Voice Manager recovery pass had the same flaw — it fired one
-//  encode per incomplete voice in a loop, each cancelling the one before,
-//  so each app session healed exactly ONE voice.
+//  Replaces the old single-slot `inFlightVoiceImportTask` in ContentView, whose cancel-on-new behavior meant every new import cancelled the previous voice's Fish encode + Pocket-TTS KV bake. Rapid back-to-back imports left earlier voices half-encoded ("Partial" badge, missing KV), and the Voice Manager recovery pass had the same flaw — it fired one encode per incomplete voice in a loop, each cancelling the one before, so each app session healed exactly ONE voice.
 //
-//  The queue owns ORDER and CANCELLATION only. The actual pipeline
-//  (LavaSR enhance / Fish encode / KV bake) is injected as `executor`,
-//  so the mechanics are unit-testable without Core ML.
+//  The queue owns ORDER and CANCELLATION only. The actual pipeline (LavaSR enhance / Fish encode / KV bake) is injected as `executor`, so the mechanics are unit-testable without Core ML.
 
 import Foundation
 import Observation
@@ -23,14 +15,9 @@ import Observation
 ///
 /// Semantics:
 ///   * Jobs for DIFFERENT voices run strictly FIFO, one at a time.
-///   * Enqueueing a job for a voice that already has a pending job
-///     REPLACES that pending job (newest intent wins), and cancels the
-///     active job if it is for the same voice — preserving the old
-///     single-voice behaviors (double-click Enhance, reject-then-re-encode).
-///   * `cancel(voiceID:)` removes that voice's pending job and cancels the
-///     active job if it is that voice. Other queued voices are unaffected.
-///   * `onDrain` fires once when the queue empties (used to unload Fish
-///     once per batch instead of once per voice).
+///   * Enqueueing a job for a voice that already has a pending job REPLACES that pending job (newest intent wins), and cancels the active job if it is for the same voice — preserving the old single-voice behaviors (double-click Enhance, reject-then-re-encode).
+///   * `cancel(voiceID:)` removes that voice's pending job and cancels the active job if it is that voice. Other queued voices are unaffected.
+///   * `onDrain` fires once when the queue empties (used to unload Fish once per batch instead of once per voice).
 @MainActor
 @Observable
 final class VoiceImportQueue {
@@ -59,13 +46,10 @@ final class VoiceImportQueue {
     /// The job currently executing, if any.
     private(set) var activeJob: Job?
 
-    /// The Task running `activeJob`. Cancellation is cooperative — the
-    /// executor checks `Task.isCancelled` between pipeline steps.
+    /// The Task running `activeJob`. Cancellation is cooperative — the executor checks `Task.isCancelled` between pipeline steps.
     private var activeTask: Task<Void, Never>?
 
-    /// Runs one job's pipeline. Injected so tests can stub it.
-    /// Explicitly `@MainActor` so executor bodies (which touch
-    /// `VoiceManager.shared` / `AppState`) never hop off the actor.
+    /// Runs one job's pipeline. Injected so tests can stub it. Explicitly `@MainActor` so executor bodies (which touch `VoiceManager.shared` / `AppState`) never hop off the actor.
     private let executor: @MainActor (Job) async -> Void
 
     /// Fires once when the queue empties (no pending, active finished).
@@ -93,9 +77,7 @@ final class VoiceImportQueue {
         enqueue(Job(voiceID: voiceID, kind: .enhanceThenEncode(denoise: denoise)))
     }
 
-    /// Append a job. Any pending job for the same voice is superseded;
-    /// a running job for the same voice is cancelled (the new job then
-    /// runs with the voice's latest on-disk state).
+    /// Append a job. Any pending job for the same voice is superseded; a running job for the same voice is cancelled (the new job then runs with the voice's latest on-disk state).
     func enqueue(_ job: Job) {
         pending.removeAll { $0.voiceID == job.voiceID }
         if activeJob?.voiceID == job.voiceID {
@@ -107,8 +89,7 @@ final class VoiceImportQueue {
 
     // MARK: - Cancel
 
-    /// Cancel all work for ONE voice (reject-enhancement path). Pending
-    /// jobs for other voices keep their place in line.
+    /// Cancel all work for ONE voice (reject-enhancement path). Pending jobs for other voices keep their place in line.
     func cancel(voiceID: String) {
         pending.removeAll { $0.voiceID == voiceID }
         if activeJob?.voiceID == voiceID {
@@ -123,10 +104,7 @@ final class VoiceImportQueue {
 
     // MARK: - Worker
 
-    /// Start the next job if nothing is running. `activeTask` stays
-    /// non-nil through the drain callback so an enqueue arriving while
-    /// `onDrain` runs (e.g. mid-Fish-unload) waits for it to finish
-    /// instead of racing the unload.
+    /// Start the next job if nothing is running. `activeTask` stays non-nil through the drain callback so an enqueue arriving while `onDrain` runs (e.g. mid-Fish-unload) waits for it to finish instead of racing the unload.
     private func processNextIfIdle() {
         guard activeTask == nil, !pending.isEmpty else { return }
         let job = pending.removeFirst()

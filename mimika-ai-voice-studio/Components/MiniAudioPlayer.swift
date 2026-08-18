@@ -2,16 +2,9 @@
 //  MiniAudioPlayer.swift
 //  mimika-ai-voice-studio
 //
-//  Compact playback widget: play/pause + horizontal progress bar +
-//  current/total time. Takes mono Float32 samples and writes them to
-//  a temp WAV on first appear so AVAudioPlayer can take it from
-//  there.
+//  Compact playback widget: play/pause + horizontal progress bar + current/total time. Takes mono Float32 samples and writes them to a temp WAV on first appear so AVAudioPlayer can take it from there.
 //
-//  Built for the Speaker Isolator sheet's per-row "preview this
-//  speaker's isolated audio" affordance. Intentionally smaller than
-//  `Components/AudioPlayer.swift` — no download menu (export is a
-//  separate row-level button in the Speaker Isolator), no big
-//  round play button, just enough to scrub through a clip.
+//  Built for the Speaker Isolator sheet's per-row "preview this speaker's isolated audio" affordance. Intentionally smaller than `Components/AudioPlayer.swift` — no download menu (export is a separate row-level button in the Speaker Isolator), no big round play button, just enough to scrub through a clip.
 
 import AVFoundation
 import SwiftUI
@@ -19,15 +12,9 @@ import SwiftUI
 struct MiniAudioPlayer: View {
     let samples: [Float]
     let sampleRate: Int
-    /// Time ranges (in seconds) where this speaker was actually
-    /// active. Drawn as a thin activity bar above the scrubber so
-    /// the user can see at a glance where the speech bursts are.
-    /// Empty array = no activity bar shown.
+    /// Time ranges (in seconds) where this speaker was actually active. Drawn as a thin activity bar above the scrubber so the user can see at a glance where the speech bursts are. Empty array = no activity bar shown.
     let segments: [ClosedRange<Double>]
-    /// Bidirectional. Caller flips this to play/pause programmatically
-    /// (e.g. the parent row's play icon). The component also writes
-    /// `false` back here when playback naturally reaches the end, so
-    /// the row icon switches back to the play glyph.
+    /// Bidirectional. Caller flips this to play/pause programmatically (e.g. the parent row's play icon). The component also writes `false` back here when playback naturally reaches the end, so the row icon switches back to the play glyph.
     @Binding var isPlaying: Bool
 
     init(
@@ -60,10 +47,7 @@ struct MiniAudioPlayer: View {
             .buttonStyle(.plain)
 
             VStack(spacing: 2) {
-                // Speaker-segment activity bar. Sits above the
-                // scrubber so the user can see which parts of the
-                // timeline contain speech. Skips rendering when
-                // segments are empty.
+                // Speaker-segment activity bar. Sits above the scrubber so the user can see which parts of the timeline contain speech. Skips rendering when segments are empty.
                 if !segments.isEmpty {
                     segmentActivityBar
                         .frame(height: 4)
@@ -82,19 +66,14 @@ struct MiniAudioPlayer: View {
         .onAppear { setup() }
         .onDisappear { teardown() }
         .onChange(of: isPlaying) { _, newValue in
-            // External flip (e.g. the parent row's play button). Drive
-            // the actual AVAudioPlayer to match.
+            // External flip (e.g. the parent row's play button). Drive the actual AVAudioPlayer to match.
             applyPlayingState(newValue)
         }
     }
 
     // MARK: - Segment activity bar
 
-    /// Tinted segment markers laid out proportionally on the
-    /// timeline. Each segment renders as a small rectangle whose
-    /// horizontal position + width map to (startSec, endSec) /
-    /// duration. Geometry-driven so the visual matches the Slider's
-    /// width below it.
+    /// Tinted segment markers laid out proportionally on the timeline. Each segment renders as a small rectangle whose horizontal position + width map to (startSec, endSec) / duration. Geometry-driven so the visual matches the Slider's width below it.
     private var segmentActivityBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -130,11 +109,7 @@ struct MiniAudioPlayer: View {
             player.prepareToPlay()
             self.avPlayer = player
             self.duration = player.duration
-            // If the caller wants playback to start immediately on
-            // appear (the speaker-row button sets isPlaying=true the
-            // same frame it expands the player), kick the AVAudioPlayer
-            // here. Without this we'd need a second user click to
-            // actually hear sound.
+            // If the caller wants playback to start immediately on appear (the speaker-row button sets isPlaying=true the same frame it expands the player), kick the AVAudioPlayer here. Without this we'd need a second user click to actually hear sound.
             if isPlaying {
                 player.play()
                 startTicking()
@@ -154,12 +129,7 @@ struct MiniAudioPlayer: View {
     // MARK: - Playback
 
     private func togglePlayback() {
-        // Mutating the binding triggers `.onChange(of: isPlaying)`
-        // above, which forwards the new state to the AVAudioPlayer
-        // via `applyPlayingState`. Routing through the binding (vs.
-        // calling .play()/.pause() directly here) means the parent
-        // row's icon stays in sync whether the user clicks our
-        // little circle or the row's bigger one.
+        // Mutating the binding triggers `.onChange(of: isPlaying)` above, which forwards the new state to the AVAudioPlayer via `applyPlayingState`. Routing through the binding (vs. calling .play()/.pause() directly here) means the parent row's icon stays in sync whether the user clicks our little circle or the row's bigger one.
         isPlaying.toggle()
     }
 
@@ -195,9 +165,7 @@ struct MiniAudioPlayer: View {
                 if let p = avPlayer {
                     currentTime = p.currentTime
                     if !p.isPlaying && currentTime >= duration - 0.05 {
-                        // Natural end-of-playback. Write back to the
-                        // binding so the parent row's icon flips to
-                        // the play glyph.
+                        // Natural end-of-playback. Write back to the binding so the parent row's icon flips to the play glyph.
                         isPlaying = false
                         currentTime = duration
                         break

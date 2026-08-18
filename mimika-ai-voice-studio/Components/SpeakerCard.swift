@@ -2,8 +2,7 @@
 //  SpeakerCard.swift
 //  mimika-ai-voice-studio
 //
-//  Ports Electron's SpeakerCard.tsx — one card per speaker in the Multi-Talk
-//  view: name field + voice picker + "insert {Name} to script" button + remove.
+//  Ports Electron's SpeakerCard.tsx — one card per speaker in the Multi-Talk view: name field + voice picker + "insert {Name} to script" button + remove.
 
 import SwiftUI
 
@@ -29,9 +28,7 @@ struct SpeakerCard: View {
     let onInsertToScript: (String) -> Void
     let onRemove: () -> Void
     let cardIndex: Int
-    /// When non-nil, the speaker name field renders in this color.
-    /// Wired from the Multi-Talk display panel's "Speaker colors"
-    /// toggle; nil → default `Theme.textPrimary`.
+    /// When non-nil, the speaker name field renders in this color. Wired from the Multi-Talk display panel's "Speaker colors" toggle; nil → default `Theme.textPrimary`.
     var nameColor: Color? = nil
 
     var body: some View {

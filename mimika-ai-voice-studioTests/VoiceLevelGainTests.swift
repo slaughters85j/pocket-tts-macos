@@ -2,15 +2,11 @@
 //  VoiceLevelGainTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  WP-VMI-3. Tests for VoiceLevel.applyGain's soft-limited overload
-//  behavior and the ClipHeadroom magnitude-histogram analysis behind
-//  the Enhancement Studio's peak-limiting readout.
+//  WP-VMI-3. Tests for VoiceLevel.applyGain's soft-limited overload behavior and the ClipHeadroom magnitude-histogram analysis behind the Enhancement Studio's peak-limiting readout.
 //
 //  What we check:
-//    * applyGain: gain 1.0 is a strict no-op; below-knee samples scale
-//      exactly linearly; overloads fold smoothly (bounded, no flat-top)
-//    * ClipHeadroom: limited fraction is 0 at/below unity gain, tracks
-//      the known sample distribution above it, degenerate inputs safe
+//    * applyGain: gain 1.0 is a strict no-op; below-knee samples scale exactly linearly; overloads fold smoothly (bounded, no flat-top)
+//    * ClipHeadroom: limited fraction is 0 at/below unity gain, tracks the known sample distribution above it, degenerate inputs safe
 
 import XCTest
 @testable import mimika_ai_voice_studio
@@ -32,12 +28,7 @@ final class VoiceLevelGainTests: XCTestCase {
     }
 
     func testApplyGain_overloadsFoldInsteadOfFlatTopping() {
-        // A ramp of hot samples boosted 1.5× (0.75 … 1.35 pre-limit)
-        // would flat-top at 1.0 under the old hard clamp. The soft-
-        // limiter must keep every value strictly below 1.0 AND keep
-        // them strictly increasing (no information-destroying plateau).
-        // Gain is kept moderate on purpose: deep in the tanh tail the
-        // fold legitimately saturates within Float32 resolution.
+        // A ramp of hot samples boosted 1.5× (0.75 … 1.35 pre-limit) would flat-top at 1.0 under the old hard clamp. The soft-limiter must keep every value strictly below 1.0 AND keep them strictly increasing (no information-destroying plateau). Gain is kept moderate on purpose: deep in the tanh tail the fold legitimately saturates within Float32 resolution.
         let hot: [Float] = [0.5, 0.6, 0.7, 0.8, 0.9]
         let out = VoiceLevel.applyGain(hot, gain: 1.5)
         for v in out {
@@ -62,8 +53,7 @@ final class VoiceLevelGainTests: XCTestCase {
     }
 
     func testClipHeadroom_limitedFractionTracksDistribution() {
-        // 990 quiet samples (0.2) + 10 hot ones (0.8). At gain 1.2 the
-        // knee threshold is 0.9/1.2 = 0.75 → only the hot 1% limit.
+        // 990 quiet samples (0.2) + 10 hot ones (0.8). At gain 1.2 the knee threshold is 0.9/1.2 = 0.75 → only the hot 1% limit.
         let samples = [Float](repeating: 0.2, count: 990)
             + [Float](repeating: 0.8, count: 10)
         let analysis = ClipHeadroom(samples: samples)

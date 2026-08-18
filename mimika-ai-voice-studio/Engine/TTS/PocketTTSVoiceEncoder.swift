@@ -2,18 +2,12 @@
 //  PocketTTSVoiceEncoder.swift
 //  mimika-ai-voice-studio
 //
-//  Encodes a WAV file into Pocket-TTS KV cache states (safetensors).
-//  Pipeline: WAV → MimiEncoder (MLX) → voice_prompt_phase (Core ML) → safetensors.
+//  Encodes a WAV file into Pocket-TTS KV cache states (safetensors). Pipeline: WAV → MimiEncoder (MLX) → voice_prompt_phase (Core ML) → safetensors.
 //
-//  The output safetensors matches the format of the bundled voice files
-//  in Resources/voice_kv_states/ and can be loaded by VoiceLoader.
+//  The output safetensors matches the format of the bundled voice files in Resources/voice_kv_states/ and can be loaded by VoiceLoader.
 
 @preconcurrency import AVFoundation
-// @preconcurrency: MLModel (and the MLState handle threaded through `phase`)
-// are non-Sendable. Storage is `nonisolated(unsafe)` and all access is
-// serialised by the actor (see comment at the voicePhaseModel property), but
-// Swift 6 still flags the send of `phase` across the prediction `await`.
-// @preconcurrency tells the compiler to treat this module as pre-Swift-6.
+// @preconcurrency: MLModel (and the MLState handle threaded through `phase`) are non-Sendable. Storage is `nonisolated(unsafe)` and all access is serialised by the actor (see comment at the voicePhaseModel property), but Swift 6 still flags the send of `phase` across the prediction `await`. @preconcurrency tells the compiler to treat this module as pre-Swift-6.
 @preconcurrency import CoreML
 import Foundation
 import MLX
@@ -50,8 +44,7 @@ actor PocketTTSVoiceEncoder {
     private static let maxSeq = 512
 
     private(set) var status: Status = .idle
-    // nonisolated(unsafe): neither MimiEncoder (holds MLXArrays) nor MLModel conform to Sendable.
-    // Both are stored and accessed exclusively within the actor's serial context; no external sharing.
+    // nonisolated(unsafe): neither MimiEncoder (holds MLXArrays) nor MLModel conform to Sendable. Both are stored and accessed exclusively within the actor's serial context; no external sharing.
     nonisolated(unsafe) private var mimiEncoder: MimiEncoder?
     nonisolated(unsafe) private var voicePhaseModel: MLModel?
 
@@ -61,20 +54,13 @@ actor PocketTTSVoiceEncoder {
         guard status == .idle else { return }
         status = .loading
         do {
-            // Load MimiEncoder (MLX-native).  We call through the nonisolated helper so that
-            // the MimiEncoder instance (which holds non-Sendable MLXArrays) never crosses an
-            // actor boundary — it is created and stored entirely on the actor's executor.
+            // Load MimiEncoder (MLX-native).  We call through the nonisolated helper so that the MimiEncoder instance (which holds non-Sendable MLXArrays) never crosses an actor boundary — it is created and stored entirely on the actor's executor.
             try loadMimiEncoder()
             let encoder = mimiEncoder  // already set; just confirm it's present
 
             _ = encoder  // silence unused-variable warning
 
-            // Load voice_prompt_phase (Core ML). Phase 8 moved this
-            // out of the bundle into the runtime-downloaded set;
-            // ModelPaths transparently resolves to the right
-            // location (downloaded under Application Support if
-            // present, otherwise falls back to the bundle for
-            // builds that still ship it).
+            // Load voice_prompt_phase (Core ML). Phase 8 moved this out of the bundle into the runtime-downloaded set; ModelPaths transparently resolves to the right location (downloaded under Application Support if present, otherwise falls back to the bundle for builds that still ship it).
             let cuNoANE = MLModelConfiguration()
             cuNoANE.computeUnits = .cpuAndGPU
             let phaseURL = try ModelPaths.voicePromptPhase()
@@ -104,8 +90,7 @@ actor PocketTTSVoiceEncoder {
         mimiEncoder = try MimiEncoder.load()
     }
 
-    /// Run MimiEncoder on `samples` and copy the result into a pre-allocated MLMultiArray.
-    /// All MLXArray work happens inside this nonisolated function so values never cross actor boundaries.
+    /// Run MimiEncoder on `samples` and copy the result into a pre-allocated MLMultiArray. All MLXArray work happens inside this nonisolated function so values never cross actor boundaries.
     private nonisolated func runMimiEncoder(
         samples: [Float],
         maxFrames tVoiceMax: Int
@@ -151,22 +136,13 @@ actor PocketTTSVoiceEncoder {
         let samples = try Self.loadAudio(url: wavURL)
         print("[PocketTTSVoiceEncoder] loaded \(samples.count) samples @ 24kHz")
 
-        // Step 2 + 3: Run MimiEncoder (MLX) → padded MLMultiArray.
-        // All MLX types are created and consumed inside the nonisolated helper; no MLXArray
-        // crosses the actor boundary.
+        // Step 2 + 3: Run MimiEncoder (MLX) → padded MLMultiArray. All MLX types are created and consumed inside the nonisolated helper; no MLXArray crosses the actor boundary.
         let (condArr, framesToCopy) = try runMimiEncoder(samples: samples, maxFrames: Self.tVoiceMax)
 
         // Step 4: Run voice_prompt_phase (Core ML) → KV cache
         var kvData = try await runVoicePromptPhase(model: phase, condArr: condArr, framesToCopy: framesToCopy)
 
-        // Validate the read-back before accepting it. On macOS 27
-        // (beta) the `.cpuAndGPU` execution path returns an all-zero
-        // MLState for this model — every buffer, every layer, on every
-        // read pattern (verified with a standalone probe; `.cpuOnly`
-        // is unaffected). A zero KV prefix silently bakes a dead,
-        // identity-less voice whose synthesis degenerates into pauses,
-        // repeats, and babble with no EOS. Retry on CPU rather than
-        // save a poisoned fingerprint.
+        // Validate the read-back before accepting it. On macOS 27 (beta) the `.cpuAndGPU` execution path returns an all-zero MLState for this model — every buffer, every layer, on every read pattern (verified with a standalone probe; `.cpuOnly` is unaffected). A zero KV prefix silently bakes a dead, identity-less voice whose synthesis degenerates into pauses, repeats, and babble with no EOS. Retry on CPU rather than save a poisoned fingerprint.
         if Self.kvIsAllZero(kvData) {
             print("[PocketTTSVoiceEncoder] KV read-back all-zero under .cpuAndGPU — retrying with .cpuOnly")
             let cpuCfg = MLModelConfiguration()
@@ -216,10 +192,7 @@ actor PocketTTSVoiceEncoder {
 
     // MARK: - KV state output
 
-    /// Run one voice_prompt_phase prediction over the conditioning and
-    /// read the resulting KV state buffers out of the MLState. Takes the
-    /// model explicitly so the caller can retry with a different
-    /// compute-unit configuration when a read-back comes back empty.
+    /// Run one voice_prompt_phase prediction over the conditioning and read the resulting KV state buffers out of the MLState. Takes the model explicitly so the caller can retry with a different compute-unit configuration when a read-back comes back empty.
     private func runVoicePromptPhase(
         model: MLModel,
         condArr: MLMultiArray,
@@ -255,9 +228,7 @@ actor PocketTTSVoiceEncoder {
         return kvData
     }
 
-    /// `true` when every K/V buffer is entirely zero — the signature of
-    /// the macOS 27 GPU state read-back failure. A legitimate bake
-    /// always carries non-zero keys/values in the voice-prefix slots.
+    /// `true` when every K/V buffer is entirely zero — the signature of the macOS 27 GPU state read-back failure. A legitimate bake always carries non-zero keys/values in the voice-prefix slots.
     nonisolated static func kvIsAllZero(_ kvData: [String: [Float16]]) -> Bool {
         for (_, buf) in kvData where buf.contains(where: { $0 != 0 }) {
             return false

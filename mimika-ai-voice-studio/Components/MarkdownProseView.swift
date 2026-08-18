@@ -2,10 +2,7 @@
 //  MarkdownProseView.swift
 //  mimika-ai-voice-studio
 //
-//  Shared Markdown rendering for both transcripts: inline styling via
-//  AttributedString, fenced code in its own panel, and GFM pipe tables as a real
-//  grid (Foundation's Markdown parser has no table support at all, so a table
-//  would otherwise render as literal "| Shift | Role |" text).
+//  Shared Markdown rendering for both transcripts: inline styling via AttributedString, fenced code in its own panel, and GFM pipe tables as a real grid (Foundation's Markdown parser has no table support at all, so a table would otherwise render as literal "| Shift | Role |" text).
 //
 
 import SwiftUI
@@ -20,9 +17,7 @@ struct MarkdownProseView: View {
 
     var body: some View {
         if let plain = Self.plainTextFastPath(source) {
-            // Ordinary spoken dialogue — the overwhelmingly common case in
-            // Ensemble, which re-renders on every streamed token. Skip the
-            // parser entirely rather than segmenting a string with no markup.
+            // Ordinary spoken dialogue — the overwhelmingly common case in Ensemble, which re-renders on every streamed token. Skip the parser entirely rather than segmenting a string with no markup.
             Text(plain)
                 .font(Theme.fontSM)
                 .foregroundStyle(textColor)
@@ -60,9 +55,7 @@ struct MarkdownProseView: View {
         }
     }
 
-    /// Returns the string unchanged when it carries no block-level markup worth
-    /// parsing, otherwise `nil`. Deliberately conservative — a false negative
-    /// only costs one parse, a false positive would drop formatting.
+    /// Returns the string unchanged when it carries no block-level markup worth parsing, otherwise `nil`. Deliberately conservative — a false negative only costs one parse, a false positive would drop formatting.
     private static func plainTextFastPath(_ s: String) -> String? {
         s.contains(where: { $0 == "|" || $0 == "`" || $0 == "*" || $0 == "_" || $0 == "#" || $0 == "[" })
             ? nil
@@ -81,8 +74,7 @@ struct MarkdownProseView: View {
 
 // MARK: - Table
 
-/// GFM pipe table drawn as a grid. Horizontally scrollable so a wide table
-/// cannot stretch the containing bubble or transcript row.
+/// GFM pipe table drawn as a grid. Horizontally scrollable so a wide table cannot stretch the containing bubble or transcript row.
 struct MarkdownTable: View {
     let header: [String]
     let rows: [[String]]

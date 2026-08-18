@@ -11,9 +11,7 @@ import SwiftUI
 
 // MARK: - Workspace (own Observation scope)
 
-/// Transcript + Chair. Isolated so ChatView toolbar/sidebar invalidation
-/// cannot rebuild Liquid Glass, and so the Chair is not handed a fresh
-/// collapse closure on every token.
+/// Transcript + Chair. Isolated so ChatView toolbar/sidebar invalidation cannot rebuild Liquid Glass, and so the Chair is not handed a fresh collapse closure on every token.
 struct ChatWorkspace: View {
     @Bindable var ensembleViewModel: EnsembleViewModel
     let player: StreamingPlayer
@@ -125,9 +123,7 @@ struct EnsembleToolbarControls: View {
 
 // MARK: - Ensemble export chrome (isolated)
 
-/// Own Observation scope for `canExport`, which reads `turns` and re-runs
-/// TextNormalizer. Sharing a body with the rest of the toolbar meant every
-/// streamed token re-evaluated all of it.
+/// Own Observation scope for `canExport`, which reads `turns` and re-runs TextNormalizer. Sharing a body with the rest of the toolbar meant every streamed token re-evaluated all of it.
 struct EnsembleExportControls: View {
     @Bindable var viewModel: EnsembleViewModel
     var onOpenMultiTalk: () -> Void

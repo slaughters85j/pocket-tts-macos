@@ -2,19 +2,9 @@
 //  DiarizationSettingsPanel.swift
 //  mimika-ai-voice-studio
 //
-//  Collapsible "Diarization Settings" panel extracted from
-//  `SpeakerIsolatorSheet`. Owns the two tuning controls — speaker
-//  count stepper + sensitivity slider — plus the show/hide state
-//  for the disclosure. Lives in its own file so the sheet stays
-//  under the 450-line cap; behavior is unchanged from the inline
-//  version it replaces.
+//  Collapsible "Diarization Settings" panel extracted from `SpeakerIsolatorSheet`. Owns the two tuning controls — speaker count stepper + sensitivity slider — plus the show/hide state for the disclosure. Lives in its own file so the sheet stays under the 450-line cap; behavior is unchanged from the inline version it replaces.
 //
-//  The whole header row is wrapped in a custom Button +
-//  `.contentShape(Rectangle())` so the entire row (icon, title,
-//  "(modified)" tag, trailing space) is a click target. SwiftUI's
-//  stock `DisclosureGroup` only registers taps on the chevron
-//  itself — too small a hit target for a sheet that already has
-//  plenty of horizontal real estate.
+//  The whole header row is wrapped in a custom Button + `.contentShape(Rectangle())` so the entire row (icon, title, "(modified)" tag, trailing space) is a click target. SwiftUI's stock `DisclosureGroup` only registers taps on the chevron itself — too small a hit target for a sheet that already has plenty of horizontal real estate.
 
 import SwiftUI
 
@@ -81,11 +71,7 @@ struct DiarizationSettingsPanel: View {
                                 .foregroundStyle(Theme.accent)
                             }
                             .buttonStyle(.plain)
-                            // Gated on .done (not just "not working"): after a
-                            // mid-pipeline separation failure the .error status
-                            // is what keeps Export/Change Voices disabled on
-                            // mix-derived rows, and a successful re-detect
-                            // would overwrite it with .done.
+                            // Gated on .done (not just "not working"): after a mid-pipeline separation failure the .error status is what keeps Export/Change Voices disabled on mix-derived rows, and a successful re-detect would overwrite it with .done.
                             .disabled(!viewModel.status.isDone)
                             .help("Re-run speaker detection with the current settings — skips the slow separation step. Available after a completed run.")
                         }
@@ -113,9 +99,7 @@ struct DiarizationSettingsPanel: View {
 
     // MARK: - Speaker count
 
-    /// 0 = Auto (no constraint); 1...10 forces an exact count.
-    /// Clamps at 10 — beyond that, auto-detect is probably the
-    /// better path anyway.
+    /// 0 = Auto (no constraint); 1...10 forces an exact count. Clamps at 10 — beyond that, auto-detect is probably the better path anyway.
     private var speakerCountControl: some View {
         let count = viewModel.diarizationSettings.numberOfSpeakers ?? 0
         return HStack(alignment: .top, spacing: Theme.space3) {
@@ -140,18 +124,14 @@ struct DiarizationSettingsPanel: View {
                 .labelsHidden()
                 .controlSize(.small)
             }
-            // Stays usable after a run (like the sensitivity slider) so
-            // the user can change the target count + "Re-detect speakers".
+            // Stays usable after a run (like the sensitivity slider) so the user can change the target count + "Re-detect speakers".
             .disabled(viewModel.status.isWorking)
         }
     }
 
     // MARK: - Sensitivity
 
-    /// 0.0 = merge more (fewer speakers); 1.0 = split more
-    /// (more speakers); 0.5 = the engine's default. The value maps
-    /// onto FluidAudio's clustering gate inside
-    /// `DiarizationSettings.fluidAudioClusteringThreshold`.
+    /// 0.0 = merge more (fewer speakers); 1.0 = split more (more speakers); 0.5 = the engine's default. The value maps onto FluidAudio's clustering gate inside `DiarizationSettings.fluidAudioClusteringThreshold`.
     private var sensitivityControl: some View {
         let sens = viewModel.diarizationSettings.sensitivity
         return VStack(alignment: .leading, spacing: Theme.space2) {
@@ -187,8 +167,7 @@ struct DiarizationSettingsPanel: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.textSecondary)
             }
-            // Stays usable after a run (unlike the speaker-count stepper)
-            // so the user can re-tune sensitivity + "Re-detect speakers".
+            // Stays usable after a run (unlike the speaker-count stepper) so the user can re-tune sensitivity + "Re-detect speakers".
             .disabled(viewModel.status.isWorking)
         }
         .disabled(viewModel.status.isWorking)
@@ -203,10 +182,7 @@ struct DiarizationSettingsPanel: View {
 
     // MARK: - Bindings
 
-    /// 0 in the UI ↔ `nil` (Auto) on the model; 1...10 ↔ a
-    /// forced numeric count. Clamps at the UI bounds so flaky
-    /// Stepper events (it occasionally over-shoots when held)
-    /// can't poison the model.
+    /// 0 in the UI ↔ `nil` (Auto) on the model; 1...10 ↔ a forced numeric count. Clamps at the UI bounds so flaky Stepper events (it occasionally over-shoots when held) can't poison the model.
     private var speakerCountBinding: Binding<Int> {
         Binding(
             get: { viewModel.diarizationSettings.numberOfSpeakers ?? 0 },
@@ -219,9 +195,7 @@ struct DiarizationSettingsPanel: View {
         )
     }
 
-    /// Slider binding — re-assigns the entire `DiarizationSettings`
-    /// value so SwiftUI's `@Bindable` + `@Observable` change
-    /// propagation fires on the nested struct mutation.
+    /// Slider binding — re-assigns the entire `DiarizationSettings` value so SwiftUI's `@Bindable` + `@Observable` change propagation fires on the nested struct mutation.
     private var sensitivityBinding: Binding<Double> {
         Binding(
             get: { viewModel.diarizationSettings.sensitivity },

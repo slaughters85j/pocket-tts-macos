@@ -2,20 +2,9 @@
 //  EnsemblePersonaEditorSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Review or rewrite one persona's name + persona script. The editor works
-//  on LOCAL COPIES seeded at presentation and hands the final values back
-//  through `onClose` — which every dismissal path funnels into (the
-//  ModalContainer X, its Esc catcher, and the Done button), so edits
-//  survive any close. Working on copies (instead of live bindings into the
-//  source array) means:
-//    * no per-keystroke invalidation of the @Observable stores rendering
-//      behind the sheet,
-//    * no captured array-subscript binding that could trap out-of-range if
-//      the source cast is rebuilt while the editor is up — the caller
-//      bounds-checks once, at write-back time.
-//  Serves BOTH persona-editing surfaces: the setup wizard's Confirm-voices
-//  step (writes into PersonaWriter.personas) and Cast & Settings before
-//  the conversation starts (writes into EnsembleViewModel.cast + commit).
+//  Review or rewrite one persona's name + persona script. The editor works on LOCAL COPIES seeded at presentation and hands the final values back through `onClose` — which every dismissal path funnels into (the ModalContainer X, its Esc catcher, and the Done button), so edits survive any close. Working on copies (instead of live bindings into the source array) means:
+//    * no per-keystroke invalidation of the @Observable stores rendering behind the sheet,
+//    * no captured array-subscript binding that could trap out-of-range if the source cast is rebuilt while the editor is up — the caller bounds-checks once, at write-back time. Serves BOTH persona-editing surfaces: the setup wizard's Confirm-voices step (writes into PersonaWriter.personas) and Cast & Settings before the conversation starts (writes into EnsembleViewModel.cast + commit).
 //
 
 import SwiftUI

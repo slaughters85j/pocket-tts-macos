@@ -2,8 +2,7 @@
 //  TextNormalizer+Data.swift
 //  mimika-ai-voice-studio
 //
-//  Abbreviations, currency, fractions, symbols, and spoken acronyms
-//  for text normalization.
+//  Abbreviations, currency, fractions, symbols, and spoken acronyms for text normalization.
 
 import Foundation
 

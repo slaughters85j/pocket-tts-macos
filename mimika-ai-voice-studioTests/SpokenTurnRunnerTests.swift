@@ -2,11 +2,7 @@
 //  SpokenTurnRunnerTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Phase 0 happy-path for the extracted spoken-turn kernel. Exercises the
-//  text-only path (speak: false) so no audio device is touched: the LLM is
-//  stubbed via LLMStubURLProtocol (see LocalLLMClientTests) and the engine is
-//  a no-op stub. Verifies the runner accumulates the full text, surfaces
-//  deltas, counts sentences, and collects no audio when not speaking.
+//  Phase 0 happy-path for the extracted spoken-turn kernel. Exercises the text-only path (speak: false) so no audio device is touched: the LLM is stubbed via LLMStubURLProtocol (see LocalLLMClientTests) and the engine is a no-op stub. Verifies the runner accumulates the full text, surfaces deltas, counts sentences, and collects no audio when not speaking.
 //
 
 import XCTest

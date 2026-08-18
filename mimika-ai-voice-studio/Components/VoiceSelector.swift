@@ -2,20 +2,13 @@
 //  VoiceSelector.swift
 //  mimika-ai-voice-studio
 //
-//  Backend-aware voice picker. Shows predefined/custom Pocket-TTS voices
-//  when Pocket-TTS is active; shows Fish voices when Fish is active.
-//  Voice import is handled by the Voice Manager (app-level).
+//  Backend-aware voice picker. Shows predefined/custom Pocket-TTS voices when Pocket-TTS is active; shows Fish voices when Fish is active. Voice import is handled by the Voice Manager (app-level).
 
 import SwiftUI
 
 // MARK: - Shared orphaned-selection fallback
 
-/// One tag row for a Picker whose current selection matches no real item —
-/// a deleted saved voice, or the one-frame window during a backend switch
-/// before the remap lands. A Picker whose selection has no associated tag
-/// logs "invalid … undefined results" and renders blank; this gives the
-/// stale ID a visible, real tag until it's remapped or re-picked. Used by
-/// every voice picker in the app.
+/// One tag row for a Picker whose current selection matches no real item — a deleted saved voice, or the one-frame window during a backend switch before the remap lands. A Picker whose selection has no associated tag logs "invalid … undefined results" and renders blank; this gives the stale ID a visible, real tag until it's remapped or re-picked. Used by every voice picker in the app.
 enum VoicePickerFallback {
     @ViewBuilder
     static func unavailableTag(selection: String, isKnown: Bool) -> some View {

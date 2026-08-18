@@ -13,9 +13,7 @@ struct HistoryView: View {
     let onReuse: (PendingReuse) -> Void
 
     @Environment(\.modelContext) private var modelContext
-    // SwiftData's @Query SortDescriptor doesn't accept Bool key paths directly;
-    // we sort by timestamp DESC at the query layer and float pinned items to the
-    // top in `filteredItems`.
+    // SwiftData's @Query SortDescriptor doesn't accept Bool key paths directly; we sort by timestamp DESC at the query layer and float pinned items to the top in `filteredItems`.
     @Query(sort: \TTSHistoryItem.timestamp, order: .reverse)
     private var allItems: [TTSHistoryItem]
 

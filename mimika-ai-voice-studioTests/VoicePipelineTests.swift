@@ -2,19 +2,14 @@
 //  VoicePipelineTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Tests the voice import pipeline: import WAV → enhance → codec encode.
-//  Requires Fish model weights to be cached for the codec-encode tests
-//  (first run downloads ~3 GB); other tests use a generated sine fixture.
+//  Tests the voice import pipeline: import WAV → enhance → codec encode. Requires Fish model weights to be cached for the codec-encode tests (first run downloads ~3 GB); other tests use a generated sine fixture.
 
 import XCTest
 @testable import mimika_ai_voice_studio
 
 final class VoicePipelineTests: XCTestCase {
 
-    // Generated 2-second 440 Hz sine fixture written to NSTemporaryDirectory
-    // on first access via ensureTestWAV(). Self-contained — no dependency on
-    // other apps' data directories (the macOS app's voice library lives in
-    // its own sandbox container).
+    // Generated 2-second 440 Hz sine fixture written to NSTemporaryDirectory on first access via ensureTestWAV(). Self-contained — no dependency on other apps' data directories (the macOS app's voice library lives in its own sandbox container).
     private let testWAVURL: URL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("voice-pipeline-test-fixture.wav")
 

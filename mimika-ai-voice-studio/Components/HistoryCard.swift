@@ -2,8 +2,7 @@
 //  HistoryCard.swift
 //  mimika-ai-voice-studio
 //
-//  Ports Electron's History.tsx per-row card — type/voice badges, pin star,
-//  delete, "Reuse Setup" button.
+//  Ports Electron's History.tsx per-row card — type/voice badges, pin star, delete, "Reuse Setup" button.
 
 import SwiftUI
 

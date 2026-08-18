@@ -2,18 +2,13 @@
 //  VoiceEnhancer.swift
 //  mimika-ai-voice-studio
 //
-//  @Observable SwiftUI-facing shell for the LavaSR voice-enhancement
-//  pipeline. Owns lifecycle (idle → loading → ready → enhancing → idle)
-//  and file IO; the actual audio math lives in `Engine/LavaSR/`:
+//  @Observable SwiftUI-facing shell for the LavaSR voice-enhancement pipeline. Owns lifecycle (idle → loading → ready → enhancing → idle) and file IO; the actual audio math lives in `Engine/LavaSR/`:
 //
 //      LavaSRPipeline       — top-level coordinator
 //      LavaSREnhancerBWE    — Vocos BWE model (the back half)
 //      LavaSRISTFTHead      — custom ISTFT head matching Python Vocos
 //
-//  Phase 10 / Commit 1 — slimmed from 391 → ~120 lines by extracting the
-//  MLX model classes into `Engine/LavaSR/`. Behavior is unchanged: today
-//  the pipeline still runs BWE-only at 44.1 kHz. Commits 2+ build out
-//  the missing denoise + LR-merge stages without touching this file.
+//  Phase 10 / Commit 1 — slimmed from 391 → ~120 lines by extracting the MLX model classes into `Engine/LavaSR/`. Behavior is unchanged: today the pipeline still runs BWE-only at 44.1 kHz. Commits 2+ build out the missing denoise + LR-merge stages without touching this file.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -40,9 +35,7 @@ final class VoiceEnhancer {
 
     // MARK: - Bootstrap
 
-    /// Bootstrap the LavaSR pipeline. If `denoiserMLPackageURL` is
-    /// provided AND exists on disk, the pipeline includes the ULUNAS
-    /// denoiser. Otherwise it soft-falls-back to BWE + LR-merge only.
+    /// Bootstrap the LavaSR pipeline. If `denoiserMLPackageURL` is provided AND exists on disk, the pipeline includes the ULUNAS denoiser. Otherwise it soft-falls-back to BWE + LR-merge only.
     func bootstrapIfNeeded(denoiserMLPackageURL: URL? = nil) async {
         guard status == .idle else { return }
         status = .loading
@@ -62,13 +55,9 @@ final class VoiceEnhancer {
 
     // MARK: - Enhance
 
-    /// Run the enhancement pipeline. If the pipeline was bootstrapped
-    /// with a denoiser AND `denoise` is true, ULUNAS runs as the first
-    /// stage; otherwise the v1 BWE+LR-merge-only path runs.
+    /// Run the enhancement pipeline. If the pipeline was bootstrapped with a denoiser AND `denoise` is true, ULUNAS runs as the first stage; otherwise the v1 BWE+LR-merge-only path runs.
     ///
-    /// Input file can be any sample rate / channel count — the pipeline
-    /// loads at 16 kHz mono (the denoiser's native SR) and resamples
-    /// internally. Output is at 48 kHz (the BWE's output SR).
+    /// Input file can be any sample rate / channel count — the pipeline loads at 16 kHz mono (the denoiser's native SR) and resamples internally. Output is at 48 kHz (the BWE's output SR).
     func enhance(inputURL: URL, outputURL: URL, denoise: Bool = true) async throws {
         guard let pipeline else {
             throw EnhancerError.notLoaded
@@ -76,10 +65,7 @@ final class VoiceEnhancer {
 
         status = .enhancing
 
-        // Load at 16 kHz mono — the denoiser's native rate. Pipeline
-        // resamples internally to 48 kHz for the BWE stage if the
-        // denoiser is enabled, OR resamples 16k → 48k directly if the
-        // denoiser is bypassed.
+        // Load at 16 kHz mono — the denoiser's native rate. Pipeline resamples internally to 48 kHz for the BWE stage if the denoiser is enabled, OR resamples 16k → 48k directly if the denoiser is bypassed.
         let inputRate = LavaSRDenoiser.sampleRate
         let samples = try Self.loadAudio(url: inputURL, targetRate: inputRate)
         print("[VoiceEnhancer] loaded \(samples.count) samples @ \(inputRate)Hz")
@@ -93,8 +79,7 @@ final class VoiceEnhancer {
 
         try Self.writeWAV(samples: normalized, sampleRate: pipeline.sampleRate, url: outputURL)
 
-        // Free the model memory immediately — voice enhancement is a
-        // one-shot operation, no reason to keep ~280 MB of weights resident.
+        // Free the model memory immediately — voice enhancement is a one-shot operation, no reason to keep ~280 MB of weights resident.
         self.pipeline = nil
         status = .idle
         LavaSRPipeline.clearMemoryCache()
@@ -131,20 +116,11 @@ final class VoiceEnhancer {
         try file.write(from: buffer)
     }
 
-    /// RMS-normalize a buffer to `targetDB` and apply a piecewise
-    /// soft-clip so the post-gain peaks fold gracefully toward ±1
-    /// instead of getting brick-wall clipped.
+    /// RMS-normalize a buffer to `targetDB` and apply a piecewise soft-clip so the post-gain peaks fold gracefully toward ±1 instead of getting brick-wall clipped.
     ///
-    /// The hard `min/max($0 * gain, -1, 1)` used pre-Phase-10 produced
-    /// audible digital clipping any time the enhancer's output had a
-    /// peak that crossed unity after the dB gain — exactly the
-    /// crunchy artifact users were hearing on the BWE output.
-    /// `AudioSoftClip` (shared with Phase 7's MultiSpeakerRevoicer
-    /// soft-clip) keeps in-range samples untouched (knee = 0.9) and
-    /// only shapes the overload region.
+    /// The hard `min/max($0 * gain, -1, 1)` used pre-Phase-10 produced audible digital clipping any time the enhancer's output had a peak that crossed unity after the dB gain — exactly the crunchy artifact users were hearing on the BWE output. `AudioSoftClip` (shared with Phase 7's MultiSpeakerRevoicer soft-clip) keeps in-range samples untouched (knee = 0.9) and only shapes the overload region.
     ///
-    /// `nonisolated` so tests can drive the curve without a MainActor
-    /// hop; the function is pure (no shared state).
+    /// `nonisolated` so tests can drive the curve without a MainActor hop; the function is pure (no shared state).
     nonisolated static func rmsNormalize(_ samples: [Float], targetDB: Float) -> [Float] {
         var sumSq: Float = 0
         for s in samples { sumSq += s * s }

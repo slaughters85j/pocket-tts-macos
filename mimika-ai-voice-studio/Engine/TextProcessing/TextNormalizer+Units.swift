@@ -2,8 +2,7 @@
 //  TextNormalizer+Units.swift
 //  mimika-ai-voice-studio
 //
-//  Unit dictionaries for text normalization. Values are (singular, plural)
-//  tuples to handle irregular plurals correctly.
+//  Unit dictionaries for text normalization. Values are (singular, plural) tuples to handle irregular plurals correctly.
 
 import Foundation
 

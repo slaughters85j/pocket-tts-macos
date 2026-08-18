@@ -2,16 +2,11 @@
 //  SpeakerIsolatorSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Modal sheet for the Speaker Isolation feature. Input audio or
-//  video (.mp4) → diarize via SpeakerKit → isolated PCM per speaker
-//  → user picks how to export:
+//  Modal sheet for the Speaker Isolation feature. Input audio or video (.mp4) → diarize via SpeakerKit → isolated PCM per speaker → user picks how to export:
 //
 //   * Per-row "Export" — save just that speaker's isolated WAV.
 //   * Footer "Export Isolated…" — batch all speakers into a folder.
-//   * Per-row voice picker + footer "Change Voices…" — re-voice each
-//     assigned speaker via the existing Voice Changer pipeline, sum
-//     into one combined track, optionally re-mux into the original
-//     video for closed-loop .mp4 in → .mp4 out.
+//   * Per-row voice picker + footer "Change Voices…" — re-voice each assigned speaker via the existing Voice Changer pipeline, sum into one combined track, optionally re-mux into the original video for closed-loop .mp4 in → .mp4 out.
 //
 //  Reachable from:
 //   * Multi-Talk sidebar's "Isolate Speakers from Recording…" button.
@@ -26,17 +21,14 @@ struct SpeakerIsolatorSheet: View {
     @Binding var isPresented: Bool
     @Bindable var viewModel: SpeakerIsolatorViewModel
     let voices: [BundledVoice]
-    /// Phase 7: HTDemucs source-separation model manager. Drives
-    /// the Audio Preservation toggle's "models downloaded" gate
-    /// + the Manage Separation Models sub-sheet.
+    /// Phase 7: HTDemucs source-separation model manager. Drives the Audio Preservation toggle's "models downloaded" gate + the Manage Separation Models sub-sheet.
     @Bindable var demucsModelManager: DemucsModelManager
     @Binding var chatSettings: ChatSettings
 
     @State private var showImporter: Bool = false
     @State private var isDropTargeted: Bool = false
     @State private var showDemucsModelManagerSheet: Bool = false
-    /// Shared across the Voice Changer + Speaker Isolator sheets via
-    /// the same `@AppStorage` key — one user preference, two surfaces.
+    /// Shared across the Voice Changer + Speaker Isolator sheets via the same `@AppStorage` key — one user preference, two surfaces.
     @AppStorage("matchOriginalPace") private var matchOriginalPace: Bool = true
 
     var body: some View {
@@ -80,9 +72,7 @@ struct SpeakerIsolatorSheet: View {
         }
         .frame(width: 620, height: 936)
         .background(Theme.bgPrimary)
-        // Phase 7: HTDemucs Manage Separation Models sheet. Driven
-        // by the Audio Preservation section's inline CTA + by the
-        // soft-fallback banner (when separationFellBackToV1).
+        // Phase 7: HTDemucs Manage Separation Models sheet. Driven by the Audio Preservation section's inline CTA + by the soft-fallback banner (when separationFellBackToV1).
         .sheet(isPresented: $showDemucsModelManagerSheet) {
             DemucsModelManagerSheet(
                 isPresented: $showDemucsModelManagerSheet,
@@ -175,11 +165,7 @@ struct SpeakerIsolatorSheet: View {
     }
 
     private func loadedAudioRow(_ url: URL) -> some View {
-        // X (clear) is locked down once isolation results exist —
-        // tapping it mid-render would crash the row bindings whose
-        // captured `Int` index would go stale. The "Start Over"
-        // button in the results section header is the deliberate
-        // way to reset from that state.
+        // X (clear) is locked down once isolation results exist — tapping it mid-render would crash the row bindings whose captured `Int` index would go stale. The "Start Over" button in the results section header is the deliberate way to reset from that state.
         let canClear = !viewModel.status.isWorking && viewModel.speakers.isEmpty
         return HStack(spacing: Theme.space3) {
             Image(systemName: isVideoURL(url) ? "film" : "waveform.circle.fill")
@@ -249,9 +235,7 @@ struct SpeakerIsolatorSheet: View {
 
     // MARK: - Transcription model
 
-    /// Mirror of `VoiceChangerSheet.modelSection`. Surfaced here too
-    /// because the Change Voices pipeline transcribes each selected
-    /// speaker before revoicing.
+    /// Mirror of `VoiceChangerSheet.modelSection`. Surfaced here too because the Change Voices pipeline transcribes each selected speaker before revoicing.
     private var transcriptionModelSection: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
             sectionLabel("Transcription", systemImage: "doc.text.viewfinder")
@@ -378,10 +362,7 @@ struct SpeakerIsolatorSheet: View {
                     .padding(.vertical, Theme.space2)
                     .background(Theme.bgTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-                    // Only exportable from a COMPLETED pass. A mid-pipeline
-                    // failure now preserves the (mix-derived) speaker rows
-                    // for context, but those shouldn't be exported —
-                    // gate on `.done` so `.error` can't export them.
+                    // Only exportable from a COMPLETED pass. A mid-pipeline failure now preserves the (mix-derived) speaker rows for context, but those shouldn't be exported — gate on `.done` so `.error` can't export them.
                     .disabled(!viewModel.status.isDone)
                     .help(viewModel.status.isDone
                           ? "Save each speaker's isolated track"
@@ -440,23 +421,10 @@ struct SpeakerIsolatorSheet: View {
     }
 
     // MARK: - Actions
-    // Row-level bindings + the play handler now live on
-    // `SpeakerRow`. Diarization-settings bindings live on
-    // `DiarizationSettingsPanel`. This file only keeps actions
-    // that the sheet itself drives (the Change Voices flow + drop
-    // import + dismiss helpers below).
+    // Row-level bindings + the play handler now live on `SpeakerRow`. Diarization-settings bindings live on `DiarizationSettingsPanel`. This file only keeps actions that the sheet itself drives (the Change Voices flow + drop import + dismiss helpers below).
 
     private func runChangeVoices() {
-        // STT backend: FluidAudio / Parakeet TDT v3. The cacheKey
-        // identifies this provider+model combo so the VM's STT cache
-        // (in `cachedSTT` / `cachedSTTKey`) reuses the same loaded
-        // FluidAudioSTT instance across consecutive Change-Voices
-        // runs — important because FluidAudio's first transcribe
-        // pays a multi-second model-load cost we don't want to repeat.
-        // Segment-length capping for drift control is owned by the
-        // revoicer's timing-QA loop (MultiSpeakerRevoicer.timingQACaps),
-        // which re-coalesces the raw word timings itself — the STT here
-        // just supplies those timings.
+        // STT backend: FluidAudio / Parakeet TDT v3. The cacheKey identifies this provider+model combo so the VM's STT cache (in `cachedSTT` / `cachedSTTKey`) reuses the same loaded FluidAudioSTT instance across consecutive Change-Voices runs — important because FluidAudio's first transcribe pays a multi-second model-load cost we don't want to repeat. Segment-length capping for drift control is owned by the revoicer's timing-QA loop (MultiSpeakerRevoicer.timingQACaps), which re-coalesces the raw word timings itself — the STT here just supplies those timings.
         let stt: STTProvider = FluidAudioSTT()
         let cacheKey = "fluidaudio-parakeet-v3"
         viewModel.matchOriginalPace = matchOriginalPace
@@ -507,9 +475,7 @@ struct SpeakerIsolatorSheet: View {
         }
     }
 
-    // `timeString` lives on `SpeakerRow` as a static helper —
-    // the sheet calls `SpeakerRow.timeString(_:)` from
-    // `loadedAudioRow` for the input duration display.
+    // `timeString` lives on `SpeakerRow` as a static helper — the sheet calls `SpeakerRow.timeString(_:)` from `loadedAudioRow` for the input duration display.
 
     private func displayNameForSpeaker(_ id: String) -> String {
         viewModel.speakers.first(where: { $0.id == id })?.displayName ?? id

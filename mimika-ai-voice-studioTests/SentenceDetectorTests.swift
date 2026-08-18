@@ -22,9 +22,7 @@ final class SentenceDetectorTests: XCTestCase {
         let d = SentenceDetector()
         XCTAssertTrue(d.append("Hi. ").isEmpty, "below 20-char threshold should not split")
         XCTAssertTrue(d.append("Yes. ").isEmpty)
-        // After enough chars + a trailing whitespace, a sentence boundary emits.
-        // (The algorithm requires terminator-followed-by-whitespace so it doesn't
-        //  prematurely split on a partial token like "3.14" mid-stream.)
+        // After enough chars + a trailing whitespace, a sentence boundary emits. (The algorithm requires terminator-followed-by-whitespace so it doesn't prematurely split on a partial token like "3.14" mid-stream.)
         let out = d.append("Here is a long enough segment to cross the threshold. ")
         XCTAssertEqual(out.count, 1, "got: \(out)")
         XCTAssertTrue(out[0].contains("Here is a long enough segment"))
@@ -40,17 +38,13 @@ final class SentenceDetectorTests: XCTestCase {
     func test_flushAfterClean_returnsNil() {
         let d = SentenceDetector()
         _ = d.append("This is one whole sentence right here.")   // ends in "." but no whitespace after
-        // Trailing terminator without whitespace currently does NOT split
-        // (matches the algorithm — "Mr." inline must not break). flush()
-        // picks it up though.
+        // Trailing terminator without whitespace currently does NOT split (matches the algorithm — "Mr." inline must not break). flush() picks it up though.
         XCTAssertEqual(d.flush(), "This is one whole sentence right here.")
     }
 
     // MARK: - Abbreviations
 
-    /// The reported bug, verbatim: "Lt." past the 20-char threshold split the
-    /// line, so TTS spoke "…an order from Lt." alone and then stalled for
-    /// seconds while the long remainder synthesized.
+    /// The reported bug, verbatim: "Lt." past the 20-char threshold split the line, so TTS spoke "…an order from Lt." alone and then stalled for seconds while the long remainder synthesized.
     func test_rankAbbreviation_doesNotSplitMidName() {
         let d = SentenceDetector()
         let out = d.append(
@@ -73,9 +67,7 @@ final class SentenceDetectorTests: XCTestCase {
         XCTAssertEqual(initials.count, 1, "a lone initial is not a sentence end; got: \(initials)")
     }
 
-    /// Only titles suppress a split. Words that merely appear in
-    /// `TextNormalizer.abbreviations` — units, corporate suffixes, months — must
-    /// still end sentences, or the first spoken audio is delayed by a whole clause.
+    /// Only titles suppress a split. Words that merely appear in `TextNormalizer.abbreviations` — units, corporate suffixes, months — must still end sentences, or the first spoken audio is delayed by a whole clause.
     func test_nonTitleAbbreviationsStillEndSentences() {
         let cases = [
             "I asked for permission and he said no. Then he left the bridge. ",
@@ -88,24 +80,20 @@ final class SentenceDetectorTests: XCTestCase {
         for input in cases {
             let d = SentenceDetector()
             var out = d.append(input)
-            // A trailing clause under minSentenceLength stays buffered until
-            // flush; what matters is that the abbreviation did not swallow it.
+            // A trailing clause under minSentenceLength stays buffered until flush; what matters is that the abbreviation did not swallow it.
             if let tail = d.flush() { out.append(tail) }
             XCTAssertEqual(out.count, 2, "expected a split in \(input) — got: \(out)")
         }
     }
 
-    /// A lone capital is an initial, but only when it reads as one. Regression
-    /// guard for lettered enumerations, which are common in model output.
+    /// A lone capital is an initial, but only when it reads as one. Regression guard for lettered enumerations, which are common in model output.
     func test_loneCapitalHandling() {
         let d = SentenceDetector()
         let initials = d.append("The report was filed by J. Smith earlier this afternoon. ")
         XCTAssertEqual(initials.count, 1, "a name initial is not a sentence end; got: \(initials)")
     }
 
-    /// A lowercase-styled turn must still produce sentences as it streams.
-    /// Regression: a "next word is lowercase means no boundary" rule made this
-    /// emit NOTHING until end-of-stream, so speech waited for the whole turn.
+    /// A lowercase-styled turn must still produce sentences as it streams. Regression: a "next word is lowercase means no boundary" rule made this emit NOTHING until end-of-stream, so speech waited for the whole turn.
     func test_lowercaseStyledTurnStillSplits() {
         let d = SentenceDetector()
         let out = d.append(
@@ -115,8 +103,7 @@ final class SentenceDetectorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(out.count, 2, "lowercase prose must still chunk; got: \(out)")
     }
 
-    /// Streaming and batch must agree, or `truncatedSpokenText` keeps lines the
-    /// listener never heard when the user barges in.
+    /// Streaming and batch must agree, or `truncatedSpokenText` keeps lines the listener never heard when the user barges in.
     func test_streamedAndBatchProduceSameSentenceCount() {
         let full = "We finished the whole scan of deck twelve. iPhones cannot help us here. "
         let batch = SentenceDetector()

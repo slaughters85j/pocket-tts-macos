@@ -2,8 +2,7 @@
 //  EnsembleViewModel+Threads.swift
 //  mimika-ai-voice-studio
 //
-//  Ensemble persist / load / restart against ChatThreadStore. Restart
-//  (Reuse Last) always creates a new thread from a cast snapshot.
+//  Ensemble persist / load / restart against ChatThreadStore. Restart (Reuse Last) always creates a new thread from a cast snapshot.
 //
 
 import Foundation
@@ -23,9 +22,7 @@ extension EnsembleViewModel {
 
     /// Open a new thread for the live cast.
     ///
-    /// Deliberately `private`: the ONLY entry point is `noteEnsembleThreadActivity()`, which fires on the
-    /// first turn. Cast creation, Reuse Last and cast import each detach instead of creating, so a cast the
-    /// user builds and then abandons leaves no empty thread on disk. An eager call here reintroduces that.
+    /// Deliberately `private`: the ONLY entry point is `noteEnsembleThreadActivity()`, which fires on the first turn. Cast creation, Reuse Last and cast import each detach instead of creating, so a cast the user builds and then abandons leaves no empty thread on disk. An eager call here reintroduces that.
     private func beginEnsembleThread(title: String) {
         detachAfterFlushingCurrentThread()
         var record = ChatThreadRecord(kind: .ensemble, title: title)
@@ -39,8 +36,7 @@ extension EnsembleViewModel {
         }
     }
 
-    /// Persist the open thread with its *current* turns, then detach so the
-    /// next mutation cannot overwrite that file.
+    /// Persist the open thread with its *current* turns, then detach so the next mutation cannot overwrite that file.
     func detachAfterFlushingCurrentThread() {
         threadSaveTask?.cancel()
         flushEnsembleThreadSave()
@@ -91,8 +87,7 @@ extension EnsembleViewModel {
 
     /// Rewrite one turn's text. Mirrors Solo's `updateTranscriptMessage`.
     ///
-    /// Steering a flattening conversation is the point: the models only ever see
-    /// `turns`, so correcting or trimming a line changes what the cast reads next.
+    /// Steering a flattening conversation is the point: the models only ever see `turns`, so correcting or trimming a line changes what the cast reads next.
     func updateTurnContent(id: UUID, content: String) {
         guard !isRunning else {
             showNotice("Please wait until the current turn finishes.")
@@ -221,12 +216,7 @@ extension EnsembleViewModel {
         guard spoken.count >= 2 else { return }
         // Same local server as the turn loop — never steal the model mid-run.
         //
-        // `isRunning` alone is NOT enough: the default advance mode is `.step`,
-        // which parks at `runState == .awaitingStep` between turns, where
-        // `isRunning` is false. A theme request fired there is still holding the
-        // single generation slot when the user clicks Step, delaying the next
-        // turn's first token and its first spoken sentence. Gate on the loop
-        // itself, not on the transient run state.
+        // `isRunning` alone is NOT enough: the default advance mode is `.step`, which parks at `runState == .awaitingStep` between turns, where `isRunning` is false. A theme request fired there is still holding the single generation slot when the user clicks Step, delaying the next turn's first token and its first spoken sentence. Gate on the loop itself, not on the transient run state.
         guard !isRunning, !isAwaitingStep, themeTask == nil else { return }
         let source = ChatThreadStore.themeSourceText(from: turns)
         let model = resolvedModel
@@ -254,8 +244,7 @@ extension EnsembleViewModel {
         }
     }
 
-    /// Stop a decorative theme request from holding the local model's single
-    /// generation slot while a turn is about to run.
+    /// Stop a decorative theme request from holding the local model's single generation slot while a turn is about to run.
     func cancelEnsembleThemeRequest() {
         themeTask?.cancel()
         themeTask = nil

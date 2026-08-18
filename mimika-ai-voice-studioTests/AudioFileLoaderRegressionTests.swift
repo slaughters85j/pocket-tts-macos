@@ -2,29 +2,19 @@
 //  AudioFileLoaderRegressionTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  CRITICAL REGRESSION 1 (per the Phase 7 plan): protects the mono
-//  16k/24k call sites that existed before AudioFileLoader was
-//  refactored into decodeRaw + decodeMono + decodeStereo wrappers.
+//  CRITICAL REGRESSION 1 (per the Phase 7 plan): protects the mono 16k/24k call sites that existed before AudioFileLoader was refactored into decodeRaw + decodeMono + decodeStereo wrappers.
 //
 //  Existing callers (verified via grep):
 //    * SpeakerKitDiarizationProvider.swift:139 — 16 kHz mono
 //    * SpeakerIsolatorViewModel.swift:291 — 24 kHz mono
 //
-//  Both use `load(url, targetSampleRate: N)` with no `mixToMono`
-//  argument, which means they default to `true`. The refactor MUST
-//  preserve the mono decode path bit-for-bit.
+//  Both use `load(url, targetSampleRate: N)` with no `mixToMono` argument, which means they default to `true`. The refactor MUST preserve the mono decode path bit-for-bit.
 //
-//  Approach: synthesize a deterministic test signal (sine wave at
-//  known amplitude / frequency), write to a temp WAV via the same
-//  WAVEncoder both Voice Changer and Speaker Isolation use, then
-//  load via the new code path and assert mathematical properties
-//  that should be invariant under any correctness-preserving
+//  Approach: synthesize a deterministic test signal (sine wave at known amplitude / frequency), write to a temp WAV via the same WAVEncoder both Voice Changer and Speaker Isolation use, then load via the new code path and assert mathematical properties that should be invariant under any correctness-preserving
 //  refactor:
 //
-//    1. Sample count matches expected (duration × targetSampleRate
-//       within ±1 frame boundary tolerance).
-//    2. Peak amplitude reflects the input amplitude (within
-//       quantization tolerance — int16 round-trip loses ~3e-5).
+//    1. Sample count matches expected (duration × targetSampleRate within ±1 frame boundary tolerance).
+//    2. Peak amplitude reflects the input amplitude (within quantization tolerance — int16 round-trip loses ~3e-5).
 //    3. RMS matches sine-wave theoretical RMS (amplitude / √2).
 //    4. The signal is mono (samples count, not 2×samples).
 //    5. Returns no `samplesStereo` data.
@@ -38,9 +28,7 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
 
     // MARK: - Fixture utilities
 
-    /// Synthesize an in-memory mono sine wave and write it to a temp
-    /// WAV via WAVEncoder (the same encoder the rest of the app uses,
-    /// so any decoder-quirks are testable through the production path).
+    /// Synthesize an in-memory mono sine wave and write it to a temp WAV via WAVEncoder (the same encoder the rest of the app uses, so any decoder-quirks are testable through the production path).
     private func writeMonoSineWAV(
         frequencyHz: Double,
         amplitude: Float,
@@ -63,9 +51,7 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
 
     // MARK: - 24 kHz mono path (Speaker Isolation)
 
-    /// The shipped pipeline calls `load(url, targetSampleRate: 24_000)`
-    /// — no `mixToMono` arg, so it defaults to true. This is the path
-    /// EVERY Speaker Isolation run takes today.
+    /// The shipped pipeline calls `load(url, targetSampleRate: 24_000)` — no `mixToMono` arg, so it defaults to true. This is the path EVERY Speaker Isolation run takes today.
     func test_24kHzMonoDefaultPath_returnsMonoSampleCount() async throws {
         let wavURL = try writeMonoSineWAV(
             frequencyHz: 440.0,
@@ -78,16 +64,12 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
         let loader = AudioFileLoader()
         let loaded = try await loader.load(wavURL, targetSampleRate: 24_000)
 
-        // Sample count: 1 s × 24 kHz = 24 000 frames, ±2 frame
-        // tolerance for AVFoundation's resampling boundary handling.
+        // Sample count: 1 s × 24 kHz = 24 000 frames, ±2 frame tolerance for AVFoundation's resampling boundary handling.
         XCTAssertEqual(loaded.samples.count, 24_000, accuracy: 2)
         XCTAssertEqual(loaded.sampleRate, 24_000)
         XCTAssertEqual(loaded.durationSec, 1.0, accuracy: 0.01)
 
-        // The backward-compat invariant: stereo fields are nil for
-        // default-mixToMono loads. ANY existing caller reading
-        // `loaded.samples` should see scalar mono and never need to
-        // check `isStereo`.
+        // The backward-compat invariant: stereo fields are nil for default-mixToMono loads. ANY existing caller reading `loaded.samples` should see scalar mono and never need to check `isStereo`.
         XCTAssertNil(loaded.samplesStereo)
         XCTAssertFalse(loaded.isStereo)
         XCTAssertEqual(loaded.channelCount, 1)
@@ -106,14 +88,11 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
         let loader = AudioFileLoader()
         let loaded = try await loader.load(wavURL, targetSampleRate: 24_000)
 
-        // Peak amplitude survives the int16 round-trip in WAVEncoder
-        // (32767 quantization step ≈ 3.05e-5 max abs error).
+        // Peak amplitude survives the int16 round-trip in WAVEncoder (32767 quantization step ≈ 3.05e-5 max abs error).
         let peakAmp = loaded.samples.map { abs($0) }.max() ?? 0
         XCTAssertEqual(peakAmp, amplitude, accuracy: 0.01)
 
-        // RMS for a continuous sine wave = amplitude / √2 ≈ 0.354 for
-        // amplitude=0.5. Tolerance accounts for any DC offset from
-        // resampling boundaries.
+        // RMS for a continuous sine wave = amplitude / √2 ≈ 0.354 for amplitude=0.5. Tolerance accounts for any DC offset from resampling boundaries.
         let sumSq = loaded.samples.reduce(0.0) { acc, s in acc + Double(s) * Double(s) }
         let rms = Float(sqrt(sumSq / Double(loaded.samples.count)))
         let expectedRMS = amplitude / Float(2.0.squareRoot())
@@ -122,9 +101,7 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
 
     // MARK: - 16 kHz mono path (SpeakerKit diarization)
 
-    /// SpeakerKitDiarizationProvider calls
-    /// `load(audio, targetSampleRate: 16_000)`. Same default mono
-    /// path, different rate — make sure the resample doesn't drift.
+    /// SpeakerKitDiarizationProvider calls `load(audio, targetSampleRate: 16_000)`. Same default mono path, different rate — make sure the resample doesn't drift.
     func test_16kHzMonoDefaultPath_returnsMonoSampleCount() async throws {
         let wavURL = try writeMonoSineWAV(
             frequencyHz: 220.0,
@@ -137,12 +114,7 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
         let loader = AudioFileLoader()
         let loaded = try await loader.load(wavURL, targetSampleRate: 16_000)
 
-        // 2 s × 16 kHz = 32 000 frames AFTER AVFoundation resamples
-        // from 24 → 16 kHz. AVAssetReader's resampler can emit a few
-        // boundary frames extra or short depending on filter latency
-        // setup; ±50 frames is ~0.15%, which still detects gross
-        // drift (a forgotten 2× / ½ rate bug would be hundreds of
-        // thousands of frames off, not 50).
+        // 2 s × 16 kHz = 32 000 frames AFTER AVFoundation resamples from 24 → 16 kHz. AVAssetReader's resampler can emit a few boundary frames extra or short depending on filter latency setup; ±50 frames is ~0.15%, which still detects gross drift (a forgotten 2× / ½ rate bug would be hundreds of thousands of frames off, not 50).
         XCTAssertEqual(loaded.samples.count, 32_000, accuracy: 50)
         XCTAssertEqual(loaded.sampleRate, 16_000)
         XCTAssertNil(loaded.samplesStereo)
@@ -150,9 +122,7 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
 
     // MARK: - Explicit mixToMono:true (same as default)
 
-    /// Catches a hypothetical future refactor that introduces a bug
-    /// where the default value drifts. Passing `mixToMono: true`
-    /// explicitly should be identical to omitting the argument.
+    /// Catches a hypothetical future refactor that introduces a bug where the default value drifts. Passing `mixToMono: true` explicitly should be identical to omitting the argument.
     func test_explicitMixToMonoTrue_matchesDefault() async throws {
         let wavURL = try writeMonoSineWAV(
             frequencyHz: 1_000.0,
@@ -190,10 +160,7 @@ final class AudioFileLoaderRegressionTests: XCTestCase {
 
     // MARK: - AudioBuffer round-trip
 
-    /// Verify the `audioBuffer` convenience property on `LoadedAudio`
-    /// returns the right shape for both mono and stereo decodes. The
-    /// new `SourceSeparator` protocol consumes this; if it returns
-    /// the wrong variant, the conversion pipeline silently breaks.
+    /// Verify the `audioBuffer` convenience property on `LoadedAudio` returns the right shape for both mono and stereo decodes. The new `SourceSeparator` protocol consumes this; if it returns the wrong variant, the conversion pipeline silently breaks.
     func test_audioBufferConvenienceProperty_monoLoad() async throws {
         let wavURL = try writeMonoSineWAV(
             frequencyHz: 500.0,

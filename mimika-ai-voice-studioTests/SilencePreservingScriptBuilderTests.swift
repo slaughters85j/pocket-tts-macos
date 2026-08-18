@@ -2,9 +2,7 @@
 //  SilencePreservingScriptBuilderTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Pure-logic tests for the Voice Changer's silence-preserving
-//  script builder. No external dependencies beyond Foundation +
-//  XCTest + TranscribedSegment.
+//  Pure-logic tests for the Voice Changer's silence-preserving script builder. No external dependencies beyond Foundation + XCTest + TranscribedSegment.
 
 import XCTest
 @testable import mimika_ai_voice_studio
@@ -91,8 +89,7 @@ final class SilencePreservingScriptBuilderTests: XCTestCase {
     }
 
     func testOverlappingSegmentsClampCursor() {
-        // Second segment starts BEFORE first ends — the cursor refuses
-        // to regress, so no negative-duration `[Xs]` is emitted.
+        // Second segment starts BEFORE first ends — the cursor refuses to regress, so no negative-duration `[Xs]` is emitted.
         let segs = [
             TranscribedSegment(text: "alice", startSec: 0.0, endSec: 2.0),
             TranscribedSegment(text: "bob",   startSec: 1.0, endSec: 3.0),
@@ -109,9 +106,7 @@ final class SilencePreservingScriptBuilderTests: XCTestCase {
             TranscribedSegment(text: "   ",   startSec: 1.2, endSec: 1.5),  // skipped
             TranscribedSegment(text: "world", startSec: 2.0, endSec: 2.5),
         ]
-        // Gap to "world" is measured from cursor at end of "hello"
-        // (1.0), because the empty middle segment did not advance the
-        // cursor.
+        // Gap to "world" is measured from cursor at end of "hello" (1.0), because the empty middle segment did not advance the cursor.
         XCTAssertEqual(
             SilencePreservingScriptBuilder.build(segments: segs),
             "hello [1s] world"
@@ -138,8 +133,7 @@ final class SilencePreservingScriptBuilderTests: XCTestCase {
     }
 
     func testCustomMinSilenceThreshold() {
-        // With a 1 s floor, only the 2 s gap survives; the 0.3 s gap
-        // collapses.
+        // With a 1 s floor, only the 2 s gap survives; the 0.3 s gap collapses.
         let segs = [
             TranscribedSegment(text: "a", startSec: 0.0, endSec: 0.5),
             TranscribedSegment(text: "b", startSec: 0.8, endSec: 1.0),

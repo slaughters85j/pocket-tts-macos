@@ -2,8 +2,7 @@
 //  MessageBubble.swift
 //  mimika-ai-voice-studio
 //
-//  Per-message chat bubble. User bubbles are right-aligned in Apple blue;
-//  assistant bubbles are left-aligned in the app accent.
+//  Per-message chat bubble. User bubbles are right-aligned in Apple blue; assistant bubbles are left-aligned in the app accent.
 
 import Foundation
 import SwiftUI

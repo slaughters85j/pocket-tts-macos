@@ -2,24 +2,20 @@
 //  DirectorsChairPanel.swift
 //  mimika-ai-voice-studio
 //
-//  Director's Chair floating glass panel + toolbar toggle. Hosts
-//  EnsembleSettingsView (run knobs) plus Boot / Direct / Compact tools.
+//  Director's Chair floating glass panel + toolbar toggle. Hosts EnsembleSettingsView (run knobs) plus Boot / Direct / Compact tools.
 //
 
 import SwiftUI
 
 // MARK: - Director's Chair
 
-/// Floating glass card over the transcript (ZStack overlay — does not push layout).
-/// Sketch: stem from the toolbar chair, settings left, Boot affordance right.
+/// Floating glass card over the transcript (ZStack overlay — does not push layout). Sketch: stem from the toolbar chair, settings left, Boot affordance right.
 struct DirectorsChairPanel: View {
     @Bindable var viewModel: EnsembleViewModel
-    /// Binding instead of a closure — a new `() -> Void` every parent body
-    /// eval was recreating this view (and Liquid Glass) on each token.
+    /// Binding instead of a closure — a new `() -> Void` every parent body eval was recreating this view (and Liquid Glass) on each token.
     @Binding var isPresented: Bool
 
-    // Composer text + focus live on `ChairComposerCard`, not here — typing must
-    // not re-evaluate this body (glass card + the whole run-settings form).
+    // Composer text + focus live on `ChairComposerCard`, not here — typing must not re-evaluate this body (glass card + the whole run-settings form).
     @State private var showsBootComposer = false
     @State private var bootTargetID: UUID?
 
@@ -250,8 +246,7 @@ struct DirectorsChairPanel: View {
         return true
     }
 
-    /// The card resigns focus on send / disappear; the 60 ms beat still keeps
-    /// that teardown from fighting the composer hide animation.
+    /// The card resigns focus on send / disappear; the 60 ms beat still keeps that teardown from fighting the composer hide animation.
     private func collapseBootComposer() {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(60))
@@ -293,8 +288,7 @@ private extension View {
             self
                 .background {
                     ZStack {
-                        // Clear glass alone is very see-through over the transcript;
-                        // a dark scrim lifts opacity without killing the liquid look.
+                        // Clear glass alone is very see-through over the transcript; a dark scrim lifts opacity without killing the liquid look.
                         shape.fill(Color.black.opacity(scrim))
                         shape
                             .fill(.clear)
@@ -357,11 +351,7 @@ private struct DirectorsChairCompactMeter: View {
                     .font(Theme.fontXS)
                     .foregroundStyle(EnsembleSettingsView.chairLabelColor)
                 if let pct = viewModel.contextFillPercent {
-                    // Bare percentage — no "~" or "≈" prefix. At 10pt on a 4K
-                    // display an approximation glyph reads as a minus sign in
-                    // front of the digits; it was reported as a negative value
-                    // twice. "Approximate" is already said in the help popover,
-                    // where there is room to say it in words. Don't add it back.
+                    // Bare percentage — no "~" or "≈" prefix. At 10pt on a 4K display an approximation glyph reads as a minus sign in front of the digits; it was reported as a negative value twice. "Approximate" is already said in the help popover, where there is room to say it in words. Don't add it back.
                     Text("\(pct)%")
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .monospacedDigit()

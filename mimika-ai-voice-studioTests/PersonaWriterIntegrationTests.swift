@@ -2,19 +2,12 @@
 //  PersonaWriterIntegrationTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  REAL end-to-end test against a live OpenAI-compatible endpoint (LM Studio).
-//  No stubs — it runs the exact skeleton + per-persona expansion request
-//  sequence the setup wizard runs, with a real 3-speaker cast + scene + mood +
-//  model, and prints every step (the LocalLLMClient DEBUG logs print the actual
-//  request bodies + timings alongside).
+//  REAL end-to-end test against a live OpenAI-compatible endpoint (LM Studio). No stubs — it runs the exact skeleton + per-persona expansion request sequence the setup wizard runs, with a real 3-speaker cast + scene + mood + model, and prints every step (the LocalLLMClient DEBUG logs print the actual request bodies + timings alongside).
 //
 //  OPT-IN. Set RUN_LLM_INTEGRATION=1 to run it; otherwise it skips.
 //
 //  It used to gate on "is the endpoint reachable", which inverted the intent:
-//  anyone actually working on this feature has LM Studio running, so the test
-//  fired four real requests at whatever model was loaded and held the whole unit
-//  suite for minutes on a large one. Reachability says nothing about whether the
-//  developer *wanted* a live run. Keep this opt-in.
+//  anyone actually working on this feature has LM Studio running, so the test fired four real requests at whatever model was loaded and held the whole unit suite for minutes on a large one. Reachability says nothing about whether the developer *wanted* a live run. Keep this opt-in.
 //
 //  To run it: start LM Studio, load your model, then
 //    RUN_LLM_INTEGRATION=1 xcodebuild ... -only-testing:…/PersonaWriterIntegrationTests
@@ -22,8 +15,7 @@
 //    LMSTUDIO_URL    (default http://localhost:1234)
 //    LMSTUDIO_MODEL  (default: the first model the endpoint lists)
 //
-//  This is the test to watch against LM Studio's "Loaded Models" panel to see
-//  whether a request causes an unload/reload.
+//  This is the test to watch against LM Studio's "Loaded Models" panel to see whether a request causes an unload/reload.
 //
 
 import XCTest
@@ -38,8 +30,7 @@ final class PersonaWriterIntegrationTests: XCTestCase {
 
     func test_generatesThreeSpeakerCast_againstLiveEndpoint() async throws {
         let env = ProcessInfo.processInfo.environment
-        // Explicit opt-in — a reachable endpoint is not consent to spend minutes
-        // of a normal unit run on live model calls.
+        // Explicit opt-in — a reachable endpoint is not consent to spend minutes of a normal unit run on live model calls.
         guard env["RUN_LLM_INTEGRATION"] == "1" else {
             throw XCTSkip("live LLM test — set RUN_LLM_INTEGRATION=1 to run")
         }

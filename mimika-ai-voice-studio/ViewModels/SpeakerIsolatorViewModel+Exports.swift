@@ -2,9 +2,7 @@
 //  SpeakerIsolatorViewModel+Exports.swift
 //  mimika-ai-voice-studio
 //
-//  Export-related methods for the Speaker Isolator view model.
-//  Extracted from the main VM file so the orchestration logic
-//  there can stay focused on the pipeline phases.
+//  Export-related methods for the Speaker Isolator view model. Extracted from the main VM file so the orchestration logic there can stay focused on the pipeline phases.
 //
 //  Functions here:
 //    * `exportSingleSpeaker(at:)` — per-row Save panel + WAV write
@@ -12,15 +10,11 @@
 //    * `writeTrack(_:to:)` — honors `preserveSilenceForIsolatedExport`
 //    * `stripSilence(_:)` — pragmatic concat: collapse zero ranges
 //    * `saveCombinedAudio(_:)` — re-voice WAV save panel
-//    * `configureExportPanel(_:inputURL:suffix:ext:fallbackFilename:)`
-//      — defaults the panel into the input file's directory
+//    * `configureExportPanel(_:inputURL:suffix:ext:fallbackFilename:)` — defaults the panel into the input file's directory
 //    * `suggestedExportFilename(for:suffix:ext:)` — basename builder
-//    * `refuseOverwriteError(outURL:inputURL:)` — last-line-of-defense
-//      check that we're not about to clobber the source file
+//    * `refuseOverwriteError(outURL:inputURL:)` — last-line-of-defense check that we're not about to clobber the source file
 //
-//  The Save panel helpers (`configureExportPanel`,
-//  `suggestedExportFilename`, `refuseOverwriteError`) are `static`
-//  so they're unit-testable without instantiating the @MainActor VM.
+//  The Save panel helpers (`configureExportPanel`, `suggestedExportFilename`, `refuseOverwriteError`) are `static` so they're unit-testable without instantiating the @MainActor VM.
 
 import AppKit
 import Foundation
@@ -30,9 +24,7 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - Export isolated (per-row or batch)
 
-    /// Per-row Save panel for a single speaker. Caller supplies the
-    /// speaker's row index (since the UI passes it from the row's
-    /// action closure). Honors `preserveSilenceForIsolatedExport`.
+    /// Per-row Save panel for a single speaker. Caller supplies the speaker's row index (since the UI passes it from the row's action closure). Honors `preserveSilenceForIsolatedExport`.
     func exportSingleSpeaker(at index: Int) {
         guard index >= 0, index < speakers.count else { return }
         let track = speakers[index]
@@ -44,8 +36,7 @@ extension SpeakerIsolatorViewModel {
         writeTrack(track, to: url)
     }
 
-    /// Batch export to a chosen folder. Each speaker writes
-    /// `<displayName>.wav`.
+    /// Batch export to a chosen folder. Each speaker writes `<displayName>.wav`.
     func exportAllIsolated() {
         let panel = NSOpenPanel()
         panel.title = "Choose folder to export isolated speakers"
@@ -59,14 +50,7 @@ extension SpeakerIsolatorViewModel {
         }
     }
 
-    /// Honors `preserveSilenceForIsolatedExport`. When false, writes
-    /// a concatenated WAV (no silence) by re-running SpeakerIsolator
-    /// with the speaker's pre-recorded segments — we cache the
-    /// silence-padded buffer; concat mode needs the segment list,
-    /// which we don't retain across the convert step. So for the
-    /// concat case, we re-derive concat by collapsing the silence-
-    /// padded buffer: scanning for non-zero ranges. Pragmatic and
-    /// avoids re-running diarization.
+    /// Honors `preserveSilenceForIsolatedExport`. When false, writes a concatenated WAV (no silence) by re-running SpeakerIsolator with the speaker's pre-recorded segments — we cache the silence-padded buffer; concat mode needs the segment list, which we don't retain across the convert step. So for the concat case, we re-derive concat by collapsing the silence-padded buffer: scanning for non-zero ranges. Pragmatic and avoids re-running diarization.
     func writeTrack(_ track: SpeakerTrack, to url: URL) {
         do {
             let samples: [Float]
@@ -81,13 +65,7 @@ extension SpeakerIsolatorViewModel {
         }
     }
 
-    /// Collapse a silence-padded buffer to its non-zero ranges only,
-    /// concatenated back-to-back. Mirrors the
-    /// `SpeakerIsolator.isolate(preserveSilence: false)` output
-    /// without re-running diarization. Acceptable because the
-    /// silence regions in an isolated track are EXACT zeros (we
-    /// copied input samples at speaker times into a zero-filled
-    /// buffer).
+    /// Collapse a silence-padded buffer to its non-zero ranges only, concatenated back-to-back. Mirrors the `SpeakerIsolator.isolate(preserveSilence: false)` output without re-running diarization. Acceptable because the silence regions in an isolated track are EXACT zeros (we copied input samples at speaker times into a zero-filled buffer).
     static func stripSilence(_ samples: [Float]) -> [Float] {
         var out: [Float] = []
         out.reserveCapacity(samples.count / 4)  // rough guess
@@ -99,16 +77,9 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - Combined-audio save flow
 
-    /// Writes the multi-speaker revoice output as a WAV. Builds the
-    /// Save panel with `configureExportPanel`, refuses to overwrite
-    /// the input file, and either advances state to `.done` or
-    /// `.error` based on the write result.
+    /// Writes the multi-speaker revoice output as a WAV. Builds the Save panel with `configureExportPanel`, refuses to overwrite the input file, and either advances state to `.done` or `.error` based on the write result.
     ///
-    /// Format follows the bed-based mix: AP-on path yields a stereo
-    /// 44.1 kHz AudioBuffer; AP-off path yields mono 24 kHz. The
-    /// AudioBuffer-aware `WAVEncoder.write` dispatcher picks the
-    /// right encoder shape so the WAV's channel + rate fields match
-    /// the perceived output.
+    /// Format follows the bed-based mix: AP-on path yields a stereo 44.1 kHz AudioBuffer; AP-off path yields mono 24 kHz. The AudioBuffer-aware `WAVEncoder.write` dispatcher picks the right encoder shape so the WAV's channel + rate fields match the perceived output.
     func saveCombinedAudio(_ combined: AudioBuffer) {
         let panel = NSSavePanel()
         panel.title = "Export re-voiced audio"
@@ -138,12 +109,7 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - Save-panel helpers
 
-    /// Configure an `NSSavePanel` to default into the input file's
-    /// directory with a `<basename>_<suffix>.<ext>` filename. Prevents
-    /// the "I accidentally overwrote my input" failure mode where
-    /// the panel's blank default landed wherever the user last
-    /// saved a file (and they navigated to the input's folder + kept
-    /// hitting Save without noticing the filename collision).
+    /// Configure an `NSSavePanel` to default into the input file's directory with a `<basename>_<suffix>.<ext>` filename. Prevents the "I accidentally overwrote my input" failure mode where the panel's blank default landed wherever the user last saved a file (and they navigated to the input's folder + kept hitting Save without noticing the filename collision).
     ///
     /// `static` so it can be unit-tested without an instance.
     static func configureExportPanel(
@@ -173,11 +139,7 @@ extension SpeakerIsolatorViewModel {
         return "\(base)_\(suffix).\(ext)"
     }
 
-    /// Returns a human-readable error string if `outURL` resolves to
-    /// the same path as `inputURL` (including across symlinks), nil
-    /// otherwise. Used as the last line of defense against
-    /// accidentally clobbering the source file when the user
-    /// navigates the save panel to the input's filename.
+    /// Returns a human-readable error string if `outURL` resolves to the same path as `inputURL` (including across symlinks), nil otherwise. Used as the last line of defense against accidentally clobbering the source file when the user navigates the save panel to the input's filename.
     static func refuseOverwriteError(
         outURL: URL,
         inputURL: URL?

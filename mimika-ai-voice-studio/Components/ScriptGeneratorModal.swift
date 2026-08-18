@@ -2,13 +2,9 @@
 //  ScriptGeneratorModal.swift
 //  mimika-ai-voice-studio
 //
-//  Overlay for AI-powered script generation. The user types a natural
-//  language description, the connected LLM streams a formatted script,
-//  and "Use Script" commits it to the text editor.
+//  Overlay for AI-powered script generation. The user types a natural language description, the connected LLM streams a formatted script, and "Use Script" commits it to the text editor.
 //
-//  Each mode (Single Voice / Multi-Talk) has its own system prompt,
-//  editable inline via a disclosure toggle. Changes persist through the
-//  ChatSettings binding back to AppState → UserDefaults.
+//  Each mode (Single Voice / Multi-Talk) has its own system prompt, editable inline via a disclosure toggle. Changes persist through the ChatSettings binding back to AppState → UserDefaults.
 
 import SwiftData
 import SwiftUI
@@ -19,8 +15,7 @@ struct ScriptGeneratorModal: View {
     @Binding var chatSettings: ChatSettings
     let onAccept: (_ script: String, _ speakerNames: [String]) -> Void
 
-    /// SwiftData context — used to resolve the active LLM endpoint URL
-    /// without needing AppState injected through every parent view.
+    /// SwiftData context — used to resolve the active LLM endpoint URL without needing AppState injected through every parent view.
     @Environment(\.modelContext) private var modelContext
 
     @State private var generator = ScriptGenerator()
@@ -53,19 +48,14 @@ struct ScriptGeneratorModal: View {
         mode == .singleVoice ? .singleVoice : .multiTalk
     }
 
-    /// Pull the user-configured LLM endpoint URL from SwiftData. Reads
-    /// fresh on every modal presentation so changes made in App
-    /// Settings between sessions take effect without restart.
+    /// Pull the user-configured LLM endpoint URL from SwiftData. Reads fresh on every modal presentation so changes made in App Settings between sessions take effect without restart.
     private func currentEndpointBaseURL() -> String {
         AppDataStore
             .loadOrSeedEndpoint(modelContext, fallbackBaseURL: chatSettings.baseURL)
             .baseURL
     }
 
-    /// Fetch the active SystemPrompt's content for this modal's scope.
-    /// Falls back to the hardcoded default if none is marked active
-    /// (shouldn't happen after first-launch migration but keeps the
-    /// generator from sending an empty system prompt).
+    /// Fetch the active SystemPrompt's content for this modal's scope. Falls back to the hardcoded default if none is marked active (shouldn't happen after first-launch migration but keeps the generator from sending an empty system prompt).
     private func activePromptContent() -> String {
         if let active = AppDataStore.activePrompt(modelContext, scope: promptScope) {
             return active.content
@@ -96,15 +86,9 @@ struct ScriptGeneratorModal: View {
                 .font(Theme.fontSMBold)
                 .foregroundStyle(Theme.textPrimary)
 
-            // Swapped from SwiftUI's TextField(axis: .vertical) to the
-            // NSTextView-backed MacTextEditor for two reasons:
-            //   * Enter / Shift+Enter / Cmd+Enter behave properly in
-            //     NSTextView (TextField on macOS consumes Enter as a
-            //     submit signal and doesn't reliably insert a newline
-            //     even with axis: .vertical).
-            //   * Fixed-height container with the editor's built-in
-            //     NSScrollView lets long instructions scroll instead
-            //     of pushing the rest of the modal off-screen.
+            // Swapped from SwiftUI's TextField(axis: .vertical) to the NSTextView-backed MacTextEditor for two reasons:
+            //   * Enter / Shift+Enter / Cmd+Enter behave properly in NSTextView (TextField on macOS consumes Enter as a submit signal and doesn't reliably insert a newline even with axis: .vertical).
+            //   * Fixed-height container with the editor's built-in NSScrollView lets long instructions scroll instead of pushing the rest of the modal off-screen.
             ZStack(alignment: .topLeading) {
                 if prompt.isEmpty {
                     Text("e.g. A woman talking about planting flowers…")
@@ -145,9 +129,7 @@ struct ScriptGeneratorModal: View {
     // MARK: - System prompt
 
     private var systemPromptSection: some View {
-        // Picker over the SwiftData-backed prompt presets for this
-        // scope; opens the PromptManagerSheet for full CRUD. Active
-        // selection is what gets passed to the generator below.
+        // Picker over the SwiftData-backed prompt presets for this scope; opens the PromptManagerSheet for full CRUD. Active selection is what gets passed to the generator below.
         ActivePromptPicker(scope: promptScope, showsManager: $showsPromptManager)
     }
 
@@ -246,11 +228,7 @@ struct ScriptGeneratorModal: View {
 
     private func dismiss() {
         generator.cancel()
-        // chatSettings is no longer the system-prompt store — saves
-        // happen on every keystroke via SwiftData autosave from the
-        // PromptManagerSheet. Still persist the rest of chatSettings
-        // (model name, voice selections) in case anything changed
-        // through other binds during this modal's lifetime.
+        // chatSettings is no longer the system-prompt store — saves happen on every keystroke via SwiftData autosave from the PromptManagerSheet. Still persist the rest of chatSettings (model name, voice selections) in case anything changed through other binds during this modal's lifetime.
         SettingsStore.save(chatSettings)
         isPresented = false
     }

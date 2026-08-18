@@ -2,8 +2,7 @@
 //  ChatThreadBrowser.swift
 //  mimika-ai-voice-studio
 //
-//  Sidebar state for Solo / Ensemble threads. Disk I/O goes through
-//  ChatThreadStore; this object only holds the visible catalog + selection.
+//  Sidebar state for Solo / Ensemble threads. Disk I/O goes through ChatThreadStore; this object only holds the visible catalog + selection.
 //
 
 import Foundation
@@ -30,10 +29,7 @@ final class ChatThreadBrowser {
     /// Drop late `applySaved` / `listAsync` results for threads the user deleted.
     private var suppressedIDs: Set<UUID> = []
     private var reloadToken = UUID()
-    /// Last selected row per kind, so flipping Solo ↔ Ensemble and back keeps
-    /// the open thread highlighted. `reload()` drops a selection that isn't in
-    /// the freshly-listed kind — correct for a deleted thread, wrong for a mode
-    /// switch, which is why the highlight used to vanish on every view change.
+    /// Last selected row per kind, so flipping Solo ↔ Ensemble and back keeps the open thread highlighted. `reload()` drops a selection that isn't in the freshly-listed kind — correct for a deleted thread, wrong for a mode switch, which is why the highlight used to vanish on every view change.
     private var selectionByKind: [ChatThreadKind: UUID] = [:]
 
     func reload() {
@@ -60,10 +56,7 @@ final class ChatThreadBrowser {
         selectionByKind[kind] = id
     }
 
-    /// Upsert the catalog row. Does **not** change selection — a late save of
-    /// thread A must not steal a click that already moved to thread B.
-    /// Timestamp-only writes skip the array write so the sidebar (and the
-    /// Chair sitting in the same Chat HStack) is not invalidated every turn.
+    /// Upsert the catalog row. Does **not** change selection — a late save of thread A must not steal a click that already moved to thread B. Timestamp-only writes skip the array write so the sidebar (and the Chair sitting in the same Chat HStack) is not invalidated every turn.
     func applySaved(_ record: ChatThreadRecord) {
         guard !suppressedIDs.contains(record.id) else { return }
         let entry = record.indexEntry

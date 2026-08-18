@@ -56,18 +56,11 @@ struct ChatView: View {
                     )
                 }
             }
-            // REQUIRED, not cosmetic. Without a flexible frame this VStack's ideal
-            // width depends on its whole subtree, so the enclosing HStack probes it
-            // with several proposals — and every probe re-measures the top bar, the
-            // transcript, AND the Director's Chair's ~10 AppKit controls. That is
-            // what made the sidebar poison app-wide performance: collapsing the
-            // sidebar left one HStack child and the stall vanished. Taking the
-            // proposal verbatim ends the search at one pass.
+            // REQUIRED, not cosmetic. Without a flexible frame this VStack's ideal width depends on its whole subtree, so the enclosing HStack probes it with several proposals — and every probe re-measures the top bar, the transcript, AND the Director's Chair's ~10 AppKit controls. That is what made the sidebar poison app-wide performance: collapsing the sidebar left one HStack child and the stall vanished. Taking the proposal verbatim ends the search at one pass.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: subMode) { _, newMode in
-            // Solo and Ensemble keep separate thinking defaults/stores;
-            // refresh the shared control when the user flips the sub-mode.
+            // Solo and Ensemble keep separate thinking defaults/stores; refresh the shared control when the user flips the sub-mode.
             viewModel.refreshReasoningForChatSubMode()
             if newMode != .ensemble {
                 showsDirectorsChair = false
@@ -83,9 +76,7 @@ struct ChatView: View {
         }
         .onDisappear {
             viewModel.stopSoloChatSession()
-            // Mute is Chat-only chrome. Leaving the tab (→ Single Voice /
-            // Multi-Talk / …) must clear it or the shared player stays silent
-            // with no indicator on the other tabs.
+            // Mute is Chat-only chrome. Leaving the tab (→ Single Voice / Multi-Talk / …) must clear it or the shared player stays silent with no indicator on the other tabs.
             isAudioMuted = false
             Task { await player.setMuted(false) }
         }
@@ -355,8 +346,7 @@ struct ChatView: View {
         }
     }
 
-    /// Map human character aliases to voices, then hand the episode to Multi-Talk.
-    /// Cast-only episodes (no user lines) skip the sheet.
+    /// Map human character aliases to voices, then hand the episode to Multi-Talk. Cast-only episodes (no user lines) skip the sheet.
     private func openEnsembleInMultiTalk() {
         if ensembleViewModel.prepareMultiTalkVoiceMap() {
             showsMultiTalkVoiceMap = true

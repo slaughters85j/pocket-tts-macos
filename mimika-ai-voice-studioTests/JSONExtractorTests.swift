@@ -2,9 +2,7 @@
 //  JSONExtractorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Tolerant extraction of the first balanced JSON object from chatty model
-//  output: leading prose, markdown fences, trailing commentary, braces inside
-//  string values, and nested objects.
+//  Tolerant extraction of the first balanced JSON object from chatty model output: leading prose, markdown fences, trailing commentary, braces inside string values, and nested objects.
 //
 
 import XCTest

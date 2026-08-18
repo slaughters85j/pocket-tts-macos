@@ -2,9 +2,7 @@
 //  SynthesisStatus.swift
 //  mimika-ai-voice-studio
 //
-//  Shared view-side state machine for the synthesize button + status
-//  indicator + audio-player visibility. Both Single Voice and Multi-Talk
-//  view models drive this same enum.
+//  Shared view-side state machine for the synthesize button + status indicator + audio-player visibility. Both Single Voice and Multi-Talk view models drive this same enum.
 
 import Foundation
 

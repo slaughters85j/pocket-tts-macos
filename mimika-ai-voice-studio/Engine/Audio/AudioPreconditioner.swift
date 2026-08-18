@@ -1,26 +1,14 @@
 //  AudioPreconditioner.swift
 //  mimika-ai-voice-studio
 //
-//  Single source of truth for converting reference voice WAV files to the
-//  formats the various downstream encoders need. Replaces three nearly
-//  identical (and all buggy) AVAudioConverter call sites in
-//  PocketTTSVoiceEncoder, VoiceEnhancer, and VoiceManager.
+//  Single source of truth for converting reference voice WAV files to the formats the various downstream encoders need. Replaces three nearly identical (and all buggy) AVAudioConverter call sites in PocketTTSVoiceEncoder, VoiceEnhancer, and VoiceManager.
 //
-//  Background.
-//  AVAudioConverter.convert(to:error:withInputFrom:) is easy to misuse with
-//  sample-rate conversion. Three correctness issues bit the earlier code.
-//    1. Output buffer capacity was sized from input frame count, so 24 kHz
-//       to 44.1 kHz conversions truncated to roughly 54 percent of the
-//       intended duration.
-//    2. The input block returned the destination buffer as its own input,
-//       which aliases output memory back into the converter.
-//    3. The input block reported .haveData forever with no .endOfStream,
-//       so the SRC tail was never flushed.
+//  Background. AVAudioConverter.convert(to:error:withInputFrom:) is easy to misuse with sample-rate conversion. Three correctness issues bit the earlier code.
+//    1. Output buffer capacity was sized from input frame count, so 24 kHz to 44.1 kHz conversions truncated to roughly 54 percent of the intended duration.
+//    2. The input block returned the destination buffer as its own input, which aliases output memory back into the converter.
+//    3. The input block reported .haveData forever with no .endOfStream, so the SRC tail was never flushed.
 //
-//  This file fixes all three by doing a proper pull-style conversion that
-//  feeds the converter from a source buffer, signals end-of-stream when
-//  the input is exhausted, and sizes the destination from the SRC ratio
-//  with a safety margin.
+//  This file fixes all three by doing a proper pull-style conversion that feeds the converter from a source buffer, signals end-of-stream when the input is exhausted, and sizes the destination from the SRC ratio with a safety margin.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -54,10 +42,7 @@ enum AudioPreconditioner {
 
     // MARK: - Public API
 
-    /// Load `url` as mono Float32 samples at `targetRate`. Stereo input is
-    /// downmixed and any sample rate is resampled. Pass `maxSeconds` to
-    /// cap how many seconds of audio are returned (measured at the target
-    /// rate).
+    /// Load `url` as mono Float32 samples at `targetRate`. Stereo input is downmixed and any sample rate is resampled. Pass `maxSeconds` to cap how many seconds of audio are returned (measured at the target rate).
     nonisolated static func loadMonoFloat32(
         url: URL,
         targetRate: Int,
@@ -76,10 +61,7 @@ enum AudioPreconditioner {
         return Array(UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
     }
 
-    /// Convert any input audio file to a mono Float32 WAV at `targetRate`
-    /// and write the result to `destination`. Used by the Fish voice
-    /// import path when stereo or non-44.1kHz input needs preconditioning
-    /// before DAC encoding.
+    /// Convert any input audio file to a mono Float32 WAV at `targetRate` and write the result to `destination`. Used by the Fish voice import path when stereo or non-44.1kHz input needs preconditioning before DAC encoding.
     nonisolated static func convertToMonoWAV(
         source: URL,
         destination: URL,
@@ -100,8 +82,7 @@ enum AudioPreconditioner {
         }
     }
 
-    /// Returns true if the file at `url` is not already mono Float32-readable
-    /// at `targetRate`. Used to decide whether a precondition pass is needed.
+    /// Returns true if the file at `url` is not already mono Float32-readable at `targetRate`. Used to decide whether a precondition pass is needed.
     nonisolated static func needsConversion(url: URL, targetRate: Int = 44_100) -> Bool {
         guard let file = try? AVAudioFile(forReading: url) else { return true }
         let fmt = file.processingFormat
@@ -110,10 +91,7 @@ enum AudioPreconditioner {
 
     // MARK: - Core conversion
 
-    /// Reads `url` and returns an AVAudioPCMBuffer at the requested target
-    /// format. Performs sample-rate conversion, channel downmix, and
-    /// format conversion in one pass via AVAudioConverter, using a proper
-    /// pull-style input block that flushes the SRC tail.
+    /// Reads `url` and returns an AVAudioPCMBuffer at the requested target format. Performs sample-rate conversion, channel downmix, and format conversion in one pass via AVAudioConverter, using a proper pull-style input block that flushes the SRC tail.
     nonisolated private static func readAndConvert(
         url: URL,
         targetSampleRate: Double,
@@ -132,8 +110,7 @@ enum AudioPreconditioner {
         let inputFormat = inputFile.processingFormat
         let inputFrameCount = AVAudioFrameCount(inputFile.length)
 
-        // Target format. interleaved=false so multi-channel float buffers
-        // expose floatChannelData per channel; for mono it does not matter.
+        // Target format. interleaved=false so multi-channel float buffers expose floatChannelData per channel; for mono it does not matter.
         guard let targetFormat = AVAudioFormat(
             commonFormat: commonFormat,
             sampleRate: targetSampleRate,
@@ -165,9 +142,7 @@ enum AudioPreconditioner {
         }
         try inputFile.read(into: sourceBuffer, frameCount: inputFrameCount)
 
-        // Size the destination buffer from the SRC ratio with a margin for
-        // the SRC tail. AVAudioConverter does not need an exact upper
-        // bound but does need enough room to write the full result.
+        // Size the destination buffer from the SRC ratio with a margin for the SRC tail. AVAudioConverter does not need an exact upper bound but does need enough room to write the full result.
         let ratio = targetSampleRate / inputFormat.sampleRate
         let estimatedOutFrames = Double(sourceBuffer.frameLength) * ratio
         let margin: Double = 4_096  // generous SRC tail margin
@@ -185,15 +160,10 @@ enum AudioPreconditioner {
         guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
             throw Error.cannotCreateConverter
         }
-        // Higher-quality SRC. Default is .medium; bump to .max since voice
-        // cloning quality benefits and we run this rarely.
+        // Higher-quality SRC. Default is .medium; bump to .max since voice cloning quality benefits and we run this rarely.
         converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
 
-        // AVAudioConverter's input block is typed `@Sendable`, so capturing
-        // a `var Bool` from the enclosing scope trips Swift 6's concurrency
-        // checker even though the block is called synchronously. Box the
-        // flag in a tiny class so we capture a reference (which IS Sendable
-        // via @unchecked) instead of a mutable value.
+        // AVAudioConverter's input block is typed `@Sendable`, so capturing a `var Bool` from the enclosing scope trips Swift 6's concurrency checker even though the block is called synchronously. Box the flag in a tiny class so we capture a reference (which IS Sendable via @unchecked) instead of a mutable value.
         final class SourceConsumedFlag: @unchecked Sendable { var value = false }
         let sourceConsumed = SourceConsumedFlag()
         var converterError: NSError?
@@ -212,8 +182,7 @@ enum AudioPreconditioner {
         case .haveData, .endOfStream:
             break
         case .inputRanDry:
-            // Shouldn't happen with pull-style endOfStream signaling, but
-            // not fatal. Drop through.
+            // Shouldn't happen with pull-style endOfStream signaling, but not fatal. Drop through.
             break
         case .error:
             throw Error.conversionFailed(converterError?.localizedDescription ?? "unknown")

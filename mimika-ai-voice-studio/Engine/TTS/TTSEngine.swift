@@ -7,8 +7,7 @@ import CoreML
 import Foundation
 
 // MARK: - PCMFrame
-/// 80 ms of mono PCM @ 24 kHz (1920 samples). The unit Mimi emits per
-/// autoregressive step. Phase 1's StreamingPlayer will consume these directly.
+/// 80 ms of mono PCM @ 24 kHz (1920 samples). The unit Mimi emits per autoregressive step. Phase 1's StreamingPlayer will consume these directly.
 nonisolated struct PCMFrame: Sendable {
     let samples: [Float]
     let isFinal: Bool
@@ -25,34 +24,13 @@ nonisolated struct SynthesisOptions: Sendable {
     var temperature: Float = 0.7
     var noiseClamp: Float? = nil
 
-    /// Per-chunk SentencePiece-token budget for the sentence-aware
-    /// splitter. Smaller = shorter chunks = less per-chunk AR error
-    /// accumulation, at the cost of more chunk-boundary resets.
-    /// Python's reference uses 50 (matching the fp32 model's tolerance);
-    /// our Core ML build is fp16 and may benefit from a smaller value
-    /// on long-sentence inputs. Surfaced as a Settings slider so the
-    /// user can tune per script. Range used by the UI: 15–50.
+    /// Per-chunk SentencePiece-token budget for the sentence-aware splitter. Smaller = shorter chunks = less per-chunk AR error accumulation, at the cost of more chunk-boundary resets. Python's reference uses 50 (matching the fp32 model's tolerance); our Core ML build is fp16 and may benefit from a smaller value on long-sentence inputs. Surfaced as a Settings slider so the user can tune per script. Range used by the UI: 15–50.
     var chunkTokenBudget: Int = 50
 
-    /// Phase 9. When `true` and the renderer's per-segment synthesis
-    /// runs longer than its source-timed slot, the renderer time-
-    /// compresses the segment (pitch-preserving, via
-    /// `WSOLATimeCompressor`) so the new voice lands inside the
-    /// original timing instead of being hard-clipped mid-syllable.
-    /// Defaults to ON; surfaced in the Voice Changer + Speaker
-    /// Isolator sheets as "Match original speaking pace". Has no
-    /// effect outside the timeline-aligned render path (single-voice
-    /// streaming, multi-talk script mode don't run the gate).
+    /// Phase 9. When `true` and the renderer's per-segment synthesis runs longer than its source-timed slot, the renderer time-compresses the segment (pitch-preserving, via `WSOLATimeCompressor`) so the new voice lands inside the original timing instead of being hard-clipped mid-syllable. Defaults to ON; surfaced in the Voice Changer + Speaker Isolator sheets as "Match original speaking pace". Has no effect outside the timeline-aligned render path (single-voice streaming, multi-talk script mode don't run the gate).
     var matchOriginalPace: Bool = true
 
-    /// Optional deterministic seed for the per-frame noise draw. When set,
-    /// the whole synthesis is driven by a `SeededGenerator(seed:)` so the
-    /// same seed + same text yields identical audio across runs/launches.
-    /// `nil` (the default) preserves the prior stochastic behavior — the
-    /// engine seeds a generator from a fresh random value each call, so
-    /// unseeded voices still vary run-to-run. Only the streaming synthesis
-    /// paths (Single Voice, Multi-Talk, Chat, Ensemble, Read-Aloud) set
-    /// this, and only for imported voices; stock voices leave it nil.
+    /// Optional deterministic seed for the per-frame noise draw. When set, the whole synthesis is driven by a `SeededGenerator(seed:)` so the same seed + same text yields identical audio across runs/launches. `nil` (the default) preserves the prior stochastic behavior — the engine seeds a generator from a fresh random value each call, so unseeded voices still vary run-to-run. Only the streaming synthesis paths (Single Voice, Multi-Talk, Chat, Ensemble, Read-Aloud) set this, and only for imported voices; stock voices leave it nil.
     var seed: UInt64? = nil
 
     init() {}
@@ -80,8 +58,7 @@ enum TTSEngineError: Error, CustomStringConvertible {
 }
 
 // MARK: - Pipeline constants (must match the conversion-project scripts)
-// File-scope so nonisolated actor methods can reference them without
-// tripping Swift 6's static-property-on-actor isolation rules.
+// File-scope so nonisolated actor methods can reference them without tripping Swift 6's static-property-on-actor isolation rules.
 private nonisolated enum K {
     static let nLayers = 6
     static let nHeads = 16
@@ -91,52 +68,26 @@ private nonisolated enum K {
     static let tTextMax = 128
     static let mimiOffsetPerFrame: Int32 = 16
     static let mimiPCMPerFrame = 1920
-    /// Output sample rate of the Mimi decoder. Used to size pause
-    /// silence segments by seconds → samples.
+    /// Output sample rate of the Mimi decoder. Used to size pause silence segments by seconds → samples.
     static let sampleRate = 24_000
-    /// 80 ms linear fade window applied at pause boundaries. Matches
-    /// Python's `int(0.08 * self.sample_rate)` at `tts_model.py:497`.
-    /// At 24 kHz that's exactly one Mimi PCM frame — convenient.
+    /// 80 ms linear fade window applied at pause boundaries. Matches Python's `int(0.08 * self.sample_rate)` at `tts_model.py:497`. At 24 kHz that's exactly one Mimi PCM frame — convenient.
     static let fadeSamples = Int(0.08 * Double(sampleRate))
 
-    /// Per-chunk SentencePiece-token budget for the sentence-aware
-    /// splitter. Matches Python `max_nb_tokens_in_a_chunk = 50` in
-    /// `split_into_best_sentences` — empirically tuned to keep
-    /// cumulative AR error from compounding at the back end of long
-    /// generations. Smaller than the model's 128-token hard limit on
-    /// purpose; packing fewer tokens per chunk gives noticeably better
-    /// prosody on multi-sentence input.
+    /// Per-chunk SentencePiece-token budget for the sentence-aware splitter. Matches Python `max_nb_tokens_in_a_chunk = 50` in `split_into_best_sentences` — empirically tuned to keep cumulative AR error from compounding at the back end of long generations. Smaller than the model's 128-token hard limit on purpose; packing fewer tokens per chunk gives noticeably better prosody on multi-sentence input.
     static let chunkTokenBudget = 50
 
-    /// EOS-decision smoothing (P-EOS-2). The Core ML CaLM model exposes
-    /// the raw `eos_logit` as a third output post the conversion-side
-    /// rebuild that addressed fp16 AR drift. The CaLM model uses an
-    /// internal threshold of -4.0 (matching `is_eos`), but the fp16-
-    /// perturbed logit can spike above threshold transiently before
-    /// settling — the canonical apples-to-apples trace showed CM's
-    /// single-frame "fire" at step 32 while the fp32 reference didn't
-    /// fire until step 35.
+    /// EOS-decision smoothing (P-EOS-2). The Core ML CaLM model exposes the raw `eos_logit` as a third output post the conversion-side rebuild that addressed fp16 AR drift. The CaLM model uses an internal threshold of -4.0 (matching `is_eos`), but the fp16- perturbed logit can spike above threshold transiently before settling — the canonical apples-to-apples trace showed CM's single-frame "fire" at step 32 while the fp32 reference didn't fire until step 35.
     ///
-    /// Smoothing rule: require `eos_logit > eosLogitThreshold` for
-    /// `eosConsecutiveFrames` consecutive AR steps. On the canonical,
-    /// 3-frame consecutive shifts the CM fire from step 32 → step 34,
-    /// landing 1 frame ahead of the fp32 reference. Tunable as the
-    /// symptom evolves.
+    /// Smoothing rule: require `eos_logit > eosLogitThreshold` for `eosConsecutiveFrames` consecutive AR steps. On the canonical, 3-frame consecutive shifts the CM fire from step 32 → step 34, landing 1 frame ahead of the fp32 reference. Tunable as the symptom evolves.
     static let eosLogitThreshold: Float = -4.0
     static let eosConsecutiveFrames = 3
 
-    /// Diagnostic: log per-step `eos_logit` trajectory for every AR
-    /// chunk to the console. Format mirrors the conversion project's
-    /// `probe_eos_apples_to_apples.py` table so traces can be pasted
-    /// straight into the agent's analysis pipeline. Off by default
-    /// (verbose — hundreds of lines per synthesize call); flip true
-    /// when investigating EOS/tail issues against captured user audio.
+    /// Diagnostic: log per-step `eos_logit` trajectory for every AR chunk to the console. Format mirrors the conversion project's `probe_eos_apples_to_apples.py` table so traces can be pasted straight into the agent's analysis pipeline. Off by default (verbose — hundreds of lines per synthesize call); flip true when investigating EOS/tail issues against captured user audio.
     static let eosTraceEnabled = false
 }
 
 // MARK: - TTSEngine
-/// Actor-isolated TTS pipeline. One instance per app run; lifecycle-managed by
-/// whoever spawns it (in Phase 0c that's the XCTest; later, the SwiftUI shell).
+/// Actor-isolated TTS pipeline. One instance per app run; lifecycle-managed by whoever spawns it (in Phase 0c that's the XCTest; later, the SwiftUI shell).
 actor TTSEngine: TTSEngineProtocol {
 
     // MARK: Loaded models + assets
@@ -148,20 +99,15 @@ actor TTSEngine: TTSEngineProtocol {
 
     // MARK: - Init
     init(tokenizer: Tokenizer? = nil) async throws {
-        // Default to the real vendored SentencePiece tokenizer (Phase 2+3
-        // upgrade from the Phase 0c FixedPhraseTokenizer). Tests can still
-        // inject a FixedPhraseTokenizer for hermetic engine validation.
+        // Default to the real vendored SentencePiece tokenizer (Phase 2+3 upgrade from the Phase 0c FixedPhraseTokenizer). Tests can still inject a FixedPhraseTokenizer for hermetic engine validation.
         self.tokenizer = try tokenizer ?? SentencePieceTokenizer()
 
         // Per-model compute units, matching what the conversion proved works:
-        //   prompt_phase rejects ANE (multi-position SDPA → ANECompile FAILED)
-        //   calm + mimi both target ALL so ANE picks up where it can
+        //   prompt_phase rejects ANE (multi-position SDPA → ANECompile FAILED) calm + mimi both target ALL so ANE picks up where it can
         let cuAll = MLModelConfiguration(); cuAll.computeUnits = .all
         let cuNoANE = MLModelConfiguration(); cuNoANE.computeUnits = .cpuAndGPU
 
-        // ModelPaths returns .mlmodelc URLs — Xcode pre-compiled the packages
-        // at build time, so we skip the harness's runtime MLModel.compileModel
-        // step and load directly. Saves 1–3 s of cold-start.
+        // ModelPaths returns .mlmodelc URLs — Xcode pre-compiled the packages at build time, so we skip the harness's runtime MLModel.compileModel step and load directly. Saves 1–3 s of cold-start.
         let promptURL = try ModelPaths.promptPhase()
         let calmURL = try ModelPaths.calmStateful()
         let mimiURL = try ModelPaths.mimiStateful()
@@ -170,37 +116,25 @@ actor TTSEngine: TTSEngineProtocol {
         self.calmModel = try MLModel(contentsOf: calmURL, configuration: cuAll)
         self.mimiModel = try MLModel(contentsOf: mimiURL, configuration: cuAll)
 
-        // Voices: parse all bundled safetensors files into memory once. ~408 MB
-        // resident; switching voices then becomes a pointer + 12 buffer writes.
+        // Voices: parse all bundled safetensors files into memory once. ~408 MB resident; switching voices then becomes a pointer + 12 buffer writes.
         self.voices = try VoiceLoader.loadAll()
     }
 
     // MARK: - Public catalog
     nonisolated func availableVoiceIDs() -> [String] {
-        // Read from the bundle, not the in-memory catalog, so this works before
-        // init returns (e.g. UI populating a picker concurrently). Falls back to
-        // an empty list if anything goes wrong; engine init will surface errors.
+        // Read from the bundle, not the in-memory catalog, so this works before init returns (e.g. UI populating a picker concurrently). Falls back to an empty list if anything goes wrong; engine init will surface errors.
         (try? ModelPaths.allVoiceKVStateFiles().map { $0.deletingPathExtension().lastPathComponent }) ?? []
     }
 
     // MARK: - Synthesis (streaming)
-    /// Streams 80 ms PCM frames as the model produces them. `nonisolated` so callers
-    /// can do `for await f in engine.synthesize(...)` without an extra await hop.
-    /// Errors during synthesis are logged to stderr and end the stream early.
+    /// Streams 80 ms PCM frames as the model produces them. `nonisolated` so callers can do `for await f in engine.synthesize(...)` without an extra await hop. Errors during synthesis are logged to stderr and end the stream early.
     nonisolated func synthesize(text: String, voiceID: String, options: SynthesisOptions = SynthesisOptions()) -> AsyncStream<PCMFrame> {
         AsyncStream { continuation in
-            // When the consumer's Task is cancelled (or its iterator is
-            // dropped), `onTermination` fires. We flip the cancel flag
-            // here so the producer's AR loop notices on its next check.
-            // Without this, the unstructured `Task { ... }` below keeps
-            // running long after the user hit stop.
+            // When the consumer's Task is cancelled (or its iterator is dropped), `onTermination` fires. We flip the cancel flag here so the producer's AR loop notices on its next check. Without this, the unstructured `Task { ... }` below keeps running long after the user hit stop.
             let cancel = CancellationFlag()
             continuation.onTermination = { _ in cancel.cancel() }
             Task {
-                // Register with the app-wide quiescence gate BEFORE the first
-                // model call so applicationShouldTerminate can drain in-flight
-                // predictions instead of racing exit()'s MPSGraph static
-                // teardown (see SynthesisQuiescence in SynthesisCancellation.swift).
+                // Register with the app-wide quiescence gate BEFORE the first model call so applicationShouldTerminate can drain in-flight predictions instead of racing exit()'s MPSGraph static teardown (see SynthesisQuiescence in SynthesisCancellation.swift).
                 SynthesisQuiescence.shared.begin(cancel)
                 defer { SynthesisQuiescence.shared.end(cancel) }
                 do {
@@ -239,29 +173,18 @@ actor TTSEngine: TTSEngineProtocol {
         let voiceMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         print("[PocketTTS] voice load: \(String(format: "%.1f", voiceMs))ms (T_voice=\(voice.tVoice))")
 
-        // P0-4: parse `[Xs]` pause markers FIRST, before normalization.
-        // Mirrors Python's `parse_pause_markers(text_to_generate)` call
-        // at the top of `generate_audio_stream`. Single-Voice users can
-        // now drop `[1.5s]` etc. in their input and we'll emit silence
-        // + apply 80 ms boundary fades to the audio around it.
+        // P0-4: parse `[Xs]` pause markers FIRST, before normalization. Mirrors Python's `parse_pause_markers(text_to_generate)` call at the top of `generate_audio_stream`. Single-Voice users can now drop `[1.5s]` etc. in their input and we'll emit silence + apply 80 ms boundary fades to the audio around it.
         let segments = TextNormalizer.parsePauseMarkers(text)
         if segments.count > 1 {
             print("[PocketTTS] parsed \(segments.count) segments (\(segments.filter(\.isPause).count) pauses)")
         }
 
-        // Identify the index of the absolute final TEXT segment so the
-        // AR-loop final-frame contract (Bug 1's fix) still fires
-        // correctly: `isFinal=true` lands on the last frame of the last
-        // chunk of the last text segment, regardless of trailing
-        // pause / silence frames.
+        // Identify the index of the absolute final TEXT segment so the AR-loop final-frame contract (Bug 1's fix) still fires correctly: `isFinal=true` lands on the last frame of the last chunk of the last text segment, regardless of trailing pause / silence frames.
         let lastTextSegmentIndex = segments.lastIndex(where: {
             if case .text = $0 { return true } else { return false }
         }) ?? -1
 
-        // One generator drives the entire synthesis so the noise draw is
-        // reproducible under a supplied seed. When no seed is given we seed
-        // from a fresh random value — identical to the old per-frame system
-        // RNG in outcome (stochastic), but funneled through one code path.
+        // One generator drives the entire synthesis so the noise draw is reproducible under a supplied seed. When no seed is given we seed from a fresh random value — identical to the old per-frame system RNG in outcome (stochastic), but funneled through one code path.
         var rng = SeededGenerator(seed: options.seed ?? UInt64.random(in: .min ... .max))
 
         for (segIdx, segment) in segments.enumerated() {
@@ -297,17 +220,9 @@ actor TTSEngine: TTSEngineProtocol {
 
     // MARK: - Per-text-segment dispatch
 
-    /// Drives the existing chunker + AR loop for ONE text segment
-    /// (one element from `parsePauseMarkers`'s output that's a
-    /// `.text(...)` case). Adds a 1-frame buffer wrapped around the
-    /// AR yields so we can apply an 80 ms linear fade-out to the LAST
-    /// PCM frame of the segment when a pause follows. Fade-in to the
-    /// first frame is applied inline when a pause preceded.
+    /// Drives the existing chunker + AR loop for ONE text segment (one element from `parsePauseMarkers`'s output that's a `.text(...)` case). Adds a 1-frame buffer wrapped around the AR yields so we can apply an 80 ms linear fade-out to the LAST PCM frame of the segment when a pause follows. Fade-in to the first frame is applied inline when a pause preceded.
     ///
-    /// Latency cost: the buffer delays every yield by one frame
-    /// (80 ms). The user perceives a slightly later start to playback
-    /// but it's well below the human-perception threshold and Python's
-    /// reference implementation has the same delay by design.
+    /// Latency cost: the buffer delays every yield by one frame (80 ms). The user perceives a slightly later start to playback but it's well below the human-perception threshold and Python's reference implementation has the same delay by design.
     private func runTextSegment(
         text: String,
         voice: LoadedVoice,
@@ -323,16 +238,12 @@ actor TTSEngine: TTSEngineProtocol {
         let chunks = splitForTokenLimit(normalized, budget: options.chunkTokenBudget)
         print("[PocketTTS] split into \(chunks.count) chunk(s) (budget \(options.chunkTokenBudget))")
 
-        // One-frame buffer. `pending` holds the most recently produced
-        // PCM frame; we yield it on the NEXT frame's arrival, which
-        // means by the time the chunk loop exits, exactly one frame is
-        // still buffered. That's where the optional fade-out goes.
+        // One-frame buffer. `pending` holds the most recently produced PCM frame; we yield it on the NEXT frame's arrival, which means by the time the chunk loop exits, exactly one frame is still buffered. That's where the optional fade-out goes.
         var pending: PCMFrame? = nil
         var isFirstFrameOfSegment = true
 
         let chunkYield: (PCMFrame) -> Void = { incoming in
-            // Apply fade-in to the absolute first audio frame of this
-            // text segment when a pause immediately preceded.
+            // Apply fade-in to the absolute first audio frame of this text segment when a pause immediately preceded.
             var prepared = incoming
             if isFirstFrameOfSegment && prevIsPause {
                 prepared = PCMFrame(
@@ -354,9 +265,7 @@ actor TTSEngine: TTSEngineProtocol {
                 break
             }
             if chunks.count > 1 { print("[PocketTTS] chunk \(i + 1)/\(chunks.count)") }
-            // The absolute-last-frame `isFinal=true` contract: only set
-            // when this is the last chunk of the last text segment.
-            // Pause-segment silence frames never trigger isFinal.
+            // The absolute-last-frame `isFinal=true` contract: only set when this is the last chunk of the last text segment. Pause-segment silence frames never trigger isFinal.
             let isLastChunk = isLastTextSegment && (i == chunks.count - 1)
             try runSynthesisChunk(
                 text: chunk,
@@ -369,8 +278,7 @@ actor TTSEngine: TTSEngineProtocol {
             )
         }
 
-        // Flush the buffered final frame with optional fade-out when a
-        // pause follows. Mirrors `tts_model.py:556-562`.
+        // Flush the buffered final frame with optional fade-out when a pause follows. Mirrors `tts_model.py:556-562`.
         if let final = pending {
             let out: PCMFrame
             if nextIsPause {
@@ -385,12 +293,7 @@ actor TTSEngine: TTSEngineProtocol {
         }
     }
 
-    /// Emits zero-filled PCM frames totalling at least `seconds` of
-    /// silence, in 1920-sample chunks (one PCMFrame each). Polls the
-    /// cancellation flag between frames so a long pause doesn't block
-    /// the stop button. Always uses `isFinal: false` — even if the
-    /// pause is the very last segment, the audio that preceded it
-    /// already raised isFinal on its actual final frame.
+    /// Emits zero-filled PCM frames totalling at least `seconds` of silence, in 1920-sample chunks (one PCMFrame each). Polls the cancellation flag between frames so a long pause doesn't block the stop button. Always uses `isFinal: false` — even if the pause is the very last segment, the audio that preceded it already raised isFinal on its actual final frame.
     private nonisolated func yieldSilence(
         seconds: Double,
         continuation: AsyncStream<PCMFrame>.Continuation,
@@ -420,14 +323,10 @@ actor TTSEngine: TTSEngineProtocol {
 
     // MARK: - Boundary fade helpers (P0-4 / P0-5)
     //
-    // Linear ramp over the first / last `fadeSamples` samples of a
-    // buffer. Port of the Python idiom:
+    // Linear ramp over the first / last `fadeSamples` samples of a buffer. Port of the Python idiom:
     //   buffered_chunk[:n] *= torch.linspace(0.0, 1.0, n)  // fade-in
     //   buffered_chunk[-n:] *= torch.linspace(1.0, 0.0, n) // fade-out
-    // The Python `linspace(a, b, n)` is INCLUSIVE on both ends — same
-    // here. With n == count (typical when fade covers a whole 1920-
-    // sample frame), the very first sample is multiplied by 0 and the
-    // very last by 1 on fade-in (and reversed on fade-out).
+    // The Python `linspace(a, b, n)` is INCLUSIVE on both ends — same here. With n == count (typical when fade covers a whole 1920- sample frame), the very first sample is multiplied by 0 and the very last by 1 on fade-in (and reversed on fade-out).
 
     nonisolated static func applyLinearFadeIn(_ samples: [Float], fadeSamples: Int) -> [Float] {
         let n = min(fadeSamples, samples.count)
@@ -444,21 +343,12 @@ actor TTSEngine: TTSEngineProtocol {
         return out
     }
 
-    /// Apply a linear fade ramp across a slice of a multi-frame tail
-    /// region to the supplied frame's samples. Used by the AR loop to
-    /// taper the EOS frame + post-EOS tail across multiple PCMFrame
-    /// yields. The total ramp spans `totalTailFrames * samples.count`
-    /// samples — gain is 1.0 at sample 0 of the EOS frame and 0.0 at
-    /// the last sample of the final tail frame; everything between
-    /// linearly interpolates.
+    /// Apply a linear fade ramp across a slice of a multi-frame tail region to the supplied frame's samples. Used by the AR loop to taper the EOS frame + post-EOS tail across multiple PCMFrame yields. The total ramp spans `totalTailFrames * samples.count` samples — gain is 1.0 at sample 0 of the EOS frame and 0.0 at the last sample of the final tail frame; everything between linearly interpolates.
     ///
-    ///   * `framesIntoTail` — index of this frame within the tail
-    ///     region. 0 = the EOS-detection frame itself.
-    ///   * `totalTailFrames` — total frame count in the tail region.
-    ///     `framesAfterEOS + 1` (EOS frame + N trailing).
+    ///   * `framesIntoTail` — index of this frame within the tail region. 0 = the EOS-detection frame itself.
+    ///   * `totalTailFrames` — total frame count in the tail region. `framesAfterEOS + 1` (EOS frame + N trailing).
     ///
-    /// Returns input unchanged if `totalTailFrames <= 1` or the
-    /// frame index is out of range.
+    /// Returns input unchanged if `totalTailFrames <= 1` or the frame index is out of range.
     nonisolated static func applyTailFade(
         _ samples: [Float],
         framesIntoTail: Int,
@@ -499,28 +389,15 @@ actor TTSEngine: TTSEngineProtocol {
 
     // MARK: - K/V frame budget (state-capacity clamp)
 
-    /// Max AR steps a chunk may run so the CaLM K/V write position
-    /// (`tPrompt + step`) stays inside the model's `K.maxSeq`-slot state.
-    /// Writing past the last slot is undefined behavior: the ANE's e5rt
-    /// runtime aborts the process (field crash signature:
-    /// MLE5BindEmptyMemoryObjectToPort / SIGABRT on M4 + macOS 26.6),
-    /// while GPU/CPU dispatch silently corrupts attention (garbled
-    /// audio). Long voice prefixes (imported/recorded voices bake up to
-    /// 200 positions vs 125–161 for stock) plus a long chunk can push
-    /// `tPrompt + step` past `maxSeq` without this clamp.
+    /// Max AR steps a chunk may run so the CaLM K/V write position (`tPrompt + step`) stays inside the model's `K.maxSeq`-slot state. Writing past the last slot is undefined behavior: the ANE's e5rt runtime aborts the process (field crash signature:
+    /// MLE5BindEmptyMemoryObjectToPort / SIGABRT on M4 + macOS 26.6), while GPU/CPU dispatch silently corrupts attention (garbled audio). Long voice prefixes (imported/recorded voices bake up to 200 positions vs 125–161 for stock) plus a long chunk can push `tPrompt + step` past `maxSeq` without this clamp.
     ///
-    /// Pure + nonisolated for unit testing. Never negative: a `tPrompt`
-    /// at/over capacity (corrupt voice metadata) yields 0 so the AR loop
-    /// simply doesn't run rather than trapping on a negative Range.
+    /// Pure + nonisolated for unit testing. Never negative: a `tPrompt` at/over capacity (corrupt voice metadata) yields 0 so the AR loop simply doesn't run rather than trapping on a negative Range.
     nonisolated static func kvFrameBudget(maxFrames: Int, tPrompt: Int) -> Int {
         max(0, min(maxFrames, K.maxSeq - tPrompt))
     }
 
-    /// Synthesize one text chunk through the prompt-phase + AR loop.
-    /// Yields PCM frames via the caller-supplied `yield` closure rather
-    /// than directly to the AsyncStream continuation — `runTextSegment`
-    /// wraps `yield` with a 1-frame buffer so it can apply boundary
-    /// fades to the segment's first / last frame.
+    /// Synthesize one text chunk through the prompt-phase + AR loop. Yields PCM frames via the caller-supplied `yield` closure rather than directly to the AsyncStream continuation — `runTextSegment` wraps `yield` with a 1-frame buffer so it can apply boundary fades to the segment's first / last frame.
     private func runSynthesisChunk(
         text: String,
         voice: LoadedVoice,
@@ -530,18 +407,13 @@ actor TTSEngine: TTSEngineProtocol {
         isLastChunk: Bool,
         rng: inout SeededGenerator
     ) throws {
-        // Per-chunk text prep (P0-3): collapse whitespace, capitalize first,
-        // ensure terminal punctuation, pad short prompts. Also yields the
-        // per-chunk `framesAfterEosGuess` we add 2 to for trailing tail.
+        // Per-chunk text prep (P0-3): collapse whitespace, capitalize first, ensure terminal punctuation, pad short prompts. Also yields the per-chunk `framesAfterEosGuess` we add 2 to for trailing tail.
         guard let prepared = TextPreprocessor.prepareTextPrompt(text) else { return }
         var chunkOptions = options
         chunkOptions.framesAfterEOS = prepared.framesAfterEosGuess + 2
 
         if K.eosTraceEnabled {
-            // Header for the trace block — text first 80 chars + the
-            // per-chunk tail-frame budget so we can correlate the
-            // step number where smoothedFire lands against the chunk
-            // length and shape.
+            // Header for the trace block — text first 80 chars + the per-chunk tail-frame budget so we can correlate the step number where smoothedFire lands against the chunk length and shape.
             let textPreview = prepared.text.prefix(80)
             print("[EOS-TRACE] === chunk text: \"\(textPreview)\" framesAfterEOS=\(chunkOptions.framesAfterEOS) ===")
             print("[EOS-TRACE] step    logit  counter  fire")
@@ -579,9 +451,7 @@ actor TTSEngine: TTSEngineProtocol {
         print("[PocketTTS] KV copy: \(String(format: "%.1f", copyMs))ms")
 
         // 6) Clamp the AR frame budget to the K/V state capacity — every
-        // AR step writes at position `tPrompt + step` and the state has
-        // exactly `K.maxSeq` slots. See `kvFrameBudget` for why crossing
-        // the boundary is a hard crash on the ANE.
+        // AR step writes at position `tPrompt + step` and the state has exactly `K.maxSeq` slots. See `kvFrameBudget` for why crossing the boundary is a hard crash on the ANE.
         let frameBudget = Self.kvFrameBudget(maxFrames: chunkOptions.maxFrames, tPrompt: tPrompt)
         if frameBudget < chunkOptions.maxFrames {
             print("[PocketTTS] frame budget clamped to \(frameBudget)/\(chunkOptions.maxFrames) (t_prompt=\(tPrompt), maxSeq=\(K.maxSeq))")
@@ -590,11 +460,7 @@ actor TTSEngine: TTSEngineProtocol {
         // 7) AR loop: CaLM → next_latent → Mimi → PCM frame → emit.
         var prevLatent = [Float](repeating: .nan, count: 1 * 1 * K.ldim)   // BOS = NaN
         var eosStep: Int? = nil
-        // P-EOS-2: smoothed-fire counter. Increments each AR step the
-        // raw `eos_logit` is above threshold; resets to 0 the moment
-        // it drops below. EOS fires when the counter reaches
-        // `K.eosConsecutiveFrames`. On the canonical reference trace
-        // this lands within 1 frame of the fp32 reference.
+        // P-EOS-2: smoothed-fire counter. Increments each AR step the raw `eos_logit` is above threshold; resets to 0 the moment it drops below. EOS fires when the counter reaches `K.eosConsecutiveFrames`. On the canonical reference trace this lands within 1 frame of the fp32 reference.
         var consecutiveAboveThreshold = 0
         let loopStart = CFAbsoluteTimeGetCurrent()
         var produced = 0
@@ -614,9 +480,7 @@ actor TTSEngine: TTSEngineProtocol {
                 noise: noise
             )
 
-            // Update the consecutive-above-threshold counter; a single
-            // dip resets it. Translates the model's noisy logit into
-            // a stable "EOS detected" decision.
+            // Update the consecutive-above-threshold counter; a single dip resets it. Translates the model's noisy logit into a stable "EOS detected" decision.
             if eosLogit > K.eosLogitThreshold {
                 consecutiveAboveThreshold += 1
             } else {
@@ -639,32 +503,10 @@ actor TTSEngine: TTSEngineProtocol {
             )
 
             produced = step + 1
-            // `isFinal` is a stream-wide signal — only the absolute last
-            // frame of the whole synthesize call gets it. Per-chunk EOS
-            // tails are NOT final; the stream continues with the next
-            // chunk's prompt + AR loop. `StreamingPlayer` uses isFinal
-            // to schedule its drain callback (once per `play(stream:)`),
-            // so emitting it per-chunk would fire that callback multiple
-            // times — and SingleVoiceViewModel breaks its for-await on
-            // isFinal=true. Both wrong before the gate. See plan file.
-            // Record EOS BEFORE the yield so the EOS-detection frame
-            // itself is part of the tail-fade region (rather than
-            // emitting it at full amplitude and only fading the
-            // strictly post-EOS frames). `smoothedIsEos` here is the
-            // moment the consecutive-above-threshold counter reached
-            // `K.eosConsecutiveFrames` — i.e. the frame we commit to
-            // an EOS decision. Earlier above-threshold frames (steps
-            // 32, 33 in the canonical trace) keep playing at full
-            // amplitude; the fade starts at this committed-fire step
-            // so `framesAfterEOS` counts forward from a stable point.
+            // `isFinal` is a stream-wide signal — only the absolute last frame of the whole synthesize call gets it. Per-chunk EOS tails are NOT final; the stream continues with the next chunk's prompt + AR loop. `StreamingPlayer` uses isFinal to schedule its drain callback (once per `play(stream:)`), so emitting it per-chunk would fire that callback multiple times — and SingleVoiceViewModel breaks its for-await on isFinal=true. Both wrong before the gate. See plan file. Record EOS BEFORE the yield so the EOS-detection frame itself is part of the tail-fade region (rather than emitting it at full amplitude and only fading the strictly post-EOS frames). `smoothedIsEos` here is the moment the consecutive-above-threshold counter reached `K.eosConsecutiveFrames` — i.e. the frame we commit to an EOS decision. Earlier above-threshold frames (steps 32, 33 in the canonical trace) keep playing at full amplitude; the fade starts at this committed-fire step so `framesAfterEOS` counts forward from a stable point.
             if smoothedIsEos && eosStep == nil { eosStep = step }
 
-            // Budget-forced EOS: if the frame budget (state capacity or
-            // maxFrames) will end the loop before a natural EOS commits,
-            // commit one now so the chunk exits through the same tail-fade
-            // ramp as a real EOS — a fade at the boundary instead of a
-            // hard cut, and the stream-wide `isFinal` still lands on the
-            // chunk's last emitted frame.
+            // Budget-forced EOS: if the frame budget (state capacity or maxFrames) will end the loop before a natural EOS commits, commit one now so the chunk exits through the same tail-fade ramp as a real EOS — a fade at the boundary instead of a hard cut, and the stream-wide `isFinal` still lands on the chunk's last emitted frame.
             if eosStep == nil && step >= frameBudget - (chunkOptions.framesAfterEOS + 1) {
                 eosStep = step
             }
@@ -672,17 +514,9 @@ actor TTSEngine: TTSEngineProtocol {
             let isAtFinalChunkFrame = eosStep.map { step >= $0 + chunkOptions.framesAfterEOS } ?? false
             let final = isLastChunk && isAtFinalChunkFrame
 
-            // P-EOS-1: tail-fade mitigation for the CaLM eos_logit
-            // perturbation under Core ML fp16 state. Per the conversion
-            // project's EOS-margin investigation (FP16_AR_DRIFT.md item
+            // P-EOS-1: tail-fade mitigation for the CaLM eos_logit perturbation under Core ML fp16 state. Per the conversion project's EOS-margin investigation (FP16_AR_DRIFT.md item
             // #4 follow-up), the Core ML model fires EOS ~3 frames
-            // earlier than the fp32 reference and the perturbation
-            // isn't biased one direction — early-firing leaves
-            // cut-off articulation, late-firing leaves post-EOS noise.
-            // A linear 1.0 → 0.0 ramp across the entire tail region
-            // (EOS frame + framesAfterEOS trailing frames) smooths
-            // the cutoff in either direction without changing how
-            // many frames we emit (still matches upstream Python).
+            // earlier than the fp32 reference and the perturbation isn't biased one direction — early-firing leaves cut-off articulation, late-firing leaves post-EOS noise. A linear 1.0 → 0.0 ramp across the entire tail region (EOS frame + framesAfterEOS trailing frames) smooths the cutoff in either direction without changing how many frames we emit (still matches upstream Python).
             let totalTailFrames = chunkOptions.framesAfterEOS + 1
             let pcmToYield: [Float]
             if let e = eosStep {
@@ -714,9 +548,7 @@ actor TTSEngine: TTSEngineProtocol {
     private func loadImportedVoice(importID: String) throws -> LoadedVoice {
         if let cached = importedVoiceCache[importID] { return cached }
 
-        // Read the persisted KV path from the voice catalog JSON on disk.
-        // Can't access @MainActor VoiceManager from this actor, so we
-        // parse the catalog file directly.
+        // Read the persisted KV path from the voice catalog JSON on disk. Can't access @MainActor VoiceManager from this actor, so we parse the catalog file directly.
         let kvPath = try Self.findImportedVoiceKVPath(importID: importID)
 
         let voice = try VoiceLoader.loadVoice(from: kvPath)
@@ -729,21 +561,14 @@ actor TTSEngine: TTSEngineProtocol {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appDir = appSupport.appendingPathComponent("pocket-tts-macos", isDirectory: true)
 
-        // Resolve the active voices directory. VoiceManager.init runs a
-        // one-shot fish-voices/ → saved-voices/ migration; if that
-        // already ran (or this is a fresh install) we use saved-voices/.
-        // The legacy fallback covers the unlikely race where this
-        // engine path fires before VoiceManager has been touched.
+        // Resolve the active voices directory. VoiceManager.init runs a one-shot fish-voices/ → saved-voices/ migration; if that already ran (or this is a fresh install) we use saved-voices/. The legacy fallback covers the unlikely race where this engine path fires before VoiceManager has been touched.
         let savedDir = appDir.appendingPathComponent("saved-voices", isDirectory: true)
         let legacyDir = appDir.appendingPathComponent("fish-voices", isDirectory: true)
         let fm = FileManager.default
         let voicesDir = fm.fileExists(atPath: savedDir.path) ? savedDir : legacyDir
         let catalogURL = voicesDir.appendingPathComponent("voices.json")
 
-        // Try reading persisted path from catalog. voices.json stores
-        // basenames (post step-2 path migration); legacy data may have
-        // absolutes. lastPathComponent normalizes either case, then we
-        // resolve against the active voicesDir.
+        // Try reading persisted path from catalog. voices.json stores basenames (post step-2 path migration); legacy data may have absolutes. lastPathComponent normalizes either case, then we resolve against the active voicesDir.
         if let data = try? Data(contentsOf: catalogURL) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -769,23 +594,9 @@ actor TTSEngine: TTSEngineProtocol {
 
     // MARK: - Text splitting
 
-    /// Split `text` into chunks suitable for separate AR generations.
-    /// `budget` is the per-chunk SentencePiece-token target (caller-supplied,
-    /// driven by the app-level setting). Uses the SentencePiece-aware
-    /// chunker for `SentencePieceTokenizer`; falls back to a single chunk
-    /// for the test-only `FixedPhraseTokenizer` (its phrase is already
-    /// small enough to fit).
+    /// Split `text` into chunks suitable for separate AR generations. `budget` is the per-chunk SentencePiece-token target (caller-supplied, driven by the app-level setting). Uses the SentencePiece-aware chunker for `SentencePieceTokenizer`; falls back to a single chunk for the test-only `FixedPhraseTokenizer` (its phrase is already small enough to fit).
     ///
-    /// Two-pass design. The sentence-aware chunker packs to `budget` and
-    /// can return individual chunks larger than that when a single
-    /// sentence exceeds it — including the pathological case of an LLM
-    /// emitting a run-on with no internal `.`/`!`/`?`. The second pass
-    /// flat-maps any chunk that's still over the model's hard
-    /// `K.tTextMax` limit through `subdivideIfNeeded`, which falls back
-    /// to comma/semicolon/colon boundaries, then word boundaries, then a
-    /// hard token-index cut. Leave a small headroom (`-8`) below
-    /// `K.tTextMax` so the per-chunk `TextPreprocessor.prepareTextPrompt`
-    /// has room to pad short chunks with 8 leading spaces if it wants to.
+    /// Two-pass design. The sentence-aware chunker packs to `budget` and can return individual chunks larger than that when a single sentence exceeds it — including the pathological case of an LLM emitting a run-on with no internal `.`/`!`/`?`. The second pass flat-maps any chunk that's still over the model's hard `K.tTextMax` limit through `subdivideIfNeeded`, which falls back to comma/semicolon/colon boundaries, then word boundaries, then a hard token-index cut. Leave a small headroom (`-8`) below `K.tTextMax` so the per-chunk `TextPreprocessor.prepareTextPrompt` has room to pad short chunks with 8 leading spaces if it wants to.
     private func splitForTokenLimit(_ text: String, budget: Int) -> [String] {
         guard let sp = tokenizer as? SentencePieceTokenizer else { return [text] }
         let sentenceChunks = sp.splitIntoBestSentences(text, maxTokensPerChunk: budget)
@@ -805,8 +616,7 @@ actor TTSEngine: TTSEngineProtocol {
     }
 
     private func copyKVState(from src: MLState, to dst: MLState) throws {
-        // 12 buffers, each maxSeq * nHeads * dHead = 524288 Float16 elements = 1 MiB.
-        // Use one tmp buffer per layer to avoid re-allocations across the loop.
+        // 12 buffers, each maxSeq * nHeads * dHead = 524288 Float16 elements = 1 MiB. Use one tmp buffer per layer to avoid re-allocations across the loop.
         for i in 0..<K.nLayers {
             try copyOneStateBuffer(name: "kv_k_\(i)", from: src, to: dst)
             try copyOneStateBuffer(name: "kv_v_\(i)", from: src, to: dst)
@@ -814,8 +624,7 @@ actor TTSEngine: TTSEngineProtocol {
     }
 
     private func copyOneStateBuffer(name: String, from src: MLState, to dst: MLState) throws {
-        // Read from src, then write to dst. We don't try to share a pointer
-        // across the two MLState objects — that's not promised by Core ML.
+        // Read from src, then write to dst. We don't try to share a pointer across the two MLState objects — that's not promised by Core ML.
         var captured: [Float16] = []
         try captureFloat16(state: src, name: name, into: &captured)
         try writeFloat16Buffer(state: dst, name: name, source: captured)
@@ -903,13 +712,7 @@ actor TTSEngine: TTSEngineProtocol {
             from: try MLDictionaryFeatureProvider(dictionary: inputs),
             using: state
         )
-        // P-EOS-2: the rebuilt CaLM exposes `eos_logit` (raw fp32 from
-        // `flow_lm.out_eos(last_x)`, pre-threshold) so the Swift AR
-        // loop can apply its own smoothing/hysteresis instead of
-        // trusting the model's single-frame -4.0 threshold (which
-        // fires ~3 frames early under fp16 K/V state perturbation).
-        // `is_eos` is still emitted by the model but redundant once
-        // we read the raw logit.
+        // P-EOS-2: the rebuilt CaLM exposes `eos_logit` (raw fp32 from `flow_lm.out_eos(last_x)`, pre-threshold) so the Swift AR loop can apply its own smoothing/hysteresis instead of trusting the model's single-frame -4.0 threshold (which fires ~3 frames early under fp16 K/V state perturbation). `is_eos` is still emitted by the model but redundant once we read the raw logit.
         guard let nextLatentArr = out.featureValue(for: "next_latent")?.multiArrayValue,
               let eosLogitArr = out.featureValue(for: "eos_logit")?.multiArrayValue
         else {
@@ -950,15 +753,9 @@ actor TTSEngine: TTSEngineProtocol {
 
     // MARK: - Noise generation
 
-    /// Truncated normal sampler. Matches the reference FlowLM behavior
-    /// (`torch.nn.init.trunc_normal_(mean=0, std=std, a=-clamp, b=clamp)`).
-    /// Box-Muller for the underlying normal; rejection for the truncation.
-    /// When `clamp` is nil, no truncation is applied (matches Python's
-    /// `DEFAULT_NOISE_CLAMP = None`).
+    /// Truncated normal sampler. Matches the reference FlowLM behavior (`torch.nn.init.trunc_normal_(mean=0, std=std, a=-clamp, b=clamp)`). Box-Muller for the underlying normal; rejection for the truncation. When `clamp` is nil, no truncation is applied (matches Python's `DEFAULT_NOISE_CLAMP = None`).
     ///
-    /// Draws from the caller-supplied `SeededGenerator` (threaded from
-    /// `runSynthesis`) so the whole utterance's noise is reproducible under
-    /// a supplied seed. The generator is advanced in-place across frames.
+    /// Draws from the caller-supplied `SeededGenerator` (threaded from `runSynthesis`) so the whole utterance's noise is reproducible under a supplied seed. The generator is advanced in-place across frames.
     private func sampleTruncNormal(count: Int, std: Float, clamp: Float?, using generator: inout SeededGenerator) -> [Float] {
         var out = [Float](); out.reserveCapacity(count)
         while out.count < count {

@@ -153,59 +153,43 @@ final class TextNormalizerTests: XCTestCase {
 
     // MARK: - ALL CAPS / acronyms
     //
-    // Default behavior: ALL-CAPS words lowercase down to normal text so
-    // the model pronounces them as words ("HELLO" → "hello", "FBI" →
-    // "fbi"). Letter-spelling was the prior default and reliably
-    // butchered emphasis-style ALL CAPS that LLMs + humans produce.
-    // Real initialisms that read fine as a word (NASA, NATO, ASAP)
-    // stay preserved via `spokenAcronyms`.
+    // Default behavior: ALL-CAPS words lowercase down to normal text so the model pronounces them as words ("HELLO" → "hello", "FBI" → "fbi"). Letter-spelling was the prior default and reliably butchered emphasis-style ALL CAPS that LLMs + humans produce. Real initialisms that read fine as a word (NASA, NATO, ASAP) stay preserved via `spokenAcronyms`.
 
     func test_allCapsLowercasedToNormalText() {
-        // Single-word emphasis case — the main reason this rule
-        // changed. "HELLO" was previously spelled out "H E L L O".
+        // Single-word emphasis case — the main reason this rule changed. "HELLO" was previously spelled out "H E L L O".
         let result = TextNormalizer.normalize("She said HELLO loudly.")
         XCTAssertTrue(result.contains("hello"), "Got: \(result)")
         XCTAssertFalse(result.contains("H E L L O"), "Got: \(result)")
     }
 
     func test_allCapsLongWordLowercased() {
-        // The previous {2,5} regex missed 6+ char ALL CAPS like
-        // "AMAZING". Verify the widened pattern catches it.
+        // The previous {2,5} regex missed 6+ char ALL CAPS like "AMAZING". Verify the widened pattern catches it.
         let result = TextNormalizer.normalize("That is AMAZING news.")
         XCTAssertTrue(result.contains("amazing"), "Got: \(result)")
     }
 
     func test_allCapsAcronymLowercased() {
-        // Non-whitelisted acronyms also lowercase. "FBI" → "fbi";
-        // the model handles it well enough that this is preferable
-        // to the previous letter-spelled "F B I" which had its own
-        // pronunciation quirks (mid-word pauses, etc.).
+        // Non-whitelisted acronyms also lowercase. "FBI" → "fbi"; the model handles it well enough that this is preferable to the previous letter-spelled "F B I" which had its own pronunciation quirks (mid-word pauses, etc.).
         let result = TextNormalizer.normalize("The FBI investigates")
         XCTAssertTrue(result.contains("fbi"), "Got: \(result)")
         XCTAssertFalse(result.contains("F B I"), "Got: \(result)")
     }
 
     func test_spokenAcronymPreserved() {
-        // Whitelist still wins — NASA is read as a word by the model
-        // when capitalized, so don't touch it.
+        // Whitelist still wins — NASA is read as a word by the model when capitalized, so don't touch it.
         let result = TextNormalizer.normalize("NASA launched")
         XCTAssertTrue(result.contains("NASA"), "Got: \(result)")
     }
 
     func test_mixedCaseUntouched() {
-        // Title-cased and CamelCase words should pass through. The
-        // pattern requires `[A-Z]{2,}` at word boundaries.
+        // Title-cased and CamelCase words should pass through. The pattern requires `[A-Z]{2,}` at word boundaries.
         XCTAssertEqual(TextNormalizer.normalize("Hello World"), "Hello World")
         XCTAssertEqual(TextNormalizer.normalize("iPhone updated"), "iPhone updated")
     }
 
     // MARK: - Stage-direction stripping
     //
-    // LLMs reliably emit parenthetical / asterisk / bracketed asides
-    // ("(slams fist)", "*squints*", "[whispering]") even when told not
-    // to. `stripStageDirections` is applied at the AI-source boundary
-    // (AI Writer modal output, Chat-tab sentence-to-TTS dispatch,
-    // chat-transcript-to-MultiTalk export).
+    // LLMs reliably emit parenthetical / asterisk / bracketed asides ("(slams fist)", "*squints*", "[whispering]") even when told not to. `stripStageDirections` is applied at the AI-source boundary (AI Writer modal output, Chat-tab sentence-to-TTS dispatch, chat-transcript-to-MultiTalk export).
 
     func test_stripStageDirections_parenthetical() {
         let input = "He sighed (slams fist down) and continued."
@@ -220,25 +204,21 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripStageDirections_doubleAsterisk() {
-        // Markdown-style **bold** asides also get stripped — common
-        // pattern from LLMs trying to "emphasize" stage directions.
+        // Markdown-style **bold** asides also get stripped — common pattern from LLMs trying to "emphasize" stage directions.
         let input = "She said **laughs** that's funny."
         let expected = "She said that's funny."
         XCTAssertEqual(TextNormalizer.stripStageDirections(input), expected)
     }
 
     func test_stripStageDirections_bracketsPreservedByDefault() {
-        // Default (`stripBracketedTags: false`) keeps brackets intact —
-        // this is the Fish-Speech path, where `[whispering]` is an
-        // emotional-tag control signal the synthesizer reads directly.
+        // Default (`stripBracketedTags: false`) keeps brackets intact — this is the Fish-Speech path, where `[whispering]` is an emotional-tag control signal the synthesizer reads directly.
         let input = "Then [whispering] don't tell anyone."
         let expected = "Then [whispering] don't tell anyone."
         XCTAssertEqual(TextNormalizer.stripStageDirections(input), expected)
     }
 
     func test_stripStageDirections_bracketsStrippedWhenRequested() {
-        // Pocket-TTS path — `stripBracketedTags: true` removes
-        // `[whispering]` because the synth can't use it.
+        // Pocket-TTS path — `stripBracketedTags: true` removes `[whispering]` because the synth can't use it.
         let input = "Then [whispering] don't tell anyone."
         let expected = "Then don't tell anyone."
         XCTAssertEqual(
@@ -248,10 +228,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripStageDirections_preservesPauseMarkersEvenWhenStripping() {
-        // The bracket rule has a negative lookahead for `\d+s` so pause
-        // markers survive regardless of `stripBracketedTags`. Both
-        // Multi-Talk and Single Voice rely on pause markers reaching
-        // `parsePauseMarkers` intact.
+        // The bracket rule has a negative lookahead for `\d+s` so pause markers survive regardless of `stripBracketedTags`. Both Multi-Talk and Single Voice rely on pause markers reaching `parsePauseMarkers` intact.
         let input = "Hello. [1.5s] World."
         XCTAssertEqual(
             TextNormalizer.stripStageDirections(input),
@@ -264,9 +241,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripStageDirections_preservesSpeakerTags() {
-        // Curly-brace speaker tags are never touched; they're used for
-        // Multi-Talk speaker assignment downstream. Parens + asterisks
-        // strip in both modes; brackets only strip with the flag.
+        // Curly-brace speaker tags are never touched; they're used for Multi-Talk speaker assignment downstream. Parens + asterisks strip in both modes; brackets only strip with the flag.
         let input = "{Alice} hello (waves) world {Bob} hi *grins*"
         let expected = "{Alice} hello world {Bob} hi"
         XCTAssertEqual(TextNormalizer.stripStageDirections(input), expected)
@@ -277,16 +252,14 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripStageDirections_collapsesSpaceBeforePunctuation() {
-        // Stripping "(blah)" between a word and its terminal `.`
-        // shouldn't leave a dangling space before the period.
+        // Stripping "(blah)" between a word and its terminal `.` shouldn't leave a dangling space before the period.
         let input = "He went home (eventually)."
         let expected = "He went home."
         XCTAssertEqual(TextNormalizer.stripStageDirections(input), expected)
     }
 
     func test_stripStageDirections_idempotent() {
-        // Running twice should match running once — safe to invoke at
-        // multiple boundaries without compounding effects.
+        // Running twice should match running once — safe to invoke at multiple boundaries without compounding effects.
         let input = "Hello (grins) world."
         let once = TextNormalizer.stripStageDirections(input)
         let twice = TextNormalizer.stripStageDirections(once)
@@ -300,8 +273,7 @@ final class TextNormalizerTests: XCTestCase {
 
     // MARK: - Emoji stripping
     //
-    // LLMs inject emoji freely; Pocket-TTS byte-fallbacks them into garble.
-    // stripEmojis is the speech/export boundary; normalize() also calls it.
+    // LLMs inject emoji freely; Pocket-TTS byte-fallbacks them into garble. stripEmojis is the speech/export boundary; normalize() also calls it.
 
     func test_stripEmojis_removesCommonEmojiAndTidiesSpaces() {
         let input = "Oh boy 😂 Fox, deal me one more round 🔥!"
@@ -332,17 +304,11 @@ final class TextNormalizerTests: XCTestCase {
         XCTAssertTrue(result.lowercased().contains("points"), result)
     }
 
-    // pretoken leading-space attachment lives in QwenTokenEstimator (unit-tested
-    // via count stability: multi-word strings must not overcount by ~1/word).
+    // pretoken leading-space attachment lives in QwenTokenEstimator (unit-tested via count stability: multi-word strings must not overcount by ~1/word).
 
     // MARK: - Whisper-artifact stripping
     //
-    // WhisperKit emits non-speech markers like `[music]`, `[silence]`,
-    // `[BLANK_AUDIO]`, `[laughter]`, `[applause]` as bracketed text.
-    // These flow into the TTS pipeline and get spoken literally unless
-    // stripped pre-synthesis. The whitelist lives in
-    // TextNormalizer.whisperArtifactRegex; grow it from console logs
-    // when new tags surface.
+    // WhisperKit emits non-speech markers like `[music]`, `[silence]`, `[BLANK_AUDIO]`, `[laughter]`, `[applause]` as bracketed text. These flow into the TTS pipeline and get spoken literally unless stripped pre-synthesis. The whitelist lives in TextNormalizer.whisperArtifactRegex; grow it from console logs when new tags surface.
 
     func test_stripWhisperArtifacts_silenceLowercase() {
         XCTAssertEqual(
@@ -373,9 +339,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_blankAudioSpaceThenUnderscore() {
-        // Observed from a real Whisper output: a space appears
-        // between "BLANK" and "_AUDIO". The pattern uses [ _]* to
-        // tolerate any combo of separator chars.
+        // Observed from a real Whisper output: a space appears between "BLANK" and "_AUDIO". The pattern uses [ _]* to tolerate any combo of separator chars.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("[BLANK _AUDIO] end."),
             "end."
@@ -383,10 +347,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_blankAudioDoubleUnderscore() {
-        // After stripping the artifact, only "." remains — which the
-        // no-letters check correctly drops. Result is empty so
-        // TimelineAlignedRenderer skips this segment instead of
-        // emitting a TTS reading of a lone period.
+        // After stripping the artifact, only "." remains — which the no-letters check correctly drops. Result is empty so TimelineAlignedRenderer skips this segment instead of emitting a TTS reading of a lone period.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("[BLANK__AUDIO]."),
             ""
@@ -394,8 +355,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_silenceParensCapitalized() {
-        // Observed from a real Whisper output: parens form with a
-        // capitalized keyword.
+        // Observed from a real Whisper output: parens form with a capitalized keyword.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("She paused (Silence) then spoke."),
             "She paused then spoke."
@@ -425,17 +385,13 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_preservesPauseMarkers() {
-        // [Xs] pause markers must survive — they're keyword-gated
-        // (not in the whitelist) and the regex only matches the
-        // listed artifact keywords inside brackets/parens.
+        // [Xs] pause markers must survive — they're keyword-gated (not in the whitelist) and the regex only matches the listed artifact keywords inside brackets/parens.
         let input = "Hello. [1.5s] World."
         XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(input), input)
     }
 
     func test_stripWhisperArtifacts_preservesUnknownBracketedContent() {
-        // Tags not in the whitelist (custom user content, real
-        // bracketed phrases) survive. Only the whitelisted artifact
-        // keywords get stripped.
+        // Tags not in the whitelist (custom user content, real bracketed phrases) survive. Only the whitelisted artifact keywords get stripped.
         let input = "She said [whispering]. Then [smiled]."
         XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(input), input)
     }
@@ -461,10 +417,7 @@ final class TextNormalizerTests: XCTestCase {
 
     // MARK: - Whisper dialogue markers
     //
-    // Whisper sometimes emits `>>` and `- ` as dialogue-turn markers.
-    // These leak into TTS as "greater than greater than" / "hyphen"
-    // unless stripped. Live in the same function as bracketed-artifact
-    // stripping since they're all WhisperKit transcription artifacts.
+    // Whisper sometimes emits `>>` and `- ` as dialogue-turn markers. These leak into TTS as "greater than greater than" / "hyphen" unless stripped. Live in the same function as bracketed-artifact stripping since they're all WhisperKit transcription artifacts.
 
     func test_stripWhisperArtifacts_leadingArrows() {
         XCTAssertEqual(
@@ -502,9 +455,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_preservesInternalHyphens() {
-        // Critical: leading-dash strip must NOT touch hyphens
-        // mid-word (compound words) or mid-string. Internal `-`s
-        // pass through unchanged.
+        // Critical: leading-dash strip must NOT touch hyphens mid-word (compound words) or mid-string. Internal `-`s pass through unchanged.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("She used self-help and co-worker support."),
             "She used self-help and co-worker support."
@@ -512,8 +463,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_preservesNegativeNumbers() {
-        // Trailing-space requirement on the leading-dash pattern
-        // keeps it from matching negative numbers (`-5`, `-3.14`).
+        // Trailing-space requirement on the leading-dash pattern keeps it from matching negative numbers (`-5`, `-3.14`).
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("-5 degrees outside."),
             "-5 degrees outside."
@@ -521,8 +471,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_combinedDialogueAndArtifact() {
-        // Real-world transcript: bracketed artifact + arrow + leading
-        // dash all in one segment. All three strip cleanly.
+        // Real-world transcript: bracketed artifact + arrow + leading dash all in one segment. All three strip cleanly.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts(">> [music] - We're back."),
             "We're back."
@@ -567,8 +516,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_emptyParensInMiddle() {
-        // Whisper sometimes emits a parenthetical that turns out to
-        // be empty in the middle of real text.
+        // Whisper sometimes emits a parenthetical that turns out to be empty in the middle of real text.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("Hello ( ) world."),
             "Hello world."
@@ -576,9 +524,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_stripWhisperArtifacts_balancedParensInMiddleSurvive() {
-        // Legitimate parenthetical mid-string should NOT be touched
-        // by the trailing/leading orphan-paren regex (those are
-        // anchored). Content with letters inside stays.
+        // Legitimate parenthetical mid-string should NOT be touched by the trailing/leading orphan-paren regex (those are anchored). Content with letters inside stays.
         XCTAssertEqual(
             TextNormalizer.stripWhisperArtifacts("Hello (world)."),
             "Hello (world)."
@@ -614,54 +560,39 @@ final class TextNormalizerTests: XCTestCase {
 
     // MARK: - Smart-punctuation normalization
     //
-    // The SentencePiece tokenizer maps ASCII punctuation to single
-    // canonical pieces; Unicode "smart" variants byte-fallback into
-    // 3-4 `<0xXX>` tokens the model wasn't trained on and reliably
-    // distorts. macOS auto-substitution and LLM-generated scripts emit
-    // curly variants by default, so this is the most common source of
-    // "every contraction sounds garbled" reports.
+    // The SentencePiece tokenizer maps ASCII punctuation to single canonical pieces; Unicode "smart" variants byte-fallback into 3-4 `<0xXX>` tokens the model wasn't trained on and reliably distorts. macOS auto-substitution and LLM-generated scripts emit curly variants by default, so this is the most common source of "every contraction sounds garbled" reports.
 
     func test_curlyApostropheBecomesAscii() {
-        // The canonical user-reported failing phrase. Verify the curly
-        // apostrophe gets replaced before tokenization.
+        // The canonical user-reported failing phrase. Verify the curly apostrophe gets replaced before tokenization.
         let curly = "While I appreciate the enthusiasm, let\u{2019}s keep things respectful."
         let ascii = "While I appreciate the enthusiasm, let's keep things respectful."
         XCTAssertEqual(TextNormalizer.normalize(curly), ascii)
     }
 
     func test_leftSingleQuoteBecomesAscii() {
-        // U+2018 is what macOS produces as an opening quote — often
-        // appears as `‘cause` or in quoted speech.
+        // U+2018 is what macOS produces as an opening quote — often appears as `‘cause` or in quoted speech.
         XCTAssertEqual(TextNormalizer.normalize("\u{2018}cause"), "'cause")
     }
 
     func test_curlyDoubleQuotesAreStripped() {
-        // Both ASCII `"` and curly `“`/`”` strip to empty in normalize.
-        // The model produces distorted audio around the `"` token in
-        // mid-sentence quoted phrases, so we drop the glyph entirely
-        // before tokenization. Stripped-into-empty + trailing
-        // whitespace collapse leaves the words readable.
+        // Both ASCII `"` and curly `“`/`”` strip to empty in normalize. The model produces distorted audio around the `"` token in mid-sentence quoted phrases, so we drop the glyph entirely before tokenization. Stripped-into-empty + trailing whitespace collapse leaves the words readable.
         let input = "She said \u{201C}hello\u{201D} and walked away."
         let expected = "She said hello and walked away."
         XCTAssertEqual(TextNormalizer.normalize(input), expected)
     }
 
     func test_horizontalEllipsisBecomesThreeDots() {
-        // U+2026 is a single character that byte-fallbacks to four
-        // tokens. Expanding to `...` lets the tokenizer use the
-        // canonical multi-dot piece (also an EOS-class token).
+        // U+2026 is a single character that byte-fallbacks to four tokens. Expanding to `...` lets the tokenizer use the canonical multi-dot piece (also an EOS-class token).
         XCTAssertEqual(TextNormalizer.normalize("Wait\u{2026} what?"), "Wait... what?")
     }
 
     func test_nonBreakingSpaceBecomesRegularSpace() {
-        // NBSP comes in from copy/paste of word-processed text and
-        // byte-fallbacks identically to a regular space wouldn't.
+        // NBSP comes in from copy/paste of word-processed text and byte-fallbacks identically to a regular space wouldn't.
         XCTAssertEqual(TextNormalizer.normalize("Hello\u{00A0}world"), "Hello world")
     }
 
     func test_asciiInputUntouchedExceptForQuotes() {
-        // Smart-punct doesn't touch ASCII apostrophes, punctuation, or
-        // word characters — only ASCII double quotes get stripped.
+        // Smart-punct doesn't touch ASCII apostrophes, punctuation, or word characters — only ASCII double quotes get stripped.
         let plain = "She's said: don't worry about it!"
         XCTAssertEqual(TextNormalizer.normalize(plain), plain)
     }
@@ -676,37 +607,29 @@ final class TextNormalizerTests: XCTestCase {
     // MARK: - Double-quote stripping (model-artifact mitigation)
 
     func test_asciiDoubleQuotesStripped() {
-        // The user-reported failing case — `"space station romance"`
-        // mid-sentence audibly distorts. Strip both quote characters
-        // so the words pass through cleanly; the whitespace collapse
-        // handles the runs of spaces left around the strips.
+        // The user-reported failing case — `"space station romance"` mid-sentence audibly distorts. Strip both quote characters so the words pass through cleanly; the whitespace collapse handles the runs of spaces left around the strips.
         let input = "He said \"space station romance\" today."
         let expected = "He said space station romance today."
         XCTAssertEqual(TextNormalizer.normalize(input), expected)
     }
 
     func test_sentenceEndingClosingQuotePreservesTerminator() {
-        // `?` stays as the terminal char after stripping the closing
-        // quote — the chunker's sentence-boundary detection (which
-        // looks for `. ! ... ?`) still fires.
+        // `?` stays as the terminal char after stripping the closing quote — the chunker's sentence-boundary detection (which looks for `. ! ... ?`) still fires.
         XCTAssertEqual(TextNormalizer.normalize("Why \"now\"?"), "Why now?")
     }
 
     func test_apostropheInsideQuotedStringPreserved() {
-        // Stripping `"` must not touch ASCII `'` — load-bearing for
-        // contractions ("don't", "let's").
+        // Stripping `"` must not touch ASCII `'` — load-bearing for contractions ("don't", "let's").
         XCTAssertEqual(TextNormalizer.normalize("\"don't worry\""), "don't worry")
     }
 
     func test_emptyQuotedStringCollapses() {
-        // `""` strips to empty, surrounding spaces collapse via the
-        // trailing `"  +" → " "` regex in normalize.
+        // `""` strips to empty, surrounding spaces collapse via the trailing `"  +" → " "` regex in normalize.
         XCTAssertEqual(TextNormalizer.normalize("He said \"\" loudly."), "He said loudly.")
     }
 
     func test_singleAsciiApostropheRoundTrips() {
-        // Regression guard: nothing in the quote-strip work touched the
-        // ASCII apostrophe. Contractions remain unchanged.
+        // Regression guard: nothing in the quote-strip work touched the ASCII apostrophe. Contractions remain unchanged.
         let phrase = "let's go to the store this afternoon."
         XCTAssertEqual(TextNormalizer.normalize(phrase), phrase)
     }
@@ -714,8 +637,7 @@ final class TextNormalizerTests: XCTestCase {
     // MARK: - Smart-punctuation Tier 1: invisibles & dash variants
 
     func test_softHyphenIsStripped() {
-        // Soft hyphen is a "may break here" hint, invisible in most contexts
-        // but byte-fallbacks. Always strip.
+        // Soft hyphen is a "may break here" hint, invisible in most contexts but byte-fallbacks. Always strip.
         XCTAssertEqual(TextNormalizer.normalize("super\u{00AD}market"), "supermarket")
     }
 
@@ -732,8 +654,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_lineSeparatorBecomesSpace() {
-        // Strip would jam words together. A space preserves the boundary
-        // and the trailing whitespace collapse handles any doubling.
+        // Strip would jam words together. A space preserves the boundary and the trailing whitespace collapse handles any doubling.
         XCTAssertEqual(TextNormalizer.normalize("foo\u{2028}bar"), "foo bar")
     }
 
@@ -746,8 +667,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_enAndEmDashesAreLeftAlone() {
-        // Both have their own BPE pieces in vocab; substituting would
-        // discard semantic punctuation the model can handle natively.
+        // Both have their own BPE pieces in vocab; substituting would discard semantic punctuation the model can handle natively.
         XCTAssertEqual(TextNormalizer.normalize("hello\u{2013}world this is a test"), "hello\u{2013}world this is a test")
         XCTAssertEqual(TextNormalizer.normalize("hello\u{2014}world this is a test"), "hello\u{2014}world this is a test")
     }
@@ -775,8 +695,7 @@ final class TextNormalizerTests: XCTestCase {
     // MARK: - Digit-grouping separators
 
     func test_groupedNumberReadsAsOneNumber() {
-        // No numeric expander tolerated the separator, so this used to split
-        // into "forty-five" + "six hundred and seven".
+        // No numeric expander tolerated the separator, so this used to split into "forty-five" + "six hundred and seven".
         XCTAssertEqual(
             TextNormalizer.normalize("The total was 45,607 units."),
             TextNormalizer.normalize("The total was 45607 units.")
@@ -799,8 +718,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_nonGroupingCommasAreLeftAlone() {
-        // A comma-separated list is not digit grouping: exactly three digits
-        // must follow. Each value stays its own number, commas intact.
+        // A comma-separated list is not digit grouping: exactly three digits must follow. Each value stays its own number, commas intact.
         XCTAssertEqual(
             TextNormalizer.normalize("items 1,2,3"),
             "items one,two,three"
@@ -823,8 +741,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_plusMinusMultiplyDivide() {
-        // `±` `×` `÷` between numbers — spoken as "plus or minus"/"times"/
-        // "divided by".
+        // `±` `×` `÷` between numbers — spoken as "plus or minus"/"times"/ "divided by".
         XCTAssertEqual(TextNormalizer.normalize("error 5\u{00B1}1"), "error five plus or minus one")
         XCTAssertEqual(TextNormalizer.normalize("size 3\u{00D7}4"), "size three times four")
         XCTAssertEqual(TextNormalizer.normalize("ratio 12\u{00F7}4"), "ratio twelve divided by four")
@@ -851,8 +768,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_combinedSmartPunctSentence() {
-        // One sentence that touches every tier. Curly double quotes
-        // around "hello" now strip to nothing (model artifact mitigation).
+        // One sentence that touches every tier. Curly double quotes around "hello" now strip to nothing (model artifact mitigation).
         let input = "She said \u{201C}hello\u{201D}\u{2026} I think it\u{2019}s about a 3\u{00D7}4 grid, \u{00BD} done\u{2026}"
         let expected = "She said hello... I think it's about a three times four grid, one half done..."
         XCTAssertEqual(TextNormalizer.normalize(input), expected)
@@ -860,9 +776,7 @@ final class TextNormalizerTests: XCTestCase {
 
     // MARK: - Pause-marker parsing
     //
-    // Mirrors Python's docstring examples at
-    // pocket_tts/text_normalizer.py:962-1000 plus edge cases. Used by
-    // the engine's Single-Voice pause-marker support (P0-4 / P0-5).
+    // Mirrors Python's docstring examples at pocket_tts/text_normalizer.py:962-1000 plus edge cases. Used by the engine's Single-Voice pause-marker support (P0-4 / P0-5).
 
     func test_parsePauseMarkers_singleMarker() {
         XCTAssertEqual(
@@ -872,8 +786,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_parsePauseMarkers_noMarkers() {
-        // Input with no `[Xs]` falls through to a single text segment
-        // containing the original string verbatim.
+        // Input with no `[Xs]` falls through to a single text segment containing the original string verbatim.
         XCTAssertEqual(
             TextNormalizer.parsePauseMarkers("No pauses here."),
             [.text("No pauses here.")]
@@ -897,8 +810,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_parsePauseMarkers_dropsWhitespaceOnlyTextSegments() {
-        // `[1s] text` has only whitespace before the marker, which is
-        // dropped. Trailing text stays. No leading empty `.text`.
+        // `[1s] text` has only whitespace before the marker, which is dropped. Trailing text stays. No leading empty `.text`.
         XCTAssertEqual(
             TextNormalizer.parsePauseMarkers("[1s] text"),
             [.pause(seconds: 1.0), .text(" text")]
@@ -906,8 +818,7 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_parsePauseMarkers_caseInsensitive() {
-        // `[1.5S]` and `[1.5s]` produce equivalent output — Python's
-        // re.IGNORECASE flag ported to NSRegularExpression options.
+        // `[1.5S]` and `[1.5s]` produce equivalent output — Python's re.IGNORECASE flag ported to NSRegularExpression options.
         let lower = TextNormalizer.parsePauseMarkers("a [1.5s] b")
         let upper = TextNormalizer.parsePauseMarkers("a [1.5S] b")
         XCTAssertEqual(lower, upper)

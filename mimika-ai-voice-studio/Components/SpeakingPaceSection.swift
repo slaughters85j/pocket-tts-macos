@@ -2,16 +2,9 @@
 //  SpeakingPaceSection.swift
 //  mimika-ai-voice-studio
 //
-//  Shared disclosure section for the Phase 9 "match original speaking
-//  pace" feature. Surfaced in both the Voice Changer sheet and the
-//  Speaker Isolator sheet so the same preference (persisted via
-//  `@AppStorage("matchOriginalPace")`) drives both revoice flows.
+//  Shared disclosure section for the Phase 9 "match original speaking pace" feature. Surfaced in both the Voice Changer sheet and the Speaker Isolator sheet so the same preference (persisted via `@AppStorage("matchOriginalPace")`) drives both revoice flows.
 //
-//  Structure mirrors `AudioPreservationSection`: chevron disclosure
-//  header → toggle row with help text under a `themePanel()` wrapper.
-//  No "(on)" indicator or missing-model hint — those are specific to
-//  Audio Preservation. The toggle greys out while a convert/revoice
-//  pipeline is running so the user can't change it mid-flight.
+//  Structure mirrors `AudioPreservationSection`: chevron disclosure header → toggle row with help text under a `themePanel()` wrapper. No "(on)" indicator or missing-model hint — those are specific to Audio Preservation. The toggle greys out while a convert/revoice pipeline is running so the user can't change it mid-flight.
 
 import SwiftUI
 
@@ -20,8 +13,7 @@ import SwiftUI
 struct SpeakingPaceSection: View {
 
     @Binding var isOn: Bool
-    /// Greyed out while a convert / revoice pipeline is running so the
-    /// user can't change the pace target mid-flight.
+    /// Greyed out while a convert / revoice pipeline is running so the user can't change the pace target mid-flight.
     let disabled: Bool
 
     @State private var isExpanded: Bool = true

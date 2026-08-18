@@ -18,8 +18,7 @@ extension ChatViewModel {
         browser.reload()
     }
 
-    /// Create a thread on first real content; debounce-save afterwards.
-    /// Mint the id on-thread and persist off-main — never `ioQueue.sync` here.
+    /// Create a thread on first real content; debounce-save afterwards. Mint the id on-thread and persist off-main — never `ioQueue.sync` here.
     func noteSoloThreadActivity() {
         if currentThreadID == nil {
             var record = ChatThreadRecord(
@@ -172,12 +171,7 @@ extension ChatViewModel {
         }
         guard usable.count >= 2 else { return }
         guard activeTurn == nil else { return }
-        // One at a time. Without this, a theme call that fails or returns empty
-        // leaves `existing` empty, so the NEXT turn starts another one — and a
-        // local server serves a single generation at a time, so those pile up in
-        // front of the user's next turn and delay its first token (and therefore
-        // the first spoken sentence). The catch below is silent, so nothing
-        // surfaces it. Cancel-and-replace instead of stacking.
+        // One at a time. Without this, a theme call that fails or returns empty leaves `existing` empty, so the NEXT turn starts another one — and a local server serves a single generation at a time, so those pile up in front of the user's next turn and delay its first token (and therefore the first spoken sentence). The catch below is silent, so nothing surfaces it. Cancel-and-replace instead of stacking.
         guard themeTask == nil else { return }
         let source = ChatThreadStore.themeSourceText(from: messages)
         let model = soloThemeModel
@@ -198,8 +192,7 @@ extension ChatViewModel {
                 ChatThreadStore.updateTheme(id: id, kind: .solo, theme: theme)
                 self.threadBrowser?.reload()
             } catch {
-                // Theme is decorative — never block the session. Logged so a
-                // persistently failing theme model is visible rather than silent.
+                // Theme is decorative — never block the session. Logged so a persistently failing theme model is visible rather than silent.
                 #if DEBUG
                 print("[ChatThreads] solo theme failed: \(error)")
                 #endif
@@ -207,8 +200,7 @@ extension ChatViewModel {
         }
     }
 
-    /// Stop a decorative theme request from holding the local model's single
-    /// generation slot while the user is trying to take a turn.
+    /// Stop a decorative theme request from holding the local model's single generation slot while the user is trying to take a turn.
     func cancelSoloThemeRequest() {
         themeTask?.cancel()
         themeTask = nil

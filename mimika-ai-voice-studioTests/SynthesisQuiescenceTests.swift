@@ -2,12 +2,7 @@
 //  SynthesisQuiescenceTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Regression tests for the quit-while-speaking termination gate. The 1.5.4
-//  crash: exit() destroys MPSGraph's static registries while an in-flight
-//  Core ML prediction on the cooperative pool still uses them. The gate lets
-//  applicationShouldTerminate cancel + drain producers before exit() runs.
-//  Pure-logic tests — no models loaded; each test uses its own gate instance
-//  so state never bleeds through the shared singleton.
+//  Regression tests for the quit-while-speaking termination gate. The 1.5.4 crash: exit() destroys MPSGraph's static registries while an in-flight Core ML prediction on the cooperative pool still uses them. The gate lets applicationShouldTerminate cancel + drain producers before exit() runs. Pure-logic tests — no models loaded; each test uses its own gate instance so state never bleeds through the shared singleton.
 //
 
 import XCTest
@@ -43,8 +38,7 @@ final class SynthesisQuiescenceTests: XCTestCase {
         gate.begin(a)
         gate.begin(b)
         gate.end(a)
-        // One producer down, the other still running — the gate must not
-        // report idle until BOTH deregister.
+        // One producer down, the other still running — the gate must not report idle until BOTH deregister.
         XCTAssertTrue(gate.hasActiveWork)
 
         gate.end(b)
@@ -68,9 +62,7 @@ final class SynthesisQuiescenceTests: XCTestCase {
     }
 
     func test_beginAfterShutdown_isCancelledAtRegistration() {
-        // Closes the race where a synthesis kicks off between the terminate
-        // decision and exit(): a producer registering post-latch must find
-        // its flag already flipped so it bails before the first model call.
+        // Closes the race where a synthesis kicks off between the terminate decision and exit(): a producer registering post-latch must find its flag already flipped so it bails before the first model call.
         let gate = SynthesisQuiescence()
         _ = gate.beginShutdown()
 
@@ -109,8 +101,7 @@ final class SynthesisQuiescenceTests: XCTestCase {
         await gate.drain(timeout: .milliseconds(200))
         let elapsed = ContinuousClock.now - start
 
-        // Returned despite active work — the cap that keeps a wedged
-        // prediction from blocking quit forever.
+        // Returned despite active work — the cap that keeps a wedged prediction from blocking quit forever.
         XCTAssertTrue(gate.hasActiveWork)
         XCTAssertGreaterThanOrEqual(elapsed, .milliseconds(200))
         XCTAssertLessThan(elapsed, .seconds(2))

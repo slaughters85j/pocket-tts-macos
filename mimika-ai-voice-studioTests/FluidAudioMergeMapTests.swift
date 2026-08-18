@@ -2,10 +2,7 @@
 //  FluidAudioMergeMapTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Unit coverage for the post-hoc speaker-merge helpers in
-//  FluidAudioDiarizationProvider+Clustering.swift: `canonicalSpeakerMap`
-//  (union-find collapse of phantom splits) and `mergeToTargetCount` (the
-//  forced "Number of Speakers" merge-down). Pure logic — no diarizer.
+//  Unit coverage for the post-hoc speaker-merge helpers in FluidAudioDiarizationProvider+Clustering.swift: `canonicalSpeakerMap` (union-find collapse of phantom splits) and `mergeToTargetCount` (the forced "Number of Speakers" merge-down). Pure logic — no diarizer.
 //
 
 import XCTest
@@ -13,8 +10,7 @@ import XCTest
 
 final class FluidAudioMergeMapTests: XCTestCase {
 
-    /// Resolve a raw ID through the canonical map (unmapped IDs are their
-    /// own canonical).
+    /// Resolve a raw ID through the canonical map (unmapped IDs are their own canonical).
     private func canonical(_ id: String, _ map: [String: String]) -> String {
         map[id] ?? id
     }
@@ -79,8 +75,7 @@ final class FluidAudioMergeMapTests: XCTestCase {
 
     // MARK: - mergeToTargetCount (forced "Number of Speakers")
 
-    // e1/e2 form one tight cluster, e3/e4 another; e1↔e2 is the single
-    // closest pair overall.
+    // e1/e2 form one tight cluster, e3/e4 another; e1↔e2 is the single closest pair overall.
     private var e1: [Float] { [1, 0, 0] }
     private var e2: [Float] { [0.99, 0.01, 0] }
     private var e3: [Float] { [0, 1, 0] }
@@ -115,26 +110,19 @@ final class FluidAudioMergeMapTests: XCTestCase {
         XCTAssertEqual(Set(["1", "2", "3", "4"].map { canonical($0, map) }).count, 1)
     }
 
-    /// Regression: the diarize() call site must exclude zero-segment
-    /// phantom DB speakers BEFORE merging to the target count. This test
-    /// pins the failure mode at the helper level: with the phantom
-    /// included, the two REAL close speakers ("1"/"2") collapse into one
-    /// and the phantom keeps the second slot; with it filtered (as the
-    /// call site now does), the real speakers survive as distinct.
+    /// Regression: the diarize() call site must exclude zero-segment phantom DB speakers BEFORE merging to the target count. This test pins the failure mode at the helper level: with the phantom included, the two REAL close speakers ("1"/"2") collapse into one and the phantom keeps the second slot; with it filtered (as the call site now does), the real speakers survive as distinct.
     func test_mergeToTargetCount_phantomSpeakerWouldConsumeSlot() {
         let real1: [Float] = [1, 0, 0]
         let real2: [Float] = [0.9, 0.435, 0]   // close-ish to real1, distinct voice
         let phantom: [Float] = [0, 0, 1]       // noise voice, far from both
 
-        // Unfiltered (the old bug): "1" and "2" are the closest pair, so
-        // target=2 merges the two real speakers and keeps the phantom.
+        // Unfiltered (the old bug): "1" and "2" are the closest pair, so target=2 merges the two real speakers and keeps the phantom.
         let buggy = FluidAudioDiarizationProvider.mergeToTargetCount(
             speakerCentroids: ["1": real1, "2": real2, "3": phantom], target: 2)
         XCTAssertEqual(canonical("1", buggy), canonical("2", buggy),
                        "precondition: unfiltered input merges the real pair")
 
-        // Filtered to segment-emitting speakers only: already at target,
-        // no merge happens and both real speakers survive.
+        // Filtered to segment-emitting speakers only: already at target, no merge happens and both real speakers survive.
         let fixed = FluidAudioDiarizationProvider.mergeToTargetCount(
             speakerCentroids: ["1": real1, "2": real2], target: 2)
         XCTAssertTrue(fixed.isEmpty)

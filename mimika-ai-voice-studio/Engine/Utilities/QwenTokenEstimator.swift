@@ -2,10 +2,7 @@
 //  QwenTokenEstimator.swift
 //  mimika-ai-voice-studio
 //
-//  Reference tokenizer for Ensemble context fill %. Loads the vendored Qwen3
-//  HuggingFace `tokenizer.json` and counts tokens with ByteLevel BPE.
-//  Close for Qwen-family models (leading-space pretokens + BPE); ballpark for
-//  others — used with a 90% toast, not a hard cut-off.
+//  Reference tokenizer for Ensemble context fill %. Loads the vendored Qwen3 HuggingFace `tokenizer.json` and counts tokens with ByteLevel BPE. Close for Qwen-family models (leading-space pretokens + BPE); ballpark for others — used with a 90% toast, not a hard cut-off.
 //
 
 import Foundation
@@ -14,10 +11,7 @@ import Foundation
 
 /// Lazy, thread-safe token counter backed by bundled Qwen3 BPE assets.
 ///
-/// Explicitly `nonisolated`: the target builds with
-/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
-/// type to the main actor and defeat the whole point of `prewarm()` — parsing
-/// 19 MB of JSON off the main thread. Isolation here is the `lock`, not an actor.
+/// Explicitly `nonisolated`: the target builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this type to the main actor and defeat the whole point of `prewarm()` — parsing 19 MB of JSON off the main thread. Isolation here is the `lock`, not an actor.
 nonisolated final class QwenTokenEstimator: @unchecked Sendable {
 
     static let shared = QwenTokenEstimator()
@@ -28,9 +22,7 @@ nonisolated final class QwenTokenEstimator: @unchecked Sendable {
     private var vocab: [String: Int] = [:]
     private var mergeRanks: [String: Int] = [:]  // "a b" → rank
     private var byteEncoder: [UInt8: Character] = [:]
-    /// `didStartLoad` claims the single background parse; `didLoad` publishes its
-    /// result. They must stay separate — one combined flag is what let every
-    /// `countTokens` miss re-dispatch another load (see `prewarm`).
+    /// `didStartLoad` claims the single background parse; `didLoad` publishes its result. They must stay separate — one combined flag is what let every `countTokens` miss re-dispatch another load (see `prewarm`).
     private var didStartLoad = false
     private var didLoad = false
     private var loadFailed = false
@@ -40,17 +32,9 @@ nonisolated final class QwenTokenEstimator: @unchecked Sendable {
         buildByteEncoder()
     }
 
-    /// Kick the 19 MB JSON parse off the main thread (utility QoS).
-    /// Safe to call repeatedly: the first caller claims the load, the rest
-    /// return immediately. Uses GCD (not Task) so callers on @MainActor never
-    /// need `await`.
+    /// Kick the 19 MB JSON parse off the main thread (utility QoS). Safe to call repeatedly: the first caller claims the load, the rest return immediately. Uses GCD (not Task) so callers on @MainActor never need `await`.
     //
-    // Land mine: this used to dispatch `countTokens(" ")`. Once `ensureLoaded()`
-    // stopped being called, `didLoad` never flipped, so that dispatched call took
-    // the not-ready branch and called `prewarm()` again — forever. Every call
-    // site seeded an immortal spin loop on the global queue (one per Ensemble
-    // turn, since `refreshContextFillEstimate` counts tokens), which starved the
-    // main thread. Keep the claim-once guard and never re-enter via `countTokens`.
+    // Land mine: this used to dispatch `countTokens(" ")`. Once `ensureLoaded()` stopped being called, `didLoad` never flipped, so that dispatched call took the not-ready branch and called `prewarm()` again — forever. Every call site seeded an immortal spin loop on the global queue (one per Ensemble turn, since `refreshContextFillEstimate` counts tokens), which starved the main thread. Keep the claim-once guard and never re-enter via `countTokens`.
     nonisolated static func prewarm() {
         let estimator = shared
         guard estimator.claimLoad() else { return }
@@ -59,12 +43,9 @@ nonisolated final class QwenTokenEstimator: @unchecked Sendable {
         }
     }
 
-    /// Token count for `text`. Falls back to a Qwen-ish char heuristic if the
-    /// bundled tokenizer cannot load.
+    /// Token count for `text`. Falls back to a Qwen-ish char heuristic if the bundled tokenizer cannot load.
     func countTokens(_ text: String) -> Int {
-        // Never parse the 19 MB tokenizer on the caller's thread. If load is
-        // still pending, return the heuristic and kick a background load —
-        // `prewarm()` is a no-op once the single parse has been claimed.
+        // Never parse the 19 MB tokenizer on the caller's thread. If load is still pending, return the heuristic and kick a background load — `prewarm()` is a no-op once the single parse has been claimed.
         if !isReady {
             Self.prewarm()
             return heuristicCount(text)
@@ -103,10 +84,7 @@ nonisolated final class QwenTokenEstimator: @unchecked Sendable {
 
     /// Parse the bundled tokenizer on the calling (background) thread, then publish.
     ///
-    /// The parse itself runs unlocked on purpose: `claimLoad()` guarantees a single
-    /// runner, and no reader touches `vocab` / `mergeRanks` until `didLoad` is set
-    /// under the lock below. Holding the lock across 19 MB of JSON would instead
-    /// block a main-thread `countTokens` on `isReady` for the whole parse.
+    /// The parse itself runs unlocked on purpose: `claimLoad()` guarantees a single runner, and no reader touches `vocab` / `mergeRanks` until `didLoad` is set under the lock below. Holding the lock across 19 MB of JSON would instead block a main-thread `countTokens` on `isReady` for the whole parse.
     private func loadNow() {
         var failed = false
         do {
@@ -202,14 +180,10 @@ nonisolated final class QwenTokenEstimator: @unchecked Sendable {
     /// Test surface for pretokens (leading-space attachment).
     func pretokensForTesting(_ text: String) -> [String] { pretokens(text) }
 
-    /// Test surface: has the single background parse settled (loaded *or* failed)?
-    /// Regression guard — this stayed false forever while `prewarm()` re-entered
-    /// `countTokens` instead of parsing.
+    /// Test surface: has the single background parse settled (loaded *or* failed)? Regression guard — this stayed false forever while `prewarm()` re-entered `countTokens` instead of parsing.
     var didFinishLoadingForTesting: Bool { isReady }
 
-    /// Approximate Qwen/HF byte-level pretokens: a leading space attaches to the
-    /// following word (`" world"`), not as its own pretoken. Emitting whitespace
-    /// alone overcounted by ~1 token per word.
+    /// Approximate Qwen/HF byte-level pretokens: a leading space attaches to the following word (`" world"`), not as its own pretoken. Emitting whitespace alone overcounted by ~1 token per word.
     private func pretokens(_ text: String) -> [String] {
         var parts: [String] = []
         var current = ""

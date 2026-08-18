@@ -2,9 +2,7 @@
 //  VoiceManager.swift
 //  mimika-ai-voice-studio
 //
-//  Manages saved WAV reference voices for Fish Speech voice cloning.
-//  On import: copies WAV → codec-encodes via FishEngine's DAC → caches
-//  the ref_codes so synthesis skips the encode step.
+//  Manages saved WAV reference voices for Fish Speech voice cloning. On import: copies WAV → codec-encodes via FishEngine's DAC → caches the ref_codes so synthesis skips the encode step.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -16,10 +14,7 @@ struct Voice: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var name: String
     var description: String
-    /// In memory: absolute path to the WAV file in the current container.
-    /// On disk (voices.json): basename only (`<UUID>.wav`). VoiceManager
-    /// translates at the load/save boundary so the catalog is portable
-    /// across container moves / bundle-ID changes / sandbox migrations.
+    /// In memory: absolute path to the WAV file in the current container. On disk (voices.json): basename only (`<UUID>.wav`). VoiceManager translates at the load/save boundary so the catalog is portable across container moves / bundle-ID changes / sandbox migrations.
     var wavPath: String
     let createdAt: Date
     var transcript: String?
@@ -28,50 +23,30 @@ struct Voice: Identifiable, Codable, Equatable, Sendable {
     var codesLength: Int?
     var isEnhanced: Bool = false
     var pocketTTSKVPath: String?
-    /// Per-voice RMS target in dB (P1-N1). `nil` falls back to the global
-    /// `VoiceLevel.defaultTargetDB` (-16 dB), matching pre-feature behavior
-    /// and Python's `_normalize_audio_rms` default. Decoded lazily so
-    /// existing voices.json catalogs upgrade without migration.
+    /// Per-voice RMS target in dB (P1-N1). `nil` falls back to the global `VoiceLevel.defaultTargetDB` (-16 dB), matching pre-feature behavior and Python's `_normalize_audio_rms` default. Decoded lazily so existing voices.json catalogs upgrade without migration.
     var rmsTargetDB: Float?
-    /// Pinned deterministic synthesis seed. `nil` means unseeded (each
-    /// generation draws a fresh random seed). When set, every synthesis of
-    /// this voice reproduces the same noise trajectory → the same audio for
-    /// the same text. Assigned from a speaker card after the user hears a
-    /// take they like, or edited directly in the Voice Manager. Decoded
-    /// lazily so existing catalogs upgrade without migration. Stock voices
-    /// are never seeded, so this lives only on imported voices.
+    /// Pinned deterministic synthesis seed. `nil` means unseeded (each generation draws a fresh random seed). When set, every synthesis of this voice reproduces the same noise trajectory → the same audio for the same text. Assigned from a speaker card after the user hears a take they like, or edited directly in the Voice Manager. Decoded lazily so existing catalogs upgrade without migration. Stock voices are never seeded, so this lives only on imported voices.
     var seed: UInt64?
 }
 
 // MARK: - OrphanedVoice
-// Files-on-disk-without-a-catalog-row case (the dual of stale catalog
-// rows handled by `verifyVoiceStates`). Surfaced by `scanForOrphans`
-// so the Voice Manager UI can offer adoption. Two shapes qualify:
-//   * KV + WAV pair whose KV passes a cheap header-parse (the original
-//     case — fully restorable, no re-encode needed)
-//   * WAV-only (WP-VMI-1): a readable `<UUID>.wav` with no catalog row
-//     and no valid KV — typically leaked by a failed/interrupted import.
-//     Adoptable; the adopter queues a re-encode to rebuild codes + KV.
-// Partial / corrupt files are logged and skipped so the user only sees
-// adoptable candidates.
+// Files-on-disk-without-a-catalog-row case (the dual of stale catalog rows handled by `verifyVoiceStates`). Surfaced by `scanForOrphans` so the Voice Manager UI can offer adoption. Two shapes qualify:
+//   * KV + WAV pair whose KV passes a cheap header-parse (the original case — fully restorable, no re-encode needed)
+//   * WAV-only (WP-VMI-1): a readable `<UUID>.wav` with no catalog row and no valid KV — typically leaked by a failed/interrupted import. Adoptable; the adopter queues a re-encode to rebuild codes + KV.
+// Partial / corrupt files are logged and skipped so the user only sees adoptable candidates.
 
 struct OrphanedVoice: Identifiable, Equatable, Sendable {
-    /// UUID extracted from the `<UUID>_kv.safetensors` / `<UUID>.wav`
-    /// filename.
+    /// UUID extracted from the `<UUID>_kv.safetensors` / `<UUID>.wav` filename.
     let id: String
-    /// Whether a valid (header-parseable) KV file is present. False for
-    /// WAV-only orphans, which need a re-encode after adoption.
+    /// Whether a valid (header-parseable) KV file is present. False for WAV-only orphans, which need a re-encode after adoption.
     let hasKV: Bool
     /// Always true (a precondition for being surfaced).
     let hasWAV: Bool
-    /// Whether Fish DAC codes are present too. Influences post-adopt
-    /// behavior (false → Fish backend will need to re-encode the WAV).
+    /// Whether Fish DAC codes are present too. Influences post-adopt behavior (false → Fish backend will need to re-encode the WAV).
     let hasCodes: Bool
     /// Whether the LavaSR-enhanced WAV is present too.
     let hasEnhanced: Bool
-    /// WAV length in seconds — shown in the recovery row so the user can
-    /// tell clips apart before adopting. `nil` only if the header read
-    /// failed after the scan validated it (shouldn't happen in practice).
+    /// WAV length in seconds — shown in the recovery row so the user can tell clips apart before adopting. `nil` only if the header read failed after the scan validated it (shouldn't happen in practice).
     let durationSec: Double?
     /// WAV file creation date — second identification hint in the row.
     let createdAt: Date?
@@ -87,11 +62,7 @@ final class VoiceManager {
 
     private(set) var voices: [Voice] = []
 
-    /// Transient (never persisted) map of voice UUID → the seed used by the
-    /// most recent synthesis of that voice this session. Populated by
-    /// `resolveSeedForSynthesis`; read by the seed UI so an unpinned voice's
-    /// "Assign seed?" action knows which seed produced the take the user
-    /// just heard. Cleared on relaunch — it only reflects the live session.
+    /// Transient (never persisted) map of voice UUID → the seed used by the most recent synthesis of that voice this session. Populated by `resolveSeedForSynthesis`; read by the seed UI so an unpinned voice's "Assign seed?" action knows which seed produced the take the user just heard. Cleared on relaunch — it only reflects the live session.
     private(set) var lastGeneratedSeed: [String: UInt64] = [:]
 
     private let voicesDir: URL
@@ -99,17 +70,9 @@ final class VoiceManager {
 
     /// Under XCTest, the library lives in a scratch directory.
     ///
-    /// This is a data-integrity interlock, matching `ChatThreadStore`. The unit
-    /// tests run inside the real app host and `VoicePipelineTests` calls
-    /// `importVoice` / `deleteVoice` on `VoiceManager.shared` — which, without
-    /// this, writes WAVs and rewrites `voices.json` in the user's real
-    /// `saved-voices/`. A test that fails or is cancelled between import and its
-    /// `deleteVoice` orphans a file in that library, which the boot-time orphan
-    /// recovery then surfaces as an adoptable phantom voice. Same failure class
-    /// as the phantom chat threads, but the payload is the user's own audio.
+    /// This is a data-integrity interlock, matching `ChatThreadStore`. The unit tests run inside the real app host and `VoicePipelineTests` calls `importVoice` / `deleteVoice` on `VoiceManager.shared` — which, without this, writes WAVs and rewrites `voices.json` in the user's real `saved-voices/`. A test that fails or is cancelled between import and its `deleteVoice` orphans a file in that library, which the boot-time orphan recovery then surfaces as an adoptable phantom voice. Same failure class as the phantom chat threads, but the payload is the user's own audio.
     ///
-    /// A fresh directory per process also means tests never inherit the user's
-    /// 39 real voices, so a fixture named like one of them can no longer collide.
+    /// A fresh directory per process also means tests never inherit the user's 39 real voices, so a fixture named like one of them can no longer collide.
     private static let testSandboxDirectory: URL? = {
         let env = ProcessInfo.processInfo.environment
         guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
@@ -133,13 +96,7 @@ final class VoiceManager {
             ?? appDir.appendingPathComponent("saved-voices", isDirectory: true)
         self.catalogURL = voicesDir.appendingPathComponent("voices.json")
 
-        // One-shot migration from the legacy `fish-voices/` directory.
-        // The voice-import pipeline used to be Fish-specific; it now
-        // produces voices for both backends, so the directory name is
-        // backend-agnostic. Migration is in-place — moves the existing
-        // dir (with all WAV / codes / KV files + voices.json) en bloc.
-        // No-op if `saved-voices/` already exists (already migrated or
-        // fresh install) or if `fish-voices/` doesn't exist (truly fresh).
+        // One-shot migration from the legacy `fish-voices/` directory. The voice-import pipeline used to be Fish-specific; it now produces voices for both backends, so the directory name is backend-agnostic. Migration is in-place — moves the existing dir (with all WAV / codes / KV files + voices.json) en bloc. No-op if `saved-voices/` already exists (already migrated or fresh install) or if `fish-voices/` doesn't exist (truly fresh).
         let legacyDir = appDir.appendingPathComponent("fish-voices", isDirectory: true)
         let fm = FileManager.default
         if !fm.fileExists(atPath: voicesDir.path) && fm.fileExists(atPath: legacyDir.path) {
@@ -154,23 +111,14 @@ final class VoiceManager {
         try? fm.createDirectory(at: voicesDir, withIntermediateDirectories: true)
         loadCatalog()
 
-        // Boot-time reconcile: catalog rows whose backing files have
-        // disappeared since the last run get their stale path fields
-        // nulled out so consumers never receive broken paths. The
-        // returned IDs (voices missing encoded artifacts) are not
-        // consumed here — the Voice Manager view's verifyAndEncodeVoices
-        // task handles re-encoding orchestration when that surface
-        // becomes visible.
+        // Boot-time reconcile: catalog rows whose backing files have disappeared since the last run get their stale path fields nulled out so consumers never receive broken paths. The returned IDs (voices missing encoded artifacts) are not consumed here — the Voice Manager view's verifyAndEncodeVoices task handles re-encoding orchestration when that surface becomes visible.
         verifyVoiceStates()
     }
 
     // MARK: - Import (step 1: copy WAV)
 
     func importVoice(from sourceURL: URL, name: String) throws -> Voice {
-        // Reject case-insensitive name collisions before doing any
-        // file I/O. Without this the user can build up multiple
-        // "Beverly Crusher Normal" rows in the picker — same UI,
-        // different UUIDs, no way to tell them apart at the call site.
+        // Reject case-insensitive name collisions before doing any file I/O. Without this the user can build up multiple "Beverly Crusher Normal" rows in the picker — same UI, different UUIDs, no way to tell them apart at the call site.
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let dup = voices.first(where: {
             $0.name.compare(normalized, options: .caseInsensitive) == .orderedSame
@@ -191,10 +139,7 @@ final class VoiceManager {
             // Normalize volume to -16 dB RMS for consistent encoding input
             try rmsNormalizeWAV(at: destURL)
         } catch {
-            // WP-VMI-1: a convert/normalize failure after the copy used
-            // to leak a row-less WAV into saved-voices/ (invisible to
-            // the old orphan scan, which required a KV file). Clean up
-            // the partial copy before surfacing the error.
+            // WP-VMI-1: a convert/normalize failure after the copy used to leak a row-less WAV into saved-voices/ (invisible to the old orphan scan, which required a KV file). Clean up the partial copy before surfacing the error.
             try? FileManager.default.removeItem(at: destURL)
             throw error
         }
@@ -240,15 +185,7 @@ final class VoiceManager {
         saveCatalog()
     }
 
-    /// Drop the enhancement for an existing voice — deletes the
-    /// `<id>_enhanced.wav` file from disk and flips `isEnhanced` back
-    /// to false. The original imported WAV + cached codes + KV state
-    /// are untouched, so the voice remains synthesisable; we just
-    /// lose the LavaSR-enhanced variant. Used by the inline
-    /// re-enhance reject path in `VoiceManagerView`, where the user
-    /// asked to redo an enhancement but didn't like the result —
-    /// reverting to the prior (or unenhanced) state without deleting
-    /// the whole voice.
+    /// Drop the enhancement for an existing voice — deletes the `<id>_enhanced.wav` file from disk and flips `isEnhanced` back to false. The original imported WAV + cached codes + KV state are untouched, so the voice remains synthesisable; we just lose the LavaSR-enhanced variant. Used by the inline re-enhance reject path in `VoiceManagerView`, where the user asked to redo an enhancement but didn't like the result — reverting to the prior (or unenhanced) state without deleting the whole voice.
     func clearEnhancement(for voiceID: String) {
         guard let idx = voices.firstIndex(where: { $0.id == voiceID }) else { return }
         let enhancedPath = enhancedWAVURL(for: voiceID).path
@@ -263,13 +200,7 @@ final class VoiceManager {
         voicesDir.appendingPathComponent("\(voiceID)_enhanced.wav")
     }
 
-    /// Reconcile the in-memory catalog with the disk state. Nullifies
-    /// path fields whose target files have disappeared so the rest of
-    /// the app stops handing out broken paths. Persists the catalog
-    /// only when something actually changed. Returns the IDs of
-    /// voices that are now missing one or both encoded artifacts
-    /// (cached Fish codes or Pocket-TTS KV) — caller decides whether
-    /// to trigger re-encoding for them.
+    /// Reconcile the in-memory catalog with the disk state. Nullifies path fields whose target files have disappeared so the rest of the app stops handing out broken paths. Persists the catalog only when something actually changed. Returns the IDs of voices that are now missing one or both encoded artifacts (cached Fish codes or Pocket-TTS KV) — caller decides whether to trigger re-encoding for them.
     ///
     /// Called at two points:
     ///   * `init` (boot-time reconcile)
@@ -307,20 +238,12 @@ final class VoiceManager {
     }
 
     // MARK: - Orphan recovery
-    // The dual of `verifyVoiceStates`: detect files in saved-voices/
-    // that have no catalog row, surface the adoptable ones to the UI.
+    // The dual of `verifyVoiceStates`: detect files in saved-voices/ that have no catalog row, surface the adoptable ones to the UI.
 
-    /// Scan saved-voices/ for voice files whose UUID is not in the
-    /// catalog. Two passes:
-    ///   1. `<UUID>_kv.safetensors` files with a companion `<UUID>.wav`
-    ///      and a header-parseable KV (the original, fully-restorable
-    ///      case).
-    ///   2. WP-VMI-1: bare `<UUID>.wav` files with no catalog row and no
-    ///      valid KV — leaked by failed/interrupted imports. Surfaced as
-    ///      `hasKV: false`; adoption queues a re-encode.
-    /// Anything else (KV-only, garbled/unreadable files) gets logged and
-    /// dropped from the result. Returned IDs are stable — the caller
-    /// can match against UI state.
+    /// Scan saved-voices/ for voice files whose UUID is not in the catalog. Two passes:
+    ///   1. `<UUID>_kv.safetensors` files with a companion `<UUID>.wav` and a header-parseable KV (the original, fully-restorable case).
+    ///   2. WP-VMI-1: bare `<UUID>.wav` files with no catalog row and no valid KV — leaked by failed/interrupted imports. Surfaced as `hasKV: false`; adoption queues a re-encode.
+    /// Anything else (KV-only, garbled/unreadable files) gets logged and dropped from the result. Returned IDs are stable — the caller can match against UI state.
     func scanForOrphans() -> [OrphanedVoice] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: voicesDir, includingPropertiesForKeys: nil) else {
@@ -339,9 +262,7 @@ final class VoiceManager {
             let id = String(name.dropLast(kvSuffix.count))
             if catalogIDs.contains(id) { continue }   // healthy, has catalog row
 
-            // Validate KV header cheaply before surfacing. A garbled KV
-            // doesn't disqualify the voice — pass 2 picks the WAV up as
-            // a WAV-only orphan and the re-encode overwrites the KV.
+            // Validate KV header cheaply before surfacing. A garbled KV doesn't disqualify the voice — pass 2 picks the WAV up as a WAV-only orphan and the re-encode overwrites the KV.
             if !validateSafetensorsHeader(at: url) {
                 print("[VoiceManager] orphan KV unparseable, skipping: \(name)")
                 continue
@@ -370,10 +291,7 @@ final class VoiceManager {
             surfacedIDs.insert(id)
         }
 
-        // Pass 2 (WP-VMI-1): WAV-only orphans. UUID-named so stray
-        // non-voice audio in the directory can't masquerade as a voice,
-        // and decode-checked so a truncated/corrupt WAV can't mint a
-        // broken catalog row at adoption time.
+        // Pass 2 (WP-VMI-1): WAV-only orphans. UUID-named so stray non-voice audio in the directory can't masquerade as a voice, and decode-checked so a truncated/corrupt WAV can't mint a broken catalog row at adoption time.
         for url in entries {
             let name = url.lastPathComponent
             guard name.hasSuffix(".wav"), !name.hasSuffix("_enhanced.wav") else { continue }
@@ -381,8 +299,7 @@ final class VoiceManager {
             guard UUID(uuidString: id) != nil else { continue }
             if catalogIDs.contains(id) || surfacedIDs.contains(id) { continue }
 
-            // The header read doubles as the decode-validation gate — a
-            // truncated/corrupt WAV can't mint a broken catalog row.
+            // The header read doubles as the decode-validation gate — a truncated/corrupt WAV can't mint a broken catalog row.
             let meta = wavMeta(at: url)
             guard meta.durationSec != nil else {
                 print("[VoiceManager] orphan WAV unreadable, skipping: \(name)")
@@ -406,9 +323,7 @@ final class VoiceManager {
         return orphans
     }
 
-    /// Cheap WAV metadata for the recovery UI: clip duration (header
-    /// read, no sample decode) + file creation date. `durationSec` nil
-    /// means the file isn't a readable audio file.
+    /// Cheap WAV metadata for the recovery UI: clip duration (header read, no sample decode) + file creation date. `durationSec` nil means the file isn't a readable audio file.
     private func wavMeta(at url: URL) -> (durationSec: Double?, createdAt: Date?) {
         let created = (try? FileManager.default
             .attributesOfItem(atPath: url.path)[.creationDate]) as? Date
@@ -419,17 +334,12 @@ final class VoiceManager {
         return (Double(file.length) / file.processingFormat.sampleRate, created)
     }
 
-    /// URL of an un-adopted orphan's WAV — lets the recovery UI preview
-    /// the clip before the user names + adopts it.
+    /// URL of an un-adopted orphan's WAV — lets the recovery UI preview the clip before the user names + adopts it.
     func orphanWAVURL(id: String) -> URL {
         voicesDir.appendingPathComponent("\(id).wav")
     }
 
-    /// Permanently delete an un-adopted orphan's files (WAV + codes +
-    /// KV + enhanced) so the recovery scan stops surfacing it — the
-    /// decline path for clips the user doesn't want to restore. No-ops
-    /// for IDs that have a catalog row; live voices are deleted via
-    /// `deleteVoice(id:)`.
+    /// Permanently delete an un-adopted orphan's files (WAV + codes + KV + enhanced) so the recovery scan stops surfacing it — the decline path for clips the user doesn't want to restore. No-ops for IDs that have a catalog row; live voices are deleted via `deleteVoice(id:)`.
     func deleteOrphan(id: String) {
         guard !voices.contains(where: { $0.id == id }) else { return }
         let fm = FileManager.default
@@ -442,12 +352,7 @@ final class VoiceManager {
         print("[VoiceManager] deleted orphan files for \(id)")
     }
 
-    /// Adopt an orphan: create a catalog row for it under the supplied
-    /// display name. The on-disk files are left where they are — only
-    /// metadata changes. A valid KV file is optional (WP-VMI-1): a
-    /// WAV-only orphan adopts with `pocketTTSKVPath` nil and the caller
-    /// queues a re-encode to rebuild codes + KV. Throws if the WAV is
-    /// missing or the name is empty.
+    /// Adopt an orphan: create a catalog row for it under the supplied display name. The on-disk files are left where they are — only metadata changes. A valid KV file is optional (WP-VMI-1): a WAV-only orphan adopts with `pocketTTSKVPath` nil and the caller queues a re-encode to rebuild codes + KV. Throws if the WAV is missing or the name is empty.
     @discardableResult
     func adoptOrphan(id: String, name: String) throws -> Voice {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -467,13 +372,10 @@ final class VoiceManager {
         guard fm.fileExists(atPath: wavURL.path) else {
             throw OrphanAdoptionError.filesMissing
         }
-        // A present-but-garbled KV is treated as absent — the re-encode
-        // the caller queues overwrites it with a fresh bake.
+        // A present-but-garbled KV is treated as absent — the re-encode the caller queues overwrites it with a fresh bake.
         let hasValidKV = fm.fileExists(atPath: kvURL.path) && validateSafetensorsHeader(at: kvURL)
 
-        // Build catalog row. `createdAt` reflects the file's mtime so
-        // the adoption preserves chronology when the user is restoring
-        // a backup.
+        // Build catalog row. `createdAt` reflects the file's mtime so the adoption preserves chronology when the user is restoring a backup.
         let createdAt = (try? fm.attributesOfItem(atPath: wavURL.path)[.creationDate] as? Date) ?? Date()
 
         let voice = Voice(
@@ -499,12 +401,7 @@ final class VoiceManager {
     }
 
     // MARK: - Safetensors header validation
-    // Cheapest possible "is this a real safetensors file" check: the
-    // format prefixes the binary tensor data with an 8-byte LE uint64
-    // header length followed by that many bytes of JSON metadata.
-    // We just confirm the JSON parses and contains object keys — that
-    // rules out truncated / wrong-format / zero-byte files without
-    // loading the model itself. ~150 us per call.
+    // Cheapest possible "is this a real safetensors file" check: the format prefixes the binary tensor data with an 8-byte LE uint64 header length followed by that many bytes of JSON metadata. We just confirm the JSON parses and contains object keys — that rules out truncated / wrong-format / zero-byte files without loading the model itself. ~150 us per call.
 
     private func validateSafetensorsHeader(at url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
@@ -579,8 +476,7 @@ final class VoiceManager {
         saveCatalog()
     }
 
-    /// Persist a per-voice RMS target (dB). `nil` clears the override and
-    /// falls back to `VoiceLevel.defaultTargetDB`.
+    /// Persist a per-voice RMS target (dB). `nil` clears the override and falls back to `VoiceLevel.defaultTargetDB`.
     func setRmsTargetDB(_ db: Float?, for voiceID: String) {
         guard let idx = voices.firstIndex(where: { $0.id == voiceID }) else { return }
         voices[idx].rmsTargetDB = db
@@ -589,8 +485,7 @@ final class VoiceManager {
 
     // MARK: - Seed
 
-    /// The pinned synthesis seed for an imported voice, if any. `voiceID`
-    /// may carry the `imported:` prefix or be a bare UUID — both resolve.
+    /// The pinned synthesis seed for an imported voice, if any. `voiceID` may carry the `imported:` prefix or be a bare UUID — both resolve.
     func pinnedSeed(for voiceID: String) -> UInt64? {
         voice(for: strippedVoiceID(voiceID))?.seed
     }
@@ -608,14 +503,10 @@ final class VoiceManager {
         setSeed(nil, for: voiceID)
     }
 
-    /// Resolve the seed to drive one synthesis of `voiceID`, with the
-    /// capture side effect that powers the "Assign seed?" flow:
-    ///   * Stock voice (no `imported:` prefix / unknown id) → `nil` — the
-    ///     engine stays stochastic and nothing is captured.
-    ///   * Imported voice, pinned → the pinned seed (also recorded as the
-    ///     last-generated seed so the UI stays consistent).
-    ///   * Imported voice, unpinned → a fresh random seed, recorded so the
-    ///     user can pin it afterward if they like the take.
+    /// Resolve the seed to drive one synthesis of `voiceID`, with the capture side effect that powers the "Assign seed?" flow:
+    ///   * Stock voice (no `imported:` prefix / unknown id) → `nil` — the engine stays stochastic and nothing is captured.
+    ///   * Imported voice, pinned → the pinned seed (also recorded as the last-generated seed so the UI stays consistent).
+    ///   * Imported voice, unpinned → a fresh random seed, recorded so the user can pin it afterward if they like the take.
     func resolveSeedForSynthesis(voiceID: String) -> UInt64? {
         guard voiceID.hasPrefix("imported:") else { return nil }
         let id = strippedVoiceID(voiceID)
@@ -625,8 +516,7 @@ final class VoiceManager {
         return seed
     }
 
-    /// Drop the `imported:` prefix if present so callers can pass either the
-    /// synthesis voiceID or a bare `Voice.id`.
+    /// Drop the `imported:` prefix if present so callers can pass either the synthesis voiceID or a bare `Voice.id`.
     private func strippedVoiceID(_ voiceID: String) -> String {
         voiceID.hasPrefix("imported:") ? String(voiceID.dropFirst("imported:".count)) : voiceID
     }
@@ -646,10 +536,7 @@ final class VoiceManager {
         voices.first { $0.id == id }
     }
 
-    /// Saved voices usable on the Pocket-TTS backend (have a baked KV
-    /// file). The single source of the "Pocket-capable" predicate —
-    /// pickers, the Ensemble exporter, and the backend remap consume
-    /// this instead of re-filtering `voices` at each site.
+    /// Saved voices usable on the Pocket-TTS backend (have a baked KV file). The single source of the "Pocket-capable" predicate — pickers, the Ensemble exporter, and the backend remap consume this instead of re-filtering `voices` at each site.
     var pocketCapableVoices: [Voice] {
         voices.filter { $0.pocketTTSKVPath != nil }
     }
@@ -669,11 +556,8 @@ final class VoiceManager {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let raw = try decoder.decode([Voice].self, from: data)
-            // Migrate paths to absolute against the CURRENT voicesDir.
-            // Handles three cases uniformly via lastPathComponent:
-            //   (1) Legacy absolute path with stale container prefix — rebase
-            //   (2) Legacy absolute path with current prefix — round-trips
-            //   (3) New portable basename — joins with voicesDir
+            // Migrate paths to absolute against the CURRENT voicesDir. Handles three cases uniformly via lastPathComponent:
+            //   (1) Legacy absolute path with stale container prefix — rebase (2) Legacy absolute path with current prefix — round-trips (3) New portable basename — joins with voicesDir
             voices = raw.map(resolvePaths)
             voices.removeAll { !FileManager.default.fileExists(atPath: $0.wavPath) }
             sortVoices()
@@ -684,9 +568,7 @@ final class VoiceManager {
     }
 
     // MARK: - Path normalization
-    // voices.json stores basenames only (e.g. "<UUID>.wav"); in-memory
-    // Voice values carry absolute paths. These two helpers are the
-    // round-trip at the load / save boundary.
+    // voices.json stores basenames only (e.g. "<UUID>.wav"); in-memory Voice values carry absolute paths. These two helpers are the round-trip at the load / save boundary.
 
     private func resolvePaths(_ voice: Voice) -> Voice {
         var v = voice
@@ -705,8 +587,7 @@ final class VoiceManager {
     }
 
     private func absolutePath(forStoredPath stored: String) -> String {
-        // Take the basename whether the stored value is absolute or
-        // relative; join with the current voicesDir.
+        // Take the basename whether the stored value is absolute or relative; join with the current voicesDir.
         voicesDir.appendingPathComponent(basename(of: stored)).path
     }
 
@@ -715,10 +596,7 @@ final class VoiceManager {
     }
 
     // MARK: - Sort invariant
-    // The `voices` array is kept sorted by name (Finder-style natural sort)
-    // so that every consumer (Single Voice picker, Multi-Talk SpeakerCard,
-    // Chat Settings, Voice Manager) renders in the same predictable order
-    // without having to remember to sort at each call site.
+    // The `voices` array is kept sorted by name (Finder-style natural sort) so that every consumer (Single Voice picker, Multi-Talk SpeakerCard, Chat Settings, Voice Manager) renders in the same predictable order without having to remember to sort at each call site.
     private func sortVoices() {
         voices.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -728,8 +606,7 @@ final class VoiceManager {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            // Strip voicesDir prefix from every path so the on-disk
-            // catalog is portable. In-memory `voices` is unchanged.
+            // Strip voicesDir prefix from every path so the on-disk catalog is portable. In-memory `voices` is unchanged.
             let portable = voices.map(toPortablePaths)
             let data = try encoder.encode(portable)
             try data.write(to: catalogURL, options: .atomic)

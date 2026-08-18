@@ -2,11 +2,7 @@
 //  EnsembleStore.swift
 //  mimika-ai-voice-studio
 //
-//  Thin CRUD layer for Ensemble Mode's SwiftData models, mirroring
-//  AppDataStore / HistoryStore: all static + @MainActor (ModelContext isn't
-//  Sendable, callers are on the main actor). Casts + personas are the saved
-//  configuration; sessions are finished episodes (the appendSession path is a
-//  near-clone of HistoryStore.appendMulti, including a cap on unpinned rows).
+//  Thin CRUD layer for Ensemble Mode's SwiftData models, mirroring AppDataStore / HistoryStore: all static + @MainActor (ModelContext isn't Sendable, callers are on the main actor). Casts + personas are the saved configuration; sessions are finished episodes (the appendSession path is a near-clone of HistoryStore.appendMulti, including a cap on unpinned rows).
 
 import Foundation
 import SwiftData
@@ -74,8 +70,7 @@ enum EnsembleStore {
         try? ctx.save()
     }
 
-    /// Remove one persona from a cast and reindex remaining `sortOrder` values
-    /// to `0..<n`. Used by Cast & Settings roster editing.
+    /// Remove one persona from a cast and reindex remaining `sortOrder` values to `0..<n`. Used by Cast & Settings roster editing.
     static func removePersona(_ ctx: ModelContext, _ persona: EnsemblePersona, from cast: EnsembleCast) {
         cast.personas.removeAll { $0.id == persona.id }
         ctx.delete(persona)
@@ -94,8 +89,7 @@ enum EnsembleStore {
 
     // MARK: - Sessions (finished episodes)
 
-    /// Persist a finished episode (the {Name}-tagged transcript + speaker
-    /// roster). Mirrors HistoryStore.appendMulti, then enforces the cap.
+    /// Persist a finished episode (the {Name}-tagged transcript + speaker roster). Mirrors HistoryStore.appendMulti, then enforces the cap.
     static func appendSession(
         _ ctx: ModelContext,
         scene: String,

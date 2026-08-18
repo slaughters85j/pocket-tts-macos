@@ -2,11 +2,7 @@
 //  RecordingQualityAnalyzer.swift
 //  mimika-ai-voice-studio
 //
-//  Post-recording quality heuristics for the "Record Voice" review screen.
-//  Pure functions over the captured [Float] — no audio engine, no UI. Surfaces
-//  one short, actionable piece of feedback (clipping, too quiet, background
-//  noise, too short) so the user can re-record before committing a poor
-//  reference. Advisory only: it never blocks saving.
+//  Post-recording quality heuristics for the "Record Voice" review screen. Pure functions over the captured [Float] — no audio engine, no UI. Surfaces one short, actionable piece of feedback (clipping, too quiet, background noise, too short) so the user can re-record before committing a poor reference. Advisory only: it never blocks saving.
 //
 
 import Foundation
@@ -27,8 +23,7 @@ struct RecordingFeedback: Equatable {
 
 enum RecordingQualityAnalyzer {
 
-    /// Inspect a mono recording and return a single advisory message. Order
-    /// matters: the most impactful problem wins (clipping > quiet > noise).
+    /// Inspect a mono recording and return a single advisory message. Order matters: the most impactful problem wins (clipping > quiet > noise).
     static func analyze(samples: [Float], sampleRate: Double) -> RecordingFeedback {
         let duration = Double(samples.count) / max(sampleRate, 1)
         guard !samples.isEmpty, duration >= 0.75 else {
@@ -48,19 +43,14 @@ enum RecordingQualityAnalyzer {
         let rms = (sumSq / Float(samples.count)).squareRoot()
         let rmsDB = 20 * log10(max(rms, 1e-7))
 
-        // Too hot / clipping. Thresholds are calibrated for the RAW
-        // unity-gain capture (the old +12 dB tanh capture boost is gone,
-        // so `peak >= 0.99` now genuinely means converter-level clipping
-        // instead of being unreachable behind the tanh ceiling; the RMS
-        // gate shifted −12 dB to match, −6 → −18).
+        // Too hot / clipping. Thresholds are calibrated for the RAW unity-gain capture (the old +12 dB tanh capture boost is gone, so `peak >= 0.99` now genuinely means converter-level clipping instead of being unreachable behind the tanh ceiling; the RMS gate shifted −12 dB to match, −6 → −18).
         if peak >= 0.99 || rmsDB > -18 {
             return RecordingFeedback(
                 severity: .warning,
                 message: "Your input is very loud and may be clipping — move back from the mic or lower the input level."
             )
         }
-        // Too quiet. −34 dB was calibrated against the boosted capture;
-        // −46 dB is the same effective gate on the raw signal.
+        // Too quiet. −34 dB was calibrated against the boosted capture; −46 dB is the same effective gate on the raw signal.
         if rmsDB < -46 {
             return RecordingFeedback(
                 severity: .warning,
@@ -83,9 +73,7 @@ enum RecordingQualityAnalyzer {
 
     // MARK: - Helpers
 
-    /// Rough signal-to-noise estimate: ratio of the 90th-percentile windowed
-    /// RMS (speech) to the 10th-percentile windowed RMS (noise floor), in dB.
-    /// Window = 30 ms. Returns a large value when the clip is too short to judge.
+    /// Rough signal-to-noise estimate: ratio of the 90th-percentile windowed RMS (speech) to the 10th-percentile windowed RMS (noise floor), in dB. Window = 30 ms. Returns a large value when the clip is too short to judge.
     private static func estimateSNRdB(samples: [Float], sampleRate: Double) -> Float {
         let windowLen = max(Int(sampleRate * 0.03), 1)
         guard samples.count >= windowLen * 4 else { return 100 }

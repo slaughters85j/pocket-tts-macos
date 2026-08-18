@@ -2,9 +2,7 @@
 //  ChatCapabilities.swift
 //  mimika-ai-voice-studio
 //
-//  Authoritative LM Studio capability state and persistent force-supported
-//  overrides. Server observations are session-only; only explicit user
-//  overrides are encoded in ChatSettings.
+//  Authoritative LM Studio capability state and persistent force-supported overrides. Server observations are session-only; only explicit user overrides are encoded in ChatSettings.
 
 import Foundation
 
@@ -82,11 +80,9 @@ nonisolated struct ModelReasoningConfiguration: Equatable, Sendable {
 nonisolated struct ModelCapabilityMetadata: Equatable, Sendable {
     let capabilities: ModelCapabilities
     let reasoning: ModelReasoningConfiguration?
-    /// Effective context for this session: loaded instance n_ctx when known,
-    /// else architecture max. Used by Compact fill % as the real ceiling.
+    /// Effective context for this session: loaded instance n_ctx when known, else architecture max. Used by Compact fill % as the real ceiling.
     let contextLength: Int?
-    /// Model architecture max (`max_context_length`), when LM Studio reports it.
-    /// May be higher than the *loaded* n_ctx (user load setting in LM Studio).
+    /// Model architecture max (`max_context_length`), when LM Studio reports it. May be higher than the *loaded* n_ctx (user load setting in LM Studio).
     let architectureMaxContextLength: Int?
 
     init(

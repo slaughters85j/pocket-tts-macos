@@ -2,23 +2,16 @@
 //  EnsembleViewModel+Context.swift
 //  mimika-ai-voice-studio
 //
-//  Point-of-view transcript rendering — the single mechanism that gives every
-//  speaker both "shared context" and "unawareness": each persona sees its own
-//  lines as the assistant and everyone else (other personas AND the user) as
-//  name-prefixed people, never as AIs. Kept as a pure static so it can be unit
-//  tested without constructing the whole view model.
+//  Point-of-view transcript rendering — the single mechanism that gives every speaker both "shared context" and "unawareness": each persona sees its own lines as the assistant and everyone else (other personas AND the user) as name-prefixed people, never as AIs. Kept as a pure static so it can be unit tested without constructing the whole view model.
 //
-//  Also: Director's Chair soft context dump — shrink model-facing history without
-//  wiping the app transcript (export/history stay intact).
+//  Also: Director's Chair soft context dump — shrink model-facing history without wiping the app transcript (export/history stay intact).
 //
 
 import Foundation
 
 extension EnsembleViewModel {
 
-    /// Build the `[ChatMessage]` to feed `me`'s LLM request from the canonical
-    /// transcript. The model only ever sees a window (rolling summary + the
-    /// last N verbatim turns); the full transcript stays app-side.
+    /// Build the `[ChatMessage]` to feed `me`'s LLM request from the canonical transcript. The model only ever sees a window (rolling summary + the last N verbatim turns); the full transcript stays app-side.
     static func renderPOV(
         turns: [EnsembleTurn],
         for me: Persona,
@@ -27,15 +20,7 @@ extension EnsembleViewModel {
     ) -> [ChatMessage] {
         var out: [ChatMessage] = []
 
-        // Coalesce consecutive non-me lines (other personas AND the user — both
-        // map to the `user` role) into ONE message. Strict user/assistant
-        // alternation is required by several local chat templates (Gemma,
-        // Mistral): two `user` messages in a row — which happens the moment the
-        // user interjects after a persona, or any time two other speakers go
-        // back-to-back — makes those templates reject the whole prompt with a
-        // "roles must alternate" error (the bug that flashed Data's turn).
-        // Human image attachments ride on that coalesced user message so the
-        // LocalLLMClient multimodal path sees them (same as Solo Chat).
+        // Coalesce consecutive non-me lines (other personas AND the user — both map to the `user` role) into ONE message. Strict user/assistant alternation is required by several local chat templates (Gemma, Mistral): two `user` messages in a row — which happens the moment the user interjects after a persona, or any time two other speakers go back-to-back — makes those templates reject the whole prompt with a "roles must alternate" error (the bug that flashed Data's turn). Human image attachments ride on that coalesced user message so the LocalLLMClient multimodal path sees them (same as Solo Chat).
         var userBlock: [String] = []
         var userAttachments: [ChatImageAttachment] = []
         func flushUserBlock() {
@@ -62,9 +47,7 @@ extension EnsembleViewModel {
                 if turn.wasCutOff { content += "  [cut off]" }
                 out.append(ChatMessage(role: .assistant, content: content))
             } else {
-                // Another persona OR the user — a name-prefixed external line.
-                // Image-only human turns still emit a label so the cast knows
-                // who shared the picture when text is empty.
+                // Another persona OR the user — a name-prefixed external line. Image-only human turns still emit a label so the cast knows who shared the picture when text is empty.
                 let body = turn.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !body.isEmpty {
                     var line = "\(turn.speakerName): \(turn.content)"
@@ -82,22 +65,17 @@ extension EnsembleViewModel {
         }
         flushUserBlock()
 
-        // First turn of the scene — nothing to react to yet. Seed a concrete,
-        // benign kickoff instead of an EMPTY messages array (which lets a weak
-        // local model confabulate a request — occasionally a harmful one).
+        // First turn of the scene — nothing to react to yet. Seed a concrete, benign kickoff instead of an EMPTY messages array (which lets a weak local model confabulate a request — occasionally a harmful one).
         if out.isEmpty {
             out.append(ChatMessage(role: .user, content: "You're opening the scene. Say your first line now — in character, on the established scene and topic, as one short spoken sentence."))
         }
 
-        // Strict templates also require the FIRST message to be `user`. If the
-        // window happens to start on my own line, lead with a tiny primer rather
-        // than an illegal leading assistant message.
+        // Strict templates also require the FIRST message to be `user`. If the window happens to start on my own line, lead with a tiny primer rather than an illegal leading assistant message.
         if out.first?.role == .assistant {
             out.insert(ChatMessage(role: .user, content: "(continuing the conversation)"), at: 0)
         }
 
-        // If my own line is the most recent, nudge for a NEW line rather than an
-        // echo — and keep alternation (the trailing message stays `user`).
+        // If my own line is the most recent, nudge for a NEW line rather than an echo — and keep alternation (the trailing message stays `user`).
         if windowed.last?.speakerID == me.id {
             out.append(ChatMessage(role: .user, content: "(continue)"))
         }
@@ -107,22 +85,13 @@ extension EnsembleViewModel {
 
     /// Instance convenience used by the turn loop.
     func messagesForPersona(_ me: Persona) -> [ChatMessage] {
-        // Render everything not yet folded into the rolling summary (at least the
-        // verbatim window), capped at maxContextTurns so a stalled summarizer
-        // can't blow the model's context window.
+        // Render everything not yet folded into the rolling summary (at least the verbatim window), capped at maxContextTurns so a stalled summarizer can't blow the model's context window.
         let unsummarized = max(verbatimWindow, turns.count - summarizedUpTo)
         let effectiveWindow = min(unsummarized, max(verbatimWindow, Self.maxContextTurns))
         return Self.renderPOV(turns: turnsForModel(), for: me, rollingSummary: rollingSummary, window: effectiveWindow)
     }
 
-    /// The transcript as the MODEL must see it: the user's display name ("You")
-    /// is swapped for a non-pronoun proper noun (`userPeer.modelName`) so the
-    /// model doesn't read "You" as the addressee's name and echo it back
-    /// capitalized ("Your skepticism"). The raw `turns` — used by the transcript,
-    /// export, and history — keep "You". Identity (no copy) when the two names
-    /// already match, i.e. the user set a real name. Every model-facing path
-    /// (POV, director, rolling summary) renders through this, so "You:" can never
-    /// reach the model by construction.
+    /// The transcript as the MODEL must see it: the user's display name ("You") is swapped for a non-pronoun proper noun (`userPeer.modelName`) so the model doesn't read "You" as the addressee's name and echo it back capitalized ("Your skepticism"). The raw `turns` — used by the transcript, export, and history — keep "You". Identity (no copy) when the two names already match, i.e. the user set a real name. Every model-facing path (POV, director, rolling summary) renders through this, so "You:" can never reach the model by construction.
     func turnsForModel() -> [EnsembleTurn] {
         guard userPeer.name != userPeer.modelName else { return turns }
         return turns.map { turn in
@@ -135,10 +104,7 @@ extension EnsembleViewModel {
 
     // MARK: - Soft context dump (Director's Chair)
 
-    /// Shrink what models see on the next turn without deleting the on-screen
-    /// transcript. Keeps the last `verbatimWindow` turns verbatim, folds older
-    /// material into a short rolling summary (scene/mood + brief line list),
-    /// cancels any in-flight summarizer. Export / History still use full `turns`.
+    /// Shrink what models see on the next turn without deleting the on-screen transcript. Keeps the last `verbatimWindow` turns verbatim, folds older material into a short rolling summary (scene/mood + brief line list), cancels any in-flight summarizer. Export / History still use full `turns`.
     ///
     /// Product name: **Compact** (Director's Chair).
     @discardableResult
@@ -151,8 +117,7 @@ extension EnsembleViewModel {
         summaryTask?.cancel()
         summaryTask = nil
 
-        // Text snapshots only — the two BPE counts happen off-main below, so a
-        // Compact click never blocks the UI on a whole-window tokenization.
+        // Text snapshots only — the two BPE counts happen off-main below, so a Compact click never blocks the UI on a whole-window tokenization.
         let textBefore = modelFacingEstimateText()
         let keep = max(4, verbatimWindow)
         let before = turns.count
@@ -166,8 +131,7 @@ extension EnsembleViewModel {
             )
             summarizedUpTo = turns.count - keep
         } else {
-            // Already short — just clear any bloated summary so the next call
-            // is lean.
+            // Already short — just clear any bloated summary so the next call is lean.
             rollingSummary = ""
             summarizedUpTo = 0
         }
@@ -210,14 +174,9 @@ extension EnsembleViewModel {
 
     /// Recompute approximate model-facing fill % (Qwen reference tokenizer).
     ///
-    /// Numerator is prompt tokens only. Response budget is reserved in the
-    /// denominator so we don't double-count `maxResponseTokens`.
+    /// Numerator is prompt tokens only. Response budget is reserved in the denominator so we don't double-count `maxResponseTokens`.
     ///
-    /// The BPE count runs OFF the main actor. It walks the whole context window
-    /// and `bpe()` rescans every adjacent pair on each merge, so its cost grows
-    /// with the transcript; the turn loop calls this after every turn, and doing
-    /// it inline put unbounded main-actor work between a turn finishing and the
-    /// next one starting. The meter arriving a beat late costs nothing.
+    /// The BPE count runs OFF the main actor. It walks the whole context window and `bpe()` rescans every adjacent pair on each merge, so its cost grows with the transcript; the turn loop calls this after every turn, and doing it inline put unbounded main-actor work between a turn finishing and the next one starting. The meter arriving a beat late costs nothing.
     func refreshContextFillEstimate() {
         let usable = max(1_024, effectiveContextLimitTokens - maxResponseTokens - 256)
         let text = modelFacingEstimateText()
@@ -233,8 +192,7 @@ extension EnsembleViewModel {
 
     /// Publish a completed estimate + drive the near-full toast. Main actor.
     private func applyContextFill(promptTokens: Int, usable: Int) {
-        // Clamped at both ends — the meter is a 0…100 ring and a negative fill
-        // would both read as nonsense and invert the trim.
+        // Clamped at both ends — the meter is a 0…100 ring and a negative fill would both read as nonsense and invert the trim.
         let raw = Int((Double(promptTokens) / Double(usable) * 100.0).rounded())
         let pct = max(0, min(100, raw))
         contextFillPercent = pct
@@ -252,17 +210,14 @@ extension EnsembleViewModel {
 
     /// Prompt-token estimate for the next model call (no response budget).
     ///
-    /// Synchronous — callers must not run this on the turn loop. `softDumpContext`
-    /// uses it only for its DEBUG before/after log, off the critical path.
+    /// Synchronous — callers must not run this on the turn loop. `softDumpContext` uses it only for its DEBUG before/after log, off the critical path.
     func estimateModelFacingPromptTokens() -> Int {
         QwenTokenEstimator.shared.countTokens(modelFacingEstimateText())
     }
 
     /// Text that approximates the next model request (system-ish + window + summary).
     ///
-    /// Window length **must** match `messagesForPersona` — previously this only
-    /// used `verbatimWindow`, so Compact (which folds older turns) barely moved
-    /// the meter when the model was still seeing up to `maxContextTurns`.
+    /// Window length **must** match `messagesForPersona` — previously this only used `verbatimWindow`, so Compact (which folds older turns) barely moved the meter when the model was still seeing up to `maxContextTurns`.
     func modelFacingEstimateText() -> String {
         var parts: [String] = []
         if !rollingSummary.isEmpty {
@@ -287,8 +242,7 @@ extension EnsembleViewModel {
         return parts.joined(separator: "\n")
     }
 
-    /// Compact “state of play” from turns that fall outside the new window.
-    /// Pure/static for unit tests — no LLM call.
+    /// Compact “state of play” from turns that fall outside the new window. Pure/static for unit tests — no LLM call.
     static func buildSoftDumpBrief(
         droppedTurns: [EnsembleTurn],
         scene: String,

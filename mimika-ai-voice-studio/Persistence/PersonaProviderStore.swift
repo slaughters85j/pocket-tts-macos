@@ -2,11 +2,7 @@
 //  PersonaProviderStore.swift
 //  mimika-ai-voice-studio
 //
-//  Where the persona-writer reads its provider config. Provider kind + the
-//  chosen Anthropic model live in UserDefaults (simple prefs, no SwiftData
-//  migration); the Anthropic API key lives in the Keychain. Local stays the
-//  default so the app is fully offline out of the box — the cloud path is
-//  strictly opt-in.
+//  Where the persona-writer reads its provider config. Provider kind + the chosen Anthropic model live in UserDefaults (simple prefs, no SwiftData migration); the Anthropic API key lives in the Keychain. Local stays the default so the app is fully offline out of the box — the cloud path is strictly opt-in.
 //
 
 import Foundation
@@ -23,8 +19,7 @@ nonisolated struct PersonaProviderConfig: Sendable, Equatable {
 
 nonisolated enum PersonaProviderStore {
     static let defaultAnthropicModel = "claude-opus-4-8"
-    /// Current GA Anthropic models, shown in the picker. Opus is most capable;
-    /// Haiku is fastest/cheapest for this small structured-JSON task.
+    /// Current GA Anthropic models, shown in the picker. Opus is most capable; Haiku is fastest/cheapest for this small structured-JSON task.
     static let anthropicModels = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
 
     private static let kindKey = "persona.provider.kind"

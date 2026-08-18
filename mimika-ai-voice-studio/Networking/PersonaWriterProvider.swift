@@ -4,18 +4,11 @@
 //
 //  The persona-writer's pluggable backend. One protocol, two implementations:
 //
-//    * LocalPersonaWriterProvider — the OpenAI-compatible path (LM Studio,
-//      Ollama, llama.cpp, OpenAI, OpenRouter, …). Reuses the existing tolerant
-//      streaming + reasoning-channel-fallback request (PersonaWriter.requestJSON);
-//      a JSON schema, if provided, is ignored (response_format is deliberately
-//      off — it breaks gpt-oss).
+//    * LocalPersonaWriterProvider — the OpenAI-compatible path (LM Studio, Ollama, llama.cpp, OpenAI, OpenRouter, …). Reuses the existing tolerant streaming + reasoning-channel-fallback request (PersonaWriter.requestJSON); a JSON schema, if provided, is ignored (response_format is deliberately off — it breaks gpt-oss).
 //
-//    * AnthropicPersonaWriterProvider — the native Claude path. Sends the JSON
-//      schema as structured outputs so the model CANNOT return a malformed or
-//      off-shape object. This is the reliability win that motivated the feature.
+//    * AnthropicPersonaWriterProvider — the native Claude path. Sends the JSON schema as structured outputs so the model CANNOT return a malformed or off-shape object. This is the reliability win that motivated the feature.
 //
-//  PersonaWriter picks the provider from PersonaProviderStore; local is the
-//  default so the app stays offline unless the user opts in.
+//  PersonaWriter picks the provider from PersonaProviderStore; local is the default so the app stays offline unless the user opts in.
 //
 
 import Foundation
@@ -44,8 +37,7 @@ nonisolated enum ProviderHealth: Sendable, Equatable {
 // MARK: - Protocol
 
 nonisolated protocol PersonaWriterProvider: Sendable {
-    /// Request one JSON object. `schema` is the JSON Schema for `T` — used by
-    /// providers that support structured outputs (Claude), ignored by others.
+    /// Request one JSON object. `schema` is the JSON Schema for `T` — used by providers that support structured outputs (Claude), ignored by others.
     func requestJSON<T: Decodable & Sendable>(
         _ type: T.Type,
         system: String,
@@ -66,8 +58,7 @@ nonisolated struct LocalPersonaWriterProvider: PersonaWriterProvider {
     let model: String
 
     func requestJSON<T: Decodable & Sendable>(_ type: T.Type, system: String, user: String, schema: String?, temperature: Double, attempts: Int) async throws -> T {
-        // `schema` is intentionally unused — the local path relies on tolerant
-        // decoding + a reasoning-channel fallback rather than response_format.
+        // `schema` is intentionally unused — the local path relies on tolerant decoding + a reasoning-channel fallback rather than response_format.
         try await PersonaWriter.requestJSON(
             type, client: client, model: model,
             system: system, user: user, temperature: temperature, attempts: attempts
@@ -99,8 +90,7 @@ nonisolated struct AnthropicPersonaWriterProvider: PersonaWriterProvider {
                 return try JSONExtractor.decode(T.self, from: raw)
             } catch {
                 if Task.isCancelled || error is CancellationError { throw error }
-                // Don't burn retries on a bad key / schema / model or a refusal —
-                // surface those immediately with their real message.
+                // Don't burn retries on a bad key / schema / model or a refusal — surface those immediately with their real message.
                 if let ce = error as? AnthropicMessagesClient.ClientError, !ce.isRetryable { throw ce }
                 lastError = error
             }
@@ -114,8 +104,7 @@ nonisolated struct AnthropicPersonaWriterProvider: PersonaWriterProvider {
         guard !client.apiKey.isEmpty else { return .down(reason: "no Claude API key") }
         do {
             let models = try await client.listModels()
-            // A stale/retired configured model would otherwise show "connected"
-            // and then fail at generation time.
+            // A stale/retired configured model would otherwise show "connected" and then fail at generation time.
             if !models.isEmpty, !models.contains(model) {
                 return .down(reason: "model \(model) unavailable")
             }

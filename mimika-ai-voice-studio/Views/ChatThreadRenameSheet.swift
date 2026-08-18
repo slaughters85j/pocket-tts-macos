@@ -2,9 +2,7 @@
 //  ChatThreadRenameSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Rename a Solo / Ensemble thread and edit its one-line description. Renaming
-//  marks the title custom, so the per-turn save stops re-deriving it from the
-//  first message (see ChatThreadIndexEntry.titleIsCustom).
+//  Rename a Solo / Ensemble thread and edit its one-line description. Renaming marks the title custom, so the per-turn save stops re-deriving it from the first message (see ChatThreadIndexEntry.titleIsCustom).
 //
 
 import SwiftUI

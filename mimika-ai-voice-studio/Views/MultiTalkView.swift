@@ -2,8 +2,7 @@
 //  MultiTalkView.swift
 //  mimika-ai-voice-studio
 //
-//  Ports Electron's Multi-Talk tab. Sidebar has the Speakers panel + standard
-//  Synth/Status/Player triplet; right side has the script editor.
+//  Ports Electron's Multi-Talk tab. Sidebar has the Speakers panel + standard Synth/Status/Player triplet; right side has the script editor.
 
 import AppKit
 import SwiftUI
@@ -11,8 +10,7 @@ import SwiftData
 
 struct MultiTalkView: View {
     @Bindable var viewModel: MultiTalkViewModel
-    /// AppState is passed through so the display-panel picker + toggle
-    /// can bind directly to its persistence-backed properties.
+    /// AppState is passed through so the display-panel picker + toggle can bind directly to its persistence-backed properties.
     @Bindable var appState: AppState
     let voices: [BundledVoice]
     @Binding var pendingReuse: PendingReuse?
@@ -20,10 +18,7 @@ struct MultiTalkView: View {
 
     @Binding var chatSettings: ChatSettings
 
-    /// Set true to open the Speaker Isolator sheet (audio/video in →
-    /// diarize → per-speaker isolated tracks). Bound to
-    /// `AppState.showsSpeakerIsolator` so the same flag is toggled by
-    /// the File menu shortcut (⌥⌘I).
+    /// Set true to open the Speaker Isolator sheet (audio/video in → diarize → per-speaker isolated tracks). Bound to `AppState.showsSpeakerIsolator` so the same flag is toggled by the File menu shortcut (⌥⌘I).
     @Binding var showsSpeakerIsolator: Bool
 
     @State private var showPauseModal = false
@@ -32,13 +27,7 @@ struct MultiTalkView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack(alignment: .top, spacing: Theme.space6) {
-                // Left sidebar — config panels scroll, primary action is
-                // pinned. The Speakers / display / loudness panels (which grow
-                // with speaker count) scroll, while Synthesize + status +
-                // result player live in a fixed footer so they stay on screen
-                // on a short window; the secondary "Isolate Speakers" action
-                // scrolls with the config. The script editor on the right
-                // scrolls internally via its own NSScrollView.
+                // Left sidebar — config panels scroll, primary action is pinned. The Speakers / display / loudness panels (which grow with speaker count) scroll, while Synthesize + status + result player live in a fixed footer so they stay on screen on a short window; the secondary "Isolate Speakers" action scrolls with the config. The script editor on the right scrolls internally via its own NSScrollView.
                 VStack(spacing: Theme.space4) {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: Theme.space4) {
@@ -54,12 +43,7 @@ struct MultiTalkView: View {
 
                             normalizationPanel
 
-                            // Speaker Isolator entry-point. Sits in the sidebar
-                            // below the panels (same placement as Voice
-                            // Changer's button on Single Voice). The matching
-                            // File-menu shortcut (⌥⌘I) lives in
-                            // mimika_ai_voice_studioApp.swift and toggles the same
-                            // AppState flag.
+                            // Speaker Isolator entry-point. Sits in the sidebar below the panels (same placement as Voice Changer's button on Single Voice). The matching File-menu shortcut (⌥⌘I) lives in mimika_ai_voice_studioApp.swift and toggles the same AppState flag.
                             Button(action: { showsSpeakerIsolator = true }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "person.2.wave.2")
@@ -84,8 +68,7 @@ struct MultiTalkView: View {
                     .frame(width: Theme.sidebarWidth)
                     .scrollBounceBehavior(.basedOnSize)
 
-                    // Pinned footer — primary action + status + result player
-                    // stay visible regardless of scroll position.
+                    // Pinned footer — primary action + status + result player stay visible regardless of scroll position.
                     SynthesizeButton(
                         status: viewModel.status,
                         canSynthesize: viewModel.status.canSynthesize && !viewModel.script.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -106,9 +89,7 @@ struct MultiTalkView: View {
                 }
                 .frame(width: Theme.sidebarWidth)
 
-                // Right: script editor (NSTextView-backed so the speaker
-                // tag + pause buttons can insert at the cursor instead of
-                // appending to the end of the buffer).
+                // Right: script editor (NSTextView-backed so the speaker tag + pause buttons can insert at the cursor instead of appending to the end of the buffer).
                 TextInput(
                     text: $viewModel.script,
                     label: "Script",
@@ -138,13 +119,8 @@ struct MultiTalkView: View {
                     mode: .multiTalk,
                     chatSettings: $chatSettings,
                     onAccept: { script, speakerNames in
-                        // Strip LLM-emitted stage directions before
-                        // populating the editor. Backend-aware:
-                        // bracket tags `[whispering]` are Fish's
-                        // emotional-tag syntax and survive when
-                        // Fish is active; Pocket-TTS strips them.
-                        // Parens + asterisks always go; pause
-                        // markers `[Xs]` survive either way.
+                        // Strip LLM-emitted stage directions before populating the editor. Backend-aware:
+                        // bracket tags `[whispering]` are Fish's emotional-tag syntax and survive when Fish is active; Pocket-TTS strips them. Parens + asterisks always go; pause markers `[Xs]` survive either way.
                         viewModel.script = TextNormalizer.stripStageDirections(
                             script,
                             stripBracketedTags: chatSettings.activeBackend == .pocketTTS
@@ -155,19 +131,12 @@ struct MultiTalkView: View {
             }
         }
         .onChange(of: viewModel.speakers) { oldSpeakers, newSpeakers in
-            // Keep existing `{Tag}` references in the script body in sync when the
-            // user mutates a speaker card — but ONLY rewrite the tag form that's
-            // actually in the script for the current mode:
+            // Keep existing `{Tag}` references in the script body in sync when the user mutates a speaker card — but ONLY rewrite the tag form that's actually in the script for the current mode:
             //
-            //   * speaker-label mode → tags are card names; a NAME change rewrites
-            //     `{oldName}` → `{newName}`. A voice change must NOT touch them.
-            //   * voice-names mode → tags are voice display names; a VOICE change
-            //     rewrites `{oldVoiceName}` → `{newVoiceName}`. A name change must
-            //     NOT touch them.
+            //   * speaker-label mode → tags are card names; a NAME change rewrites `{oldName}` → `{newName}`. A voice change must NOT touch them.
+            //   * voice-names mode → tags are voice display names; a VOICE change rewrites `{oldVoiceName}` → `{newVoiceName}`. A name change must NOT touch them.
             //
-            // Firing the wrong branch is not a harmless no-op: if a voice name
-            // collides with another speaker's label (e.g. the user shares a cast
-            // voice), the rename clobbers the wrong lines.
+            // Firing the wrong branch is not a harmless no-op: if a voice name collides with another speaker's label (e.g. the user shares a cast voice), the rename clobbers the wrong lines.
             let mode = appState.multiTalkTagDisplayMode
             let oldByID = Dictionary(uniqueKeysWithValues: oldSpeakers.map { ($0.id, $0) })
             var voiceRepickOccurred = false
@@ -181,12 +150,7 @@ struct MultiTalkView: View {
                    let oldVN = viewModel.voiceNameResolver?(old.voiceID),
                    let newVN = viewModel.voiceNameResolver?(new.voiceID),
                    oldVN != newVN,
-                   // Collision guard: renaming INTO a name another
-                   // speaker resolves to merges two speakers' tags
-                   // irreversibly, and renaming FROM a shared name drags
-                   // the other speaker's lines along. Skip either case —
-                   // the tags keep their current form (recoverable) and
-                   // applyTagMode's uniqueness guard stays authoritative.
+                   // Collision guard: renaming INTO a name another speaker resolves to merges two speakers' tags irreversibly, and renaming FROM a shared name drags the other speaker's lines along. Skip either case — the tags keep their current form (recoverable) and applyTagMode's uniqueness guard stays authoritative.
                    !newSpeakers.contains(where: { other in
                        other.id != new.id &&
                        [oldVN, newVN].contains(viewModel.voiceNameResolver?(other.voiceID) ?? "")
@@ -195,33 +159,17 @@ struct MultiTalkView: View {
                     viewModel.renameSpeakerTags(from: oldVN, to: newVN)
                 }
             }
-            // A voice re-pick is also the moment to reconcile tags that
-            // were ALREADY out of sync with the display mode (a script
-            // stranded in {Speaker N} form while "Voice names" is
-            // selected after a backend switch). Voice-names mode ONLY:
-            // in Speaker-labels mode a script can only be "out of sync"
-            // through deliberate mixed-form typing (which the parser
-            // supports), and rewriting it here would yank the user's
-            // typed tags — and the editor's undo state — out from under
-            // them on an unrelated card's re-pick.
+            // A voice re-pick is also the moment to reconcile tags that were ALREADY out of sync with the display mode (a script stranded in {Speaker N} form while "Voice names" is selected after a backend switch). Voice-names mode ONLY:
+            // in Speaker-labels mode a script can only be "out of sync" through deliberate mixed-form typing (which the parser supports), and rewriting it here would yank the user's typed tags — and the editor's undo state — out from under them on an unrelated card's re-pick.
             if voiceRepickOccurred, mode == .voiceName {
                 viewModel.syncScriptTagsToDisplayMode()
             }
         }
         .onAppear {
             viewModel.setModelContext(modelContext)
-            // Resolver: maps a voiceID (stock or "imported:<UUID>") to
-            // the voice's display name. Consumed by the tag-mode
-            // transform AND by the parser's voice-name lookup so tags
-            // like `{Beverly Crusher Normal}` are recognized in
-            // addition to `{Speaker 1}` labels.
-            // voiceNameResolver is VM-owned (installed in
-            // MultiTalkViewModel.init) so backend reconciliation works
-            // even before this tab first appears — nothing to set here.
+            // Resolver: maps a voiceID (stock or "imported:<UUID>") to the voice's display name. Consumed by the tag-mode transform AND by the parser's voice-name lookup so tags like `{Beverly Crusher Normal}` are recognized in addition to `{Speaker 1}` labels. voiceNameResolver is VM-owned (installed in MultiTalkViewModel.init) so backend reconciliation works even before this tab first appears — nothing to set here.
             if case let .multi(script, speakers, normalize) = pendingReuse {
-                // applyReuse canonicalizes tags per the payload's origin,
-                // remaps voice IDs to the active backend, and syncs the
-                // display mode itself — no backend special-casing here.
+                // applyReuse canonicalizes tags per the payload's origin, remaps voice IDs to the active backend, and syncs the display mode itself — no backend special-casing here.
                 viewModel.applyReuse(script: script, speakers: speakers, normalizeSpeakers: normalize)
                 pendingReuse = nil
             }
@@ -230,10 +178,7 @@ struct MultiTalkView: View {
     }
 
     // MARK: - Display panel (tag mode picker + speaker colors toggle)
-    // Two readability controls for long scripts. The tag-mode picker
-    // switches `{Speaker N}` tags to `{Voice Name}` tags in-place
-    // (transforms the script text). The colors toggle is wired in a
-    // subsequent commit — placeholder here for layout.
+    // Two readability controls for long scripts. The tag-mode picker switches `{Speaker N}` tags to `{Voice Name}` tags in-place (transforms the script text). The colors toggle is wired in a subsequent commit — placeholder here for layout.
 
     private var displayPanel: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
@@ -275,17 +220,13 @@ struct MultiTalkView: View {
         .themePanel()
     }
 
-    /// Speaker name → SwiftUI Color. Computed every render — cheap
-    /// (one entry per speaker) and stays in sync with rename / reorder.
-    /// nil when the toggle is off → SpeakerCard + MacTextEditor both
-    /// fall back to default text color.
+    /// Speaker name → SwiftUI Color. Computed every render — cheap (one entry per speaker) and stays in sync with rename / reorder. nil when the toggle is off → SpeakerCard + MacTextEditor both fall back to default text color.
     private var speakerColorsByName: [String: Color]? {
         guard appState.multiTalkUseSpeakerColors else { return nil }
         var map: [String: Color] = [:]
         for (i, s) in viewModel.speakers.enumerated() {
             map[s.name] = Theme.speakerColor(at: i)
-            // Also register under the voice name so colored tags work
-            // when the user is in `.voiceName` tag mode.
+            // Also register under the voice name so colored tags work when the user is in `.voiceName` tag mode.
             if let vn = viewModel.voiceNameResolver?(s.voiceID) {
                 map[vn] = Theme.speakerColor(at: i)
             }
@@ -299,11 +240,7 @@ struct MultiTalkView: View {
     }
 
     // MARK: - Normalization picker (P1-N1)
-    // Three-way: per_voice | match_loudest | match_quietest. Mirrors
-    // Electron's MultiTalk.tsx:72 control. Each option resolves the
-    // per-segment RMS target the view model applies as a static gain
-    // before crossfade. `perVoice` is the default (no behavior change
-    // from pre-P1-N1 if every voice still maps to -16 dB).
+    // Three-way: per_voice | match_loudest | match_quietest. Mirrors Electron's MultiTalk.tsx:72 control. Each option resolves the per-segment RMS target the view model applies as a static gain before crossfade. `perVoice` is the default (no behavior change from pre-P1-N1 if every voice still maps to -16 dB).
 
     private var normalizationPanel: some View {
         VStack(alignment: .leading, spacing: Theme.space2) {
@@ -359,15 +296,7 @@ struct MultiTalkView: View {
                         canRemove: viewModel.speakers.count > 1,
                         disabled: viewModel.status.isWorking,
                         onInsertToScript: { name in
-                            // Honor the current tag mode: in .voiceName,
-                            // insert the assigned voice's display name —
-                            // but ONLY when that name uniquely identifies
-                            // this speaker. A shared name would insert an
-                            // ambiguous tag the parser resolves last-wins
-                            // (wrong voice speaks) and the uniqueness
-                            // guard can never rewrite. Fall back to the
-                            // card label, which is always unambiguous
-                            // for insertion.
+                            // Honor the current tag mode: in .voiceName, insert the assigned voice's display name — but ONLY when that name uniquely identifies this speaker. A shared name would insert an ambiguous tag the parser resolves last-wins (wrong voice speaks) and the uniqueness guard can never rewrite. Fall back to the card label, which is always unambiguous for insertion.
                             let tagName: String
                             if appState.multiTalkTagDisplayMode == .voiceName,
                                let vn = viewModel.voiceNameResolver?(viewModel.speakers[idx].voiceID),

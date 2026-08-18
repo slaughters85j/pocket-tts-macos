@@ -5,17 +5,9 @@
 //  The shared "speak one turn" pipeline, extracted from ChatViewModel.send():
 //    LLM stream → SentenceDetector → (optional) TTS synth → StreamingPlayer.
 //
-//  Both the 1:1 Chat path and Ensemble Mode drive a turn through this runner,
-//  so the loop logic exists once. The recently-hardened priority-inversion fix
-//  lives in StreamingPlayer.stop() (not here), so extracting send()'s
-//  orchestration doesn't touch that guarantee — the runner only ever calls
-//  player.play()/stop().
+//  Both the 1:1 Chat path and Ensemble Mode drive a turn through this runner, so the loop logic exists once. The recently-hardened priority-inversion fix lives in StreamingPlayer.stop() (not here), so extracting send()'s orchestration doesn't touch that guarantee — the runner only ever calls player.play()/stop().
 //
-//  Concurrency: @MainActor like the view models that own it. Per-run results
-//  accumulate into instance properties (mutated only on the main actor by this
-//  class and its @MainActor child Tasks) rather than into local vars captured
-//  by the @Sendable Task closures — the same approach send() uses with
-//  self.messages / self.status.
+//  Concurrency: @MainActor like the view models that own it. Per-run results accumulate into instance properties (mutated only on the main actor by this class and its @MainActor child Tasks) rather than into local vars captured by the @Sendable Task closures — the same approach send() uses with self.messages / self.status.
 
 import Foundation
 
@@ -31,13 +23,11 @@ final class SpokenTurnRunner {
         var temperature: Double?
         var voiceID: String
         var options: SynthesisOptions
-        /// false → text only (no synth/playback): Phase 1's text loop.
-        /// true  → synthesize + play each sentence as it completes.
+        /// false → text only (no synth/playback): Phase 1's text loop. true  → synthesize + play each sentence as it completes.
         var speak: Bool
         /// When true (and `speak`), retain each turn's PCM for export.
         var collectSamples: Bool
-        /// Stop sequences (e.g. other speakers' "Name:") so the model can't
-        /// script other characters in one turn.
+        /// Stop sequences (e.g. other speakers' "Name:") so the model can't script other characters in one turn.
         var stop: [String]? = nil
         /// Hard ceiling on a turn's length (OpenAI `max_tokens`).
         var maxTokens: Int? = nil
@@ -59,8 +49,7 @@ final class SpokenTurnRunner {
 
     private let engine: any TTSEngineProtocol
     private let player: StreamingPlayer
-    /// Built per call so the request always targets the current endpoint
-    /// (the baseURL lives in SwiftData, not in a cached client).
+    /// Built per call so the request always targets the current endpoint (the baseURL lives in SwiftData, not in a cached client).
     private let makeClient: @MainActor () -> LocalLLMClient
 
     private var llmTask: Task<Void, Never>?
@@ -83,8 +72,7 @@ final class SpokenTurnRunner {
 
     // MARK: - Run
 
-    /// Run one turn end-to-end. Returns once the LLM stream and any playback
-    /// have settled. Callbacks fire on the main actor as text/sentences arrive.
+    /// Run one turn end-to-end. Returns once the LLM stream and any playback have settled. Callbacks fire on the main actor as text/sentences arrive.
     @discardableResult
     func run(
         _ request: Request,
@@ -145,8 +133,7 @@ final class SpokenTurnRunner {
                 onSentence(index)
 
                 guard request.speak else { continue }
-                // Stage directions + emoji: TTS chokes on both; on-screen
-                // transcript keeps the raw model text.
+                // Stage directions + emoji: TTS chokes on both; on-screen transcript keeps the raw model text.
                 let speakable = TextNormalizer.stripEmojis(
                     TextNormalizer.stripStageDirections(
                         sentence, stripBracketedTags: stripBracketedTags
@@ -164,8 +151,7 @@ final class SpokenTurnRunner {
                     do {
                         try await self.player.play(stream: synth)
                     } catch {
-                        // PlayerError.stopped on interrupt — this sentence wasn't
-                        // fully heard, so don't mark it played; abandon the turn.
+                        // PlayerError.stopped on interrupt — this sentence wasn't fully heard, so don't mark it played; abandon the turn.
                         continue
                     }
                 }
@@ -189,10 +175,7 @@ final class SpokenTurnRunner {
 
     // MARK: - Internals
 
-    /// Play `synth` while teeing each frame's samples into a buffer for export.
-    /// Mirrors MultiTalkViewModel's relay pattern: drive the player on a child
-    /// task and forward frames (preserving the engine's final-frame flag) to a
-    /// relay stream, appending samples as they pass through.
+    /// Play `synth` while teeing each frame's samples into a buffer for export. Mirrors MultiTalkViewModel's relay pattern: drive the player on a child task and forward frames (preserving the engine's final-frame flag) to a relay stream, appending samples as they pass through.
     private func playCollecting(_ synth: AsyncStream<PCMFrame>) async -> [Float] {
         let (relay, relayCont) = AsyncStream<PCMFrame>.makeStream(of: PCMFrame.self)
         let player = self.player

@@ -98,8 +98,7 @@ final class ChatThreadStoreTests: XCTestCase {
 
     // MARK: - Tolerant decoding
 
-    /// Writes raw JSON straight into the store's directory, bypassing the encoder, so these tests exercise
-    /// the real decode path a hand-edited or partially-written file would take.
+    /// Writes raw JSON straight into the store's directory, bypassing the encoder, so these tests exercise the real decode path a hand-edited or partially-written file would take.
     private func writeRaw(_ json: String, to relativePath: String) throws {
         let url = ChatThreadStore.rootDirectory().appendingPathComponent(relativePath)
         try FileManager.default.createDirectory(
@@ -108,8 +107,7 @@ final class ChatThreadStoreTests: XCTestCase {
         try XCTUnwrap(json.data(using: .utf8)).write(to: url)
     }
 
-    /// One unusable row must cost that row alone. Before tolerant decoding the array threw, the store
-    /// reported an EMPTY index, and the next save wrote that emptiness over every thread the user had.
+    /// One unusable row must cost that row alone. Before tolerant decoding the array threw, the store reported an EMPTY index, and the next save wrote that emptiness over every thread the user had.
     func test_oneBadIndexRowDoesNotDestroyTheCatalog() async throws {
         let good = UUID()
         try writeRaw(
@@ -146,8 +144,7 @@ final class ChatThreadStoreTests: XCTestCase {
         XCTAssertEqual(listed[0].theme, "")
     }
 
-    /// Same guarantee for a thread file: a truncated record loads with defaults rather than reading as a
-    /// missing thread the sidebar would then evict.
+    /// Same guarantee for a thread file: a truncated record loads with defaults rather than reading as a missing thread the sidebar would then evict.
     func test_threadRecordMissingKeysLoadsWithDefaults() async throws {
         let id = UUID()
         try writeRaw(
@@ -192,13 +189,9 @@ final class ChatThreadStoreTests: XCTestCase {
         XCTAssertEqual(browser.selectedID, second.id, "flush of the previous thread must not steal the click")
     }
 
-    /// With no `directoryOverride`, a test run must still never resolve to the
-    /// user's real Application Support store.
+    /// With no `directoryOverride`, a test run must still never resolve to the user's real Application Support store.
     ///
-    /// Regression: most Chat/Ensemble view-model tests never set the override, so
-    /// sending a turn wrote fixture threads ("look", "go", "restore me") into the
-    /// live sidebar. The interlock in `rootDirectory()` is what stops that, and it
-    /// has to hold for tests that don't know it exists.
+    /// Regression: most Chat/Ensemble view-model tests never set the override, so sending a turn wrote fixture threads ("look", "go", "restore me") into the live sidebar. The interlock in `rootDirectory()` is what stops that, and it has to hold for tests that don't know it exists.
     func test_rootDirectoryNeverResolvesToLiveStoreUnderTests() {
         let saved = ChatThreadStore.directoryOverride
         ChatThreadStore.directoryOverride = nil

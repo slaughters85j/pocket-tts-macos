@@ -2,27 +2,16 @@
 //  LavaSRDenoiser.swift
 //  mimika-ai-voice-studio
 //
-//  Phase 10b / Commit 2 — Swift wrapper for the Core ML ULUNAS denoiser
-//  produced by `scripts/convert_lavasr_denoiser_to_coreml.py`.
+//  Phase 10b / Commit 2 — Swift wrapper for the Core ML ULUNAS denoiser produced by `scripts/convert_lavasr_denoiser_to_coreml.py`.
 //
-//  The .mlpackage takes raw 16 kHz mono audio of fixed length 128000
-//  samples and outputs the masked complex spectrogram of shape
-//  `(1, 257, 501, 2)` — last dim is `[real, imag]`. This wrapper runs
-//  the iSTFT in Swift (via MLXFFT) to reconstruct audio, sidestepping
-//  the fact that coremltools 9.0 has no `torch.istft` lowering.
+//  The .mlpackage takes raw 16 kHz mono audio of fixed length 128000 samples and outputs the masked complex spectrogram of shape `(1, 257, 501, 2)` — last dim is `[real, imag]`. This wrapper runs the iSTFT in Swift (via MLXFFT) to reconstruct audio, sidestepping the fact that coremltools 9.0 has no `torch.istft` lowering.
 //
-//  Why the split (Core ML for the encoder/dpgrnn/decoder/mask, Swift
-//  for the iSTFT):
+//  Why the split (Core ML for the encoder/dpgrnn/decoder/mask, Swift for the iSTFT):
 //
-//    * `torch.istft` traces to an `aten::istft` op for which coremltools
-//      9.0 raises `NotImplementedError`.
-//    * Splitting at the masked spectrogram keeps Core ML doing what it's
-//      good at (heavy conv + GRU compute) and Swift doing the iSTFT
-//      math (small, fixed-cost OLA).
+//    * `torch.istft` traces to an `aten::istft` op for which coremltools 9.0 raises `NotImplementedError`.
+//    * Splitting at the masked spectrogram keeps Core ML doing what it's good at (heavy conv + GRU compute) and Swift doing the iSTFT math (small, fixed-cost OLA).
 //
-//  Numerical parity: Pearson r = 1.000000 vs PyTorch end-to-end on the
-//  conversion-script verification fixture. The split is verified
-//  bit-identical (modulo float32 rounding) in the Python side.
+//  Numerical parity: Pearson r = 1.000000 vs PyTorch end-to-end on the conversion-script verification fixture. The split is verified bit-identical (modulo float32 rounding) in the Python side.
 //
 //  Memory: ~3.6 MB .mlpackage on disk; ~0.7 MB compiled .mlmodelc.
 
@@ -32,23 +21,19 @@ import MLX
 
 // MARK: - LavaSRDenoiser
 
-/// Loads + caches the compiled ULUNAS denoiser .mlmodelc and runs a
-/// fixed-length 16 kHz mono → 16 kHz mono denoise pass.
+/// Loads + caches the compiled ULUNAS denoiser .mlmodelc and runs a fixed-length 16 kHz mono → 16 kHz mono denoise pass.
 ///
 /// Fixed I/O contract:
 ///   input  — `[Float]` length `Self.inputLengthSamples` (128000)
 ///            at 16 kHz mono, range roughly [-1, 1].
 ///   output — `[Float]` same length, same range, denoised.
 ///
-/// Longer inputs are chunked in `LavaSRPipeline` (the same way Phase 7
-/// chunks long inputs through `DemucsChunker`).
+/// Longer inputs are chunked in `LavaSRPipeline` (the same way Phase 7 chunks long inputs through `DemucsChunker`).
 actor LavaSRDenoiser {
 
     // MARK: - Fixed model contract
 
-    /// Input length the .mlpackage was traced at: 8 s @ 16 kHz mono.
-    /// `nonisolated` so the `static func istft(...)` (also nonisolated)
-    /// can reference it without a MainActor hop.
+    /// Input length the .mlpackage was traced at: 8 s @ 16 kHz mono. `nonisolated` so the `static func istft(...)` (also nonisolated) can reference it without a MainActor hop.
     nonisolated static let inputLengthSamples = 128_000
 
     /// Operating sample rate of the model.
@@ -64,8 +49,7 @@ actor LavaSRDenoiser {
 
     // MARK: - Stored state
 
-    /// Source .mlpackage location. The MLModel itself is loaded lazily
-    /// on first `denoise(_:)` call and cached for subsequent calls.
+    /// Source .mlpackage location. The MLModel itself is loaded lazily on first `denoise(_:)` call and cached for subsequent calls.
     private let modelURL: URL
 
     /// Compiled .mlmodelc cached after first use. `nil` before load.
@@ -110,10 +94,7 @@ actor LavaSRDenoiser {
 
     // MARK: - Lifecycle
 
-    /// Compile (if needed) + load the .mlpackage. Cached across calls.
-    /// Phase 7 pattern — CPU-only is the safe default for the iSTFT
-    /// graph + GRU layers; ANE / GPU watchdog issues are documented
-    /// for similar audio models in the Phase 7 file headers.
+    /// Compile (if needed) + load the .mlpackage. Cached across calls. Phase 7 pattern — CPU-only is the safe default for the iSTFT graph + GRU layers; ANE / GPU watchdog issues are documented for similar audio models in the Phase 7 file headers.
     func loadIfNeeded() async throws {
         guard mlModel == nil else { return }
         guard FileManager.default.fileExists(atPath: modelURL.path) else {
@@ -123,19 +104,12 @@ actor LavaSRDenoiser {
         // Two artifact flavors come through here:
         //
         //   (a) Runtime production path — `BundledMLModelManager` already
-        //       compiled the .mlpackage to .mlmodelc during install
-        //       (Phase 8's `needsCoreMLCompile: true` arm). `modelURL`
-        //       points at the compiled .mlmodelc. Re-compiling here
-        //       throws "A valid manifest does not exist" because
-        //       MLModel.compileModel expects a SOURCE .mlpackage, not
-        //       an already-compiled .mlmodelc.
+        //       compiled the .mlpackage to .mlmodelc during install (Phase 8's `needsCoreMLCompile: true` arm). `modelURL` points at the compiled .mlmodelc. Re-compiling here throws "A valid manifest does not exist" because MLModel.compileModel expects a SOURCE .mlpackage, not an already-compiled .mlmodelc.
         //
         //   (b) Test / dev path — `LavaSRDenoiserParityTests` loads
-        //       the raw .mlpackage directly from the fixtures dir.
-        //       That one DOES need compileModel.
+        //       the raw .mlpackage directly from the fixtures dir. That one DOES need compileModel.
         //
-        // Detect via path extension and skip the compile when the
-        // file is already an .mlmodelc.
+        // Detect via path extension and skip the compile when the file is already an .mlmodelc.
         let compiledURL: URL
         if modelURL.pathExtension == "mlmodelc" {
             compiledURL = modelURL
@@ -157,18 +131,14 @@ actor LavaSRDenoiser {
         print("[LavaSRDenoiser] loaded \(modelURL.lastPathComponent) (cpu-only)")
     }
 
-    /// Drop the cached MLModel. Frees ~700 KB; next call re-compiles +
-    /// re-loads (still fast since the .mlmodelc is on disk).
+    /// Drop the cached MLModel. Frees ~700 KB; next call re-compiles + re-loads (still fast since the .mlmodelc is on disk).
     func unload() {
         self.mlModel = nil
     }
 
     // MARK: - Inference
 
-    /// Prediction helper — takes the model + input as parameters so
-    /// the synchronous `model.prediction(from:)` call doesn't have to
-    /// cross an isolation boundary (matches Phase 7's
-    /// DemucsSourceSeparator.predict).
+    /// Prediction helper — takes the model + input as parameters so the synchronous `model.prediction(from:)` call doesn't have to cross an isolation boundary (matches Phase 7's DemucsSourceSeparator.predict).
     private func predict(model: MLModel, input: MLMultiArray) throws -> MLFeatureProvider {
         let provider = try MLDictionaryFeatureProvider(dictionary: ["audio_in": input])
         do {
@@ -180,9 +150,7 @@ actor LavaSRDenoiser {
 
     // MARK: - Denoise
 
-    /// Run the denoiser on a single 8-second chunk. `samples.count`
-    /// must equal `Self.inputLengthSamples`. Returns the denoised
-    /// audio at the same length and sample rate (16 kHz mono).
+    /// Run the denoiser on a single 8-second chunk. `samples.count` must equal `Self.inputLengthSamples`. Returns the denoised audio at the same length and sample rate (16 kHz mono).
     func denoise(_ samples: [Float]) async throws -> [Float] {
         guard samples.count == Self.inputLengthSamples else {
             throw Error.wrongInputLength(
@@ -206,10 +174,7 @@ actor LavaSRDenoiser {
 
         let output = try predict(model: model, input: input)
 
-        // Output shape from the conversion: (1, 257, 501, 2). The output
-        // feature name is whatever coremltools chose — coremltools 9.0
-        // often picks the requested name ("audio_out") but the trace
-        // graph's actual node names sometimes shadow it. Inspect.
+        // Output shape from the conversion: (1, 257, 501, 2). The output feature name is whatever coremltools chose — coremltools 9.0 often picks the requested name ("audio_out") but the trace graph's actual node names sometimes shadow it. Inspect.
         let featureName = output.featureNames.first {
             output.featureValue(for: $0)?.type == .multiArray
         } ?? "audio_out"
@@ -229,11 +194,9 @@ actor LavaSRDenoiser {
 
     // MARK: - iSTFT (matches torch.istft with center=True)
 
-    /// Inverse STFT matching `torch.istft(spec, n_fft=512, hop=256,
-    /// win=Hann(512), onesided=True, center=True, length=128000)`.
+    /// Inverse STFT matching `torch.istft(spec, n_fft=512, hop=256, win=Hann(512), onesided=True, center=True, length=128000)`.
     ///
-    /// Input is an MLMultiArray of shape `(1, nBins=257, nFrames=501, 2)`
-    /// laid out so `[0, f, t, 0] = real`, `[0, f, t, 1] = imag`.
+    /// Input is an MLMultiArray of shape `(1, nBins=257, nFrames=501, 2)` laid out so `[0, f, t, 0] = real`, `[0, f, t, 1] = imag`.
     ///
     /// Output is a `[Float]` of length `inputLengthSamples`.
     nonisolated static func istft(specMultiArray: MLMultiArray) -> [Float] {
@@ -244,8 +207,7 @@ actor LavaSRDenoiser {
         let nFrames = Self.nFrames
         let outputLength = Self.inputLengthSamples
 
-        // 1. Extract real / imag interleaved planes into two flat
-        //    arrays of length nBins * nFrames (frequency-major).
+        // 1. Extract real / imag interleaved planes into two flat arrays of length nBins * nFrames (frequency-major).
         let totalBins = nBins * nFrames
         var realPlane = [Float](repeating: 0, count: totalBins)
         var imagPlane = [Float](repeating: 0, count: totalBins)
@@ -263,8 +225,7 @@ actor LavaSRDenoiser {
             }
         }
 
-        // 2. Periodic Hann synthesis window. torch.hann_window(N)
-        //    default is periodic=True → w[n] = 0.5*(1 - cos(2π n / N)).
+        // 2. Periodic Hann synthesis window. torch.hann_window(N) default is periodic=True → w[n] = 0.5*(1 - cos(2π n / N)).
         var window = [Float](repeating: 0, count: winLen)
         for n in 0..<winLen {
             window[n] = 0.5 - 0.5 * Foundation.cos(2.0 * .pi * Float(n) / Float(winLen))
@@ -274,12 +235,8 @@ actor LavaSRDenoiser {
             windowSq[n] = window[n] * window[n]
         }
 
-        // 3. Per-frame iFFT via MLXFFT.irfft.
-        //    Each frame is (nBins,) complex → (nFft,) real.
-        //    We rebuild a complex MLXArray of shape (nFrames, nBins).
-        // For irfft input we need complex-valued. Build (nFrames, nBins)
-        // complex array by stacking real + i*imag, then irfft along
-        // axis=1.
+        // 3. Per-frame iFFT via MLXFFT.irfft. Each frame is (nBins,) complex → (nFft,) real. We rebuild a complex MLXArray of shape (nFrames, nBins).
+        // For irfft input we need complex-valued. Build (nFrames, nBins) complex array by stacking real + i*imag, then irfft along axis=1.
         let realArr = MLXArray(realPlane).reshaped([nBins, nFrames]).transposed(1, 0)
         let imagArr = MLXArray(imagPlane).reshaped([nBins, nFrames]).transposed(1, 0)
         let complexSpec = realArr + MLXArray(real: Float(0), imaginary: Float(1)) * imagArr
@@ -287,8 +244,7 @@ actor LavaSRDenoiser {
         let timeFramesArr = timeFrames.asArray(Float.self)
         // timeFramesArr is row-major (nFrames, nFft)
 
-        // 4. Multiply each frame by the synthesis window + overlap-add
-        //    at hop=256 offsets.
+        // 4. Multiply each frame by the synthesis window + overlap-add at hop=256 offsets.
         let olaLength = (nFrames - 1) * hop + nFft  // 128512 for our params
         var audio = [Float](repeating: 0, count: olaLength)
         var envelope = [Float](repeating: 0, count: olaLength)
@@ -312,8 +268,7 @@ actor LavaSRDenoiser {
             }
         }
 
-        // 6. Trim `n_fft / 2` from each side (torch.istft with
-        //    center=True), then truncate / zero-pad to exact length.
+        // 6. Trim `n_fft / 2` from each side (torch.istft with center=True), then truncate / zero-pad to exact length.
         let trim = nFft / 2
         var trimmed = Array(audio[trim..<(olaLength - trim)])
         if trimmed.count > outputLength {

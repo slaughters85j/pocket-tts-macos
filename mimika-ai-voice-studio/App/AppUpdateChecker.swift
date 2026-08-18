@@ -127,8 +127,7 @@ final class AppUpdateChecker {
         var components = URLComponents(string: "https://itunes.apple.com/lookup")
         components?.queryItems = [
             URLQueryItem(name: "bundleId", value: bundleID),
-            // Cache-buster: the endpoint is aggressively edge-cached and will otherwise keep serving a
-            // stale version for hours after a release goes live.
+            // Cache-buster: the endpoint is aggressively edge-cached and will otherwise keep serving a stale version for hours after a release goes live.
             URLQueryItem(name: "cb", value: String(Int(Date().timeIntervalSince1970))),
         ]
         guard let url = components?.url else { return nil }
@@ -139,8 +138,7 @@ final class AppUpdateChecker {
         return request
     }
 
-    /// Numeric version comparison. A plain string compare is wrong here: "1.5.10" sorts BEFORE "1.5.9"
-    /// lexically, which would silently hide the badge at 1.5.10.
+    /// Numeric version comparison. A plain string compare is wrong here: "1.5.10" sorts BEFORE "1.5.9" lexically, which would silently hide the badge at 1.5.10.
     nonisolated static func isVersion(_ candidate: String, newerThan current: String) -> Bool {
         candidate.compare(current, options: .numeric) == .orderedDescending
     }

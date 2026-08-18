@@ -157,8 +157,7 @@ final class ChatVisionRecoveryTransitionTests: XCTestCase {
 
     func test_realSwitchThenRevertRestoresVisionSelectionAndAllowsSend() async throws {
         let (viewModel, appState) = try await switchToNonVision()
-        // Revert issues four requests in order: catalog list, capability probe,
-        // then checkConnection's serving list and its own probe.
+        // Revert issues four requests in order: catalog list, capability probe, then checkConnection's serving list and its own probe.
         enqueueCatalogModels(["vision-model"])
         LLMStubURLProtocol.enqueue(metadata(model: "vision-model", vision: true))
         enqueueModels(["vision-model"])
@@ -193,10 +192,7 @@ final class ChatVisionRecoveryTransitionTests: XCTestCase {
         viewModel.send()
         await assertEventually { viewModel.activeTurn == nil }
 
-        // `capturedBody()` (the LAST request) is a race here: `finishTurnIfSettled`
-        // clears `activeTurn` and then immediately fires the thread auto-title
-        // call, so whichever lands last depends on I/O timing. Both go to
-        // /v1/chat/completions, but only the chat send is streamed — pick that.
+        // `capturedBody()` (the LAST request) is a race here: `finishTurnIfSettled` clears `activeTurn` and then immediately fires the thread auto-title call, so whichever lands last depends on I/O timing. Both go to /v1/chat/completions, but only the chat send is streamed — pick that.
         let sent = LLMStubURLProtocol.capturedBodies()
             .compactMap { String(data: $0, encoding: .utf8) }
             .last { $0.contains("\"stream\":true") }
@@ -253,13 +249,7 @@ final class ChatVisionRecoveryTransitionTests: XCTestCase {
         viewModel.settings = appState.chatSettings
     }
 
-    /// LM Studio `/api/v1/models` shape — NOT the OpenAI `{"data":[…]}` one.
-    /// `listServingModels()` probes the native endpoint first and only falls
-    /// back to `/v1/models` when that body fails to decode. An OpenAI-shaped
-    /// fixture here therefore burned TWO queued responses (the fallback ate the
-    /// metadata reply), so every later capability expectation read the wrong
-    /// slot. `loaded_instances` must be non-empty or `servingModelIDs()`
-    /// reports nothing as serving.
+    /// LM Studio `/api/v1/models` shape — NOT the OpenAI `{"data":[…]}` one. `listServingModels()` probes the native endpoint first and only falls back to `/v1/models` when that body fails to decode. An OpenAI-shaped fixture here therefore burned TWO queued responses (the fallback ate the metadata reply), so every later capability expectation read the wrong slot. `loaded_instances` must be non-empty or `servingModelIDs()` reports nothing as serving.
     private func enqueueModels(_ models: [String]) {
         let entries = models.map {
             #"{"key":"\#($0)","loaded_instances":[{"id":"\#($0)"}]}"#
@@ -267,9 +257,7 @@ final class ChatVisionRecoveryTransitionTests: XCTestCase {
         LLMStubURLProtocol.enqueue(Data(#"{"models":[\#(entries)]}"#.utf8))
     }
 
-    /// OpenAI `/v1/models` shape. `revertToPreviousVisionModel()` asks for the
-    /// catalog via `listModels()` directly — not serving state — and that call
-    /// decodes only this shape, so it needs its own fixture.
+    /// OpenAI `/v1/models` shape. `revertToPreviousVisionModel()` asks for the catalog via `listModels()` directly — not serving state — and that call decodes only this shape, so it needs its own fixture.
     private func enqueueCatalogModels(_ models: [String]) {
         let entries = models.map { #"{"id":"\#($0)"}"# }.joined(separator: ",")
         LLMStubURLProtocol.enqueue(Data(#"{"data":[\#(entries)]}"#.utf8))

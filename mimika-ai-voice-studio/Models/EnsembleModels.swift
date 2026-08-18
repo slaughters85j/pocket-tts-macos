@@ -2,36 +2,24 @@
 //  EnsembleModels.swift
 //  mimika-ai-voice-studio
 //
-//  Pure runtime value types for Ensemble Mode's turn loop + conductor. These
-//  are deliberately separate from the SwiftData @Model types in
-//  EnsembleDataModels.swift: the @Models are storage; these are the in-memory,
-//  Sendable shapes the loop, conductor, and POV renderer pass around. A
-//  saved `EnsemblePersona` is mapped to a runtime `Persona` when a cast is
-//  loaded.
+//  Pure runtime value types for Ensemble Mode's turn loop + conductor. These are deliberately separate from the SwiftData @Model types in EnsembleDataModels.swift: the @Models are storage; these are the in-memory, Sendable shapes the loop, conductor, and POV renderer pass around. A saved `EnsemblePersona` is mapped to a runtime `Persona` when a cast is loaded.
 //
-//  All of these are `nonisolated` (matching BundledVoice / PCMFrame house
-//  style) so the nonisolated Conductor and the SpokenTurnRunner's @Sendable
-//  task closures can construct and read them without crossing the module's
-//  default MainActor isolation.
+//  All of these are `nonisolated` (matching BundledVoice / PCMFrame house style) so the nonisolated Conductor and the SpokenTurnRunner's @Sendable task closures can construct and read them without crossing the module's default MainActor isolation.
 
 import Foundation
 
 // MARK: - Persona
-// One speaker as the turn loop sees it: identity, the voice to synthesize in,
-// the system prompt that defines the character, the per-agent LLM temperature,
-// and a turn-selection weight (talkativeness dial).
+// One speaker as the turn loop sees it: identity, the voice to synthesize in, the system prompt that defines the character, the per-agent LLM temperature, and a turn-selection weight (talkativeness dial).
 
 nonisolated struct Persona: Identifiable, Equatable, Codable, Sendable {
     let id: UUID
     var name: String
     var voiceID: String
     var systemPrompt: String
-    /// Retained for persistence back-compat; no longer drives sampling. The
-    /// `samplingPreset` is the single source of LLM temperature/top-p/top-k.
+    /// Retained for persistence back-compat; no longer drives sampling. The `samplingPreset` is the single source of LLM temperature/top-p/top-k.
     var temperature: Double
     var weight: Double
-    /// User-facing sampling preset (Strict / Relaxed / Spirited / Butterfly
-    /// Chaser) — governs the LLM temperature/top-p/top-k for this speaker.
+    /// User-facing sampling preset (Strict / Relaxed / Spirited / Butterfly Chaser) — governs the LLM temperature/top-p/top-k for this speaker.
     var samplingPreset: SamplingPreset
 
     init(
@@ -54,9 +42,7 @@ nonisolated struct Persona: Identifiable, Equatable, Codable, Sendable {
 }
 
 // MARK: - SamplingPreset
-// Friendly per-speaker "how on-the-rails" dial that maps to real sampling
-// params. Stored on EnsemblePersona as its rawValue; surfaced as a segmented
-// picker in setup.
+// Friendly per-speaker "how on-the-rails" dial that maps to real sampling params. Stored on EnsemblePersona as its rawValue; surfaced as a segmented picker in setup.
 
 nonisolated enum SamplingPreset: String, CaseIterable, Codable, Sendable {
     case strict
@@ -102,51 +88,37 @@ nonisolated enum SamplingPreset: String, CaseIterable, Codable, Sendable {
 }
 
 // MARK: - UserPeer
-// The human participant, modeled as a peer (not the hub) so the loop renders
-// their turns the same way it renders any other named speaker.
+// The human participant, modeled as a peer (not the hub) so the loop renders their turns the same way it renders any other named speaker.
 
 nonisolated struct UserPeer: Equatable, Codable, Sendable {
-    /// Display name — the transcript speaker tag. Defaults to the second-person
-    /// "You" (right for the UI; used by the transcript, export, and history).
+    /// Display name — the transcript speaker tag. Defaults to the second-person "You" (right for the UI; used by the transcript, export, and history).
     var name: String = "You"
-    /// Model-facing name. MUST NOT be a pronoun: the model treats a speaker label
-    /// as a proper noun, so "You" gets echoed back as address ("Your skepticism",
-    /// "questions You may have"). Defaults to a neutral proper noun and mirrors
-    /// `name` once the user sets a real one.
+    /// Model-facing name. MUST NOT be a pronoun: the model treats a speaker label as a proper noun, so "You" gets echoed back as address ("Your skepticism", "questions You may have"). Defaults to a neutral proper noun and mirrors `name` once the user sets a real one.
     var modelName: String = "Guest"
 }
 
 // MARK: - EnsembleTurn
-// One entry in the canonical, app-side transcript — the source of truth for
-// both POV rendering and audio export. `speakerID == nil` means the user.
+// One entry in the canonical, app-side transcript — the source of truth for both POV rendering and audio export. `speakerID == nil` means the user.
 
 nonisolated struct EnsembleTurn: Identifiable, Equatable, Codable, Sendable {
     let id: UUID
     var speakerID: UUID?
     var speakerName: String
     var content: String
-    /// True when this line was truncated by a barge-in (Phase 4). Renders a
-    /// "[cut off]" marker so the cast can react to being interrupted.
+    /// True when this line was truncated by a barge-in (Phase 4). Renders a "[cut off]" marker so the cast can react to being interrupted.
     var wasCutOff: Bool
     /// How many sentences of `content` were actually spoken before any cut.
     var spokenSentences: Int
-    /// The sampling preset active for the SPEAKER when this turn was generated.
-    /// Captured per-turn (a snapshot, not live) so the transcript shows preset
-    /// history when the user changes a speaker's preset mid-conversation. nil for
-    /// user turns. Ensemble-only — never part of the Multi-Talk export.
+    /// The sampling preset active for the SPEAKER when this turn was generated. Captured per-turn (a snapshot, not live) so the transcript shows preset history when the user changes a speaker's preset mid-conversation. nil for user turns. Ensemble-only — never part of the Multi-Talk export.
     var samplingPreset: SamplingPreset?
-    /// True when this turn was the one-shot grenade bombshell (next speaker after
-    /// the user armed the flame). Ensemble-only UI marker — not exported.
+    /// True when this turn was the one-shot grenade bombshell (next speaker after the user armed the flame). Ensemble-only UI marker — not exported.
     var wasGrenade: Bool
-    /// True when this turn carried a Director's Chair **Direct** instruction.
-    /// Ensemble-only UI marker — not exported.
+    /// True when this turn carried a Director's Chair **Direct** instruction. Ensemble-only UI marker — not exported.
     var wasDirected: Bool
-    /// Session-only images the human attached to this user turn (same types as
-    /// Solo Chat). Never part of Multi-Talk / History text export.
+    /// Session-only images the human attached to this user turn (same types as Solo Chat). Never part of Multi-Talk / History text export.
     var attachments: [ChatImageAttachment]
 
-    /// Synthetic "Scene" beats (boot deaths, etc.) — not a cast member or the user.
-    /// Lands in POV history as a public event the models actually read.
+    /// Synthetic "Scene" beats (boot deaths, etc.) — not a cast member or the user. Lands in POV history as a public event the models actually read.
     static let sceneBeatSpeakerID = UUID(uuidString: "A11CE5CE-0000-4000-8000-00000000BEA7")!
 
     /// True for director/scene announcements injected into the transcript.
@@ -221,9 +193,7 @@ nonisolated struct EnsembleTurn: Identifiable, Equatable, Codable, Sendable {
 
 // MARK: - Loop state
 
-/// The public face of the turn-loop state machine
-/// (idle -> pick -> generate -> speak -> append -> loop), plus the user-turn
-/// and step-gate states.
+/// The public face of the turn-loop state machine (idle -> pick -> generate -> speak -> append -> loop), plus the user-turn and step-gate states.
 nonisolated enum RunState: Equatable, Sendable {
     case idle
     case picking
@@ -240,17 +210,14 @@ nonisolated enum AdvanceMode: Sendable {
     case step
 }
 
-/// How the scramble dial behaves: re-draw the order every turn (chaos) or
-/// shuffle once at run start (stable-but-scrambled rotation).
+/// How the scramble dial behaves: re-draw the order every turn (chaos) or shuffle once at run start (stable-but-scrambled rotation).
 nonisolated enum RNGMode: String, CaseIterable, Codable, Sendable {
     case rerollPerTurn
     case shuffleOnce
 }
 
 // MARK: - ScenePlayMode
-// How hard the cast should stick to the user-set scene + mood vs. follow
-// whatever heat the table (and the human) just introduced. Scene-first is
-// the default for faithful scene play; Free is opt-in for off-rails chaos.
+// How hard the cast should stick to the user-set scene + mood vs. follow whatever heat the table (and the human) just introduced. Scene-first is the default for faithful scene play; Free is opt-in for off-rails chaos.
 
 // MARK: - PendingBoot
 // Director's Chair: one-shot exit directive for a cast member, then remove.
@@ -286,8 +253,7 @@ nonisolated enum ScenePlayMode: String, CaseIterable, Codable, Sendable {
 }
 
 // MARK: - ChatSubMode
-// The Chat tab's Solo (1:1) vs Ensemble (multi-agent) toggle. Persisted on
-// AppState; defaults to .solo so existing behavior is unchanged on launch.
+// The Chat tab's Solo (1:1) vs Ensemble (multi-agent) toggle. Persisted on AppState; defaults to .solo so existing behavior is unchanged on launch.
 
 nonisolated enum ChatSubMode: String, CaseIterable, Sendable {
     case solo
@@ -295,9 +261,7 @@ nonisolated enum ChatSubMode: String, CaseIterable, Sendable {
 }
 
 // MARK: - CastPackage (portable cast export/import)
-// JSON file format for sharing or backing up a cast. Source UUIDs are
-// informational — import always mints new store/runtime IDs so re-importing
-// the same file never collides with `@Attribute(.unique)`.
+// JSON file format for sharing or backing up a cast. Source UUIDs are informational — import always mints new store/runtime IDs so re-importing the same file never collides with `@Attribute(.unique)`.
 
 /// Top-level portable cast file (`formatVersion` 1).
 nonisolated struct CastPackage: Codable, Sendable, Equatable {
@@ -341,8 +305,7 @@ nonisolated struct PersonaPayload: Codable, Sendable, Equatable {
 }
 
 // MARK: - CastPackageBuilder
-// Pure helpers so export/import voice resolution is unit-testable without
-// AppKit panels or SwiftData.
+// Pure helpers so export/import voice resolution is unit-testable without AppKit panels or SwiftData.
 
 nonisolated enum CastPackageBuilder {
 
@@ -352,8 +315,7 @@ nonisolated enum CastPackageBuilder {
     static let minCastSize = 1
     static let maxCastSize = 8
 
-    /// Build a portable package from live runtime state (+ optional SwiftData
-    /// role/reads when available, parallel by index).
+    /// Build a portable package from live runtime state (+ optional SwiftData role/reads when available, parallel by index).
     static func make(
         castID: UUID?,
         castName: String,
@@ -409,8 +371,7 @@ nonisolated enum CastPackageBuilder {
         )
     }
 
-    /// Resolve a voiceID against the voices available on this machine.
-    /// Missing stock/imported voices fall back to Cosette.
+    /// Resolve a voiceID against the voices available on this machine. Missing stock/imported voices fall back to Cosette.
     static func resolveVoiceID(_ voiceID: String, available: Set<String>) -> String {
         if available.contains(voiceID) { return voiceID }
         return defaultVoiceID

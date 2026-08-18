@@ -2,19 +2,13 @@
 //  SpeakerIsolatorViewModelSeparationTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  VM-level tests for the source-separation path in Speaker
-//  Isolator. Uses `MockDiarizationProvider` + `MockSourceSeparator`
-//  so the pipeline runs without SpeakerKit's downloaded model or
-//  HTDemucs's 400 MB mlpackage.
+//  VM-level tests for the source-separation path in Speaker Isolator. Uses `MockDiarizationProvider` + `MockSourceSeparator` so the pipeline runs without SpeakerKit's downloaded model or HTDemucs's 400 MB mlpackage.
 //
 //  Coverage:
 //    * Happy path — separator + Background row plumbed through
-//    * Diarize-first sequencing — speakers populate BEFORE the
-//      separator finishes (validates the Codex F4 progressive UX)
-//    * Soft fallback — separator's model is missing AND user
-//      toggled audio preservation off → v1 behavior runs
-//    * Mid-pipeline failure — separator throws → status = .error,
-//      pre-separation speakers are still in `vm.speakers`
+//    * Diarize-first sequencing — speakers populate BEFORE the separator finishes (validates the Codex F4 progressive UX)
+//    * Soft fallback — separator's model is missing AND user toggled audio preservation off → v1 behavior runs
+//    * Mid-pipeline failure — separator throws → status = .error, pre-separation speakers are still in `vm.speakers`
 
 import AVFoundation
 import XCTest
@@ -62,9 +56,7 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
     }
 
     private func musicfulStems() -> SeparatedStems {
-        // 5 seconds of 24 kHz mono. Vocals = arbitrary sine,
-        // music = a different sine so the two stems are
-        // distinguishable in test assertions.
+        // 5 seconds of 24 kHz mono. Vocals = arbitrary sine, music = a different sine so the two stems are distinguishable in test assertions.
         let n = 5 * 24_000
         let vocals = (0..<n).map { Float(sin(Double($0) * 0.005)) * 0.4 }
         let music = (0..<n).map { Float(sin(Double($0) * 0.020)) * 0.2 }
@@ -112,9 +104,7 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
     // MARK: - Diarize-first sequencing (progressive UX)
 
     func test_speakersPopulateBeforeSeparationCompletes() async throws {
-        // Diarize is instant; separator delays 800 ms. After
-        // ~200 ms we expect `speakers` to be populated (from
-        // the mono pass) — long BEFORE the separator finishes.
+        // Diarize is instant; separator delays 800 ms. After ~200 ms we expect `speakers` to be populated (from the mono pass) — long BEFORE the separator finishes.
         let segments = defaultSegments()
         let mockDiarizer = MockDiarizationProvider(cannedSegments: segments)
         let mockSeparator = MockSourceSeparator(
@@ -130,16 +120,10 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
         vm.setInputAudio(tempWAV)
         vm.convertAndIsolate()
 
-        // Wait long enough for diarize + initial isolation +
-        // first mono-pass speaker publication. The mono-pass
-        // is pure math (microseconds); the separator is still
-        // sleeping 800 ms.
+        // Wait long enough for diarize + initial isolation + first mono-pass speaker publication. The mono-pass is pure math (microseconds); the separator is still sleeping 800 ms.
         try await Task.sleep(nanoseconds: 200_000_000)  // 200 ms
 
-        // Speakers populated already, BEFORE the separator
-        // finishes. With useSeparation=true, the mono pass
-        // does NOT append a Background row — that comes after
-        // the music stem is available.
+        // Speakers populated already, BEFORE the separator finishes. With useSeparation=true, the mono pass does NOT append a Background row — that comes after the music stem is available.
         XCTAssertEqual(vm.speakers.count, 2,
                        "speakers should populate from the mono pass " +
                        "BEFORE separator finishes")
@@ -157,13 +141,7 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
     // MARK: - Soft fallback (toggle off)
 
     func test_separationToggleOff_skipsSeparation_noBanner() async throws {
-        // Separator is wired AND its model is downloaded — but
-        // the user toggled audioPreservationEnabled off, so the
-        // pipeline runs in disabled mode (v1 behavior, mix-
-        // derived Background label). The soft-fallback banner
-        // stays FALSE because the user explicitly opted out;
-        // showing the "models missing" banner here would be
-        // wrong.
+        // Separator is wired AND its model is downloaded — but the user toggled audioPreservationEnabled off, so the pipeline runs in disabled mode (v1 behavior, mix-derived Background label). The soft-fallback banner stays FALSE because the user explicitly opted out; showing the "models missing" banner here would be wrong.
         let segments = defaultSegments()
         let mockDiarizer = MockDiarizationProvider(cannedSegments: segments)
         let mockSeparator = MockSourceSeparator(
@@ -197,11 +175,7 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
     // MARK: - Soft fallback (preference on, model missing)
 
     func test_softFallbackWhenModelsMissing_runsV1AndSetsBanner() async throws {
-        // Separator is wired but its model isn't downloaded.
-        // With audioPreservationEnabled = true the user has
-        // asked for separation — but we don't auto-download the
-        // 287 MB model from the convert pipeline (that's an
-        // explicit Manage Models sheet action). Expected:
+        // Separator is wired but its model isn't downloaded. With audioPreservationEnabled = true the user has asked for separation — but we don't auto-download the 287 MB model from the convert pipeline (that's an explicit Manage Models sheet action). Expected:
         //   * Pipeline runs v1 disabled path → status .done
         //   * separator.separate() NEVER called
         //   * separator.ensureModelsReady() NEVER called either
@@ -244,8 +218,7 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
         // Separator throws on the first call. We expect the VM
         // to:
         //   - status = .error(...)
-        //   - vm.speakers still populated from the mono pass
-        //     (not wiped)
+        //   - vm.speakers still populated from the mono pass (not wiped)
         let segments = defaultSegments()
         let mockDiarizer = MockDiarizationProvider(cannedSegments: segments)
         let mockSeparator = MockSourceSeparator(
@@ -269,14 +242,10 @@ final class SpeakerIsolatorViewModelSeparationTests: XCTestCase {
             XCTFail("expected .error, got \(vm.status)")
         }
 
-        // The mono-pass speakers ARE preserved (no Background
-        // because the music stem never landed).
+        // The mono-pass speakers ARE preserved (no Background because the music stem never landed).
         XCTAssertEqual(vm.speakers.count, 2,
                        "pre-separation speakers must survive the failure")
-        // Guard before subscripting so a count mismatch fails cleanly via
-        // the assert above instead of trapping the whole run with
-        // "Index out of range" (which masks the real failure + restarts
-        // the test bundle).
+        // Guard before subscripting so a count mismatch fails cleanly via the assert above instead of trapping the whole run with "Index out of range" (which masks the real failure + restarts the test bundle).
         guard vm.speakers.count == 2 else { return }
         XCTAssertEqual(vm.speakers[0].id, "SPEAKER_00")
         XCTAssertEqual(vm.speakers[1].id, "SPEAKER_01")

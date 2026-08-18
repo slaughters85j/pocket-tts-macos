@@ -2,8 +2,7 @@
 //  ChatThreadSidebar.swift
 //  mimika-ai-voice-studio
 //
-//  Messages-style thread list: title, model theme one-liner, created date.
-//  Pin / delete via context menu. Kind is owned by ChatThreadBrowser.
+//  Messages-style thread list: title, model theme one-liner, created date. Pin / delete via context menu. Kind is owned by ChatThreadBrowser.
 //
 
 import SwiftUI

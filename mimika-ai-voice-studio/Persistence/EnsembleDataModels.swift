@@ -2,29 +2,20 @@
 //  EnsembleDataModels.swift
 //  mimika-ai-voice-studio
 //
-//  SwiftData @Model types for Ensemble Mode (the multi-LLM live multi-speak
-//  conversation feature). Kept in their own file rather than DataModels.swift
-//  to respect the 300-line-per-file convention; they are still listed in the
-//  single `HistoryStore.schema` so the store sees one unified model graph.
+//  SwiftData @Model types for Ensemble Mode (the multi-LLM live multi-speak conversation feature). Kept in their own file rather than DataModels.swift to respect the 300-line-per-file convention; they are still listed in the single `HistoryStore.schema` so the store sees one unified model graph.
 //
 //  House style matched from DataModels.swift:
 //    * explicit `@Relationship(deleteRule: .cascade, inverse:)`
-//    * children carry `sortOrder`; readers sort by it, never trust
-//      relationship array order
-//    * enums stored as their rawValue String, surfaced via a computed
-//      property (e.g. `turnMode`)
+//    * children carry `sortOrder`; readers sort by it, never trust relationship array order
+//    * enums stored as their rawValue String, surfaced via a computed property (e.g. `turnMode`)
 //
-//  All four model types are additive — no existing entity or field changes —
-//  so SwiftData migrates them in without an explicit VersionedSchema (same
-//  reasoning as the LocalLLMEndpoint / SystemPrompt addition).
+//  All four model types are additive — no existing entity or field changes — so SwiftData migrates them in without an explicit VersionedSchema (same reasoning as the LocalLLMEndpoint / SystemPrompt addition).
 
 import Foundation
 import SwiftData
 
 // MARK: - TurnMode
-// How the conductor chooses who speaks next. Stored on EnsembleCast as
-// `turnModeRaw`. `.weightedRandom` is the default (free, with mention
-// override); `.director` costs one LLM call per turn (opt-in).
+// How the conductor chooses who speaks next. Stored on EnsembleCast as `turnModeRaw`. `.weightedRandom` is the default (free, with mention override); `.director` costs one LLM call per turn (opt-in).
 
 nonisolated enum TurnMode: String, Codable, CaseIterable, Sendable {
     case roundRobin
@@ -41,9 +32,7 @@ nonisolated enum TurnMode: String, Codable, CaseIterable, Sendable {
 }
 
 // MARK: - EnsembleCast
-// A saved cast configuration: the scene + mood the persona-writer was given,
-// the turn/pacing settings, and the personas themselves. One of these is the
-// unit the user creates, names, and re-runs.
+// A saved cast configuration: the scene + mood the persona-writer was given, the turn/pacing settings, and the personas themselves. One of these is the unit the user creates, names, and re-runs.
 
 @Model
 final class EnsembleCast {
@@ -51,8 +40,7 @@ final class EnsembleCast {
     var name: String
     var scene: String
     var mood: String
-    /// `TurnMode.rawValue` — stored flat so SwiftData indexes it without
-    /// bringing the enum into the model layer (mirrors `SystemPrompt.scopeRaw`).
+    /// `TurnMode.rawValue` — stored flat so SwiftData indexes it without bringing the enum into the model layer (mirrors `SystemPrompt.scopeRaw`).
     var turnModeRaw: String
     /// 0…1 dial. Feeds `RNGMode` selection + weighting jitter.
     var randomness: Double
@@ -60,14 +48,10 @@ final class EnsembleCast {
     var paceSeconds: Double
     var contextWindowTurns: Int
     var rollingSummaryEnabled: Bool
-    /// Empty → fall back to `ChatSettings.model`. The writer/conductor model
-    /// is exposed separately so it can differ from the speaker model.
+    /// Empty → fall back to `ChatSettings.model`. The writer/conductor model is exposed separately so it can differ from the speaker model.
     var writerModel: String
     var conductorModel: String
-    /// The human peer's display name at save time — restored on cast load
-    /// so the Multi-Talk export's name-matched user-voice lookup keeps
-    /// working after a relaunch. Additive with a default so existing rows
-    /// migrate cleanly.
+    /// The human peer's display name at save time — restored on cast load so the Multi-Talk export's name-matched user-voice lookup keeps working after a relaunch. Additive with a default so existing rows migrate cleanly.
     var userPeerName: String = ""
     var createdAt: Date
     var updatedAt: Date
@@ -109,17 +93,14 @@ final class EnsembleCast {
 
     var turnMode: TurnMode { TurnMode(rawValue: turnModeRaw) ?? .weightedRandom }
 
-    /// Personas in stable display order. Never read `personas` directly for
-    /// ordering — SwiftData relationship arrays are unordered.
+    /// Personas in stable display order. Never read `personas` directly for ordering — SwiftData relationship arrays are unordered.
     var sortedPersonas: [EnsemblePersona] {
         personas.sorted { $0.sortOrder < $1.sortOrder }
     }
 }
 
 // MARK: - EnsemblePersona
-// One character in a cast: identity, assigned voice, the spoken-only persona
-// prompt the writer produced, the per-agent LLM temperature, and this
-// character's read on each OTHER cast member (the relationship graph).
+// One character in a cast: identity, assigned voice, the spoken-only persona prompt the writer produced, the per-agent LLM temperature, and this character's read on each OTHER cast member (the relationship graph).
 
 @Model
 final class EnsemblePersona {
@@ -128,17 +109,13 @@ final class EnsemblePersona {
     var role: String
     /// Resolved real voiceID ("javert" or "imported:<UUID>").
     var voiceID: String
-    /// The writer's raw free-text suggestion ("gravelly older man"), kept so
-    /// we can re-map to a real voice if the user later imports a match.
+    /// The writer's raw free-text suggestion ("gravelly older man"), kept so we can re-map to a real voice if the user later imports a match.
     var suggestedVoice: String
     var personaPrompt: String
     var temperature: Double
-    /// SamplingPreset.rawValue — the user's per-speaker sampling dial. Additive
-    /// with a default so existing rows migrate cleanly.
+    /// SamplingPreset.rawValue — the user's per-speaker sampling dial. Additive with a default so existing rows migrate cleanly.
     var samplingPresetRaw: String = SamplingPreset.relaxed.rawValue
-    /// `[String: String]` (otherName → one-line read) serialized as JSON.
-    /// SwiftData has no native dictionary attribute and this is never queried
-    /// by key, so a flat JSON string is the pragmatic store (see `readsOnOthers`).
+    /// `[String: String]` (otherName → one-line read) serialized as JSON. SwiftData has no native dictionary attribute and this is never queried by key, so a flat JSON string is the pragmatic store (see `readsOnOthers`).
     var readsOnOthersJSON: String
     var sortOrder: Int
     var cast: EnsembleCast?
@@ -172,8 +149,7 @@ final class EnsemblePersona {
         set { samplingPresetRaw = newValue.rawValue }
     }
 
-    /// Typed accessor over `readsOnOthersJSON`. Decodes lazily; tolerant of a
-    /// malformed/empty string (returns `[:]`).
+    /// Typed accessor over `readsOnOthersJSON`. Decodes lazily; tolerant of a malformed/empty string (returns `[:]`).
     var readsOnOthers: [String: String] {
         get {
             (try? JSONDecoder().decode([String: String].self,
@@ -190,9 +166,7 @@ final class EnsemblePersona {
 }
 
 // MARK: - EnsembleSession
-// A finished episode: the rendered {Name}-tagged transcript (ready for the
-// Multi-Talk export path) plus its speaker roster. Mirrors TTSHistoryItem /
-// HistorySpeaker so an Ensemble run can also be surfaced in the History tab.
+// A finished episode: the rendered {Name}-tagged transcript (ready for the Multi-Talk export path) plus its speaker roster. Mirrors TTSHistoryItem / HistorySpeaker so an Ensemble run can also be surfaced in the History tab.
 
 @Model
 final class EnsembleSession {

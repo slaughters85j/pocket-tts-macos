@@ -2,9 +2,7 @@
 //  NpyReader.swift
 //  mimika-ai-voice-studioTests
 //
-//  Minimal NumPy `.npy` file reader for the LavaSR parity test
-//  fixtures. Supports 1D Float32 little-endian arrays — the only flavor
-//  produced by `scripts/validate_lavasr_enhancement.py`.
+//  Minimal NumPy `.npy` file reader for the LavaSR parity test fixtures. Supports 1D Float32 little-endian arrays — the only flavor produced by `scripts/validate_lavasr_enhancement.py`.
 //
 //  The full .npy spec is at
 //      https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html
@@ -46,9 +44,7 @@ enum NpyReader {
         }
     }
 
-    /// Load a 1D Float32 array from a `.npy` file written by
-    /// `numpy.save(...)`. Throws on malformed files or unsupported
-    /// dtypes; returns the `[Float]` payload otherwise.
+    /// Load a 1D Float32 array from a `.npy` file written by `numpy.save(...)`. Throws on malformed files or unsupported dtypes; returns the `[Float]` payload otherwise.
     static func loadFloat32Array(at url: URL) throws -> [Float] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw Error.fileNotFound(url)
@@ -107,9 +103,7 @@ enum NpyReader {
             throw Error.lengthMismatch(expected: totalSamples, actual: actualSamples)
         }
 
-        // Copy body bytes into [Float]. The bytes are little-endian
-        // float32 — matches Apple Silicon native representation, so a
-        // direct memcpy works.
+        // Copy body bytes into [Float]. The bytes are little-endian float32 — matches Apple Silicon native representation, so a direct memcpy works.
         var out = [Float](repeating: 0, count: totalSamples)
         out.withUnsafeMutableBytes { dst in
             let src = data.subdata(in: bodyOffset..<bodyOffset + totalSamples * MemoryLayout<Float>.size)
@@ -120,15 +114,12 @@ enum NpyReader {
         return out
     }
 
-    /// Load an N-D Float32 .npy and return both the flat row-major
-    /// payload and the parsed shape. Useful for module-level parity
-    /// tests where the saved tensor is (B, C, T, F).
+    /// Load an N-D Float32 .npy and return both the flat row-major payload and the parsed shape. Useful for module-level parity tests where the saved tensor is (B, C, T, F).
     static func loadFloat32Tensor(at url: URL) throws -> (samples: [Float], shape: [Int]) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw Error.fileNotFound(url)
         }
-        // The flat loader already does header parsing — we re-do the
-        // shape parse here so the caller gets the dims. Cheap.
+        // The flat loader already does header parsing — we re-do the shape parse here so the caller gets the dims. Cheap.
         let data: Data
         do {
             data = try Data(contentsOf: url, options: .mappedIfSafe)
@@ -151,8 +142,7 @@ enum NpyReader {
         return (samples, shape)
     }
 
-    /// Parse the `'shape': (D0, D1, ...)` tuple out of the .npy header.
-    /// Accepts arbitrary rank, including `(N,)` for 1D.
+    /// Parse the `'shape': (D0, D1, ...)` tuple out of the .npy header. Accepts arbitrary rank, including `(N,)` for 1D.
     private static func _parseShape(_ header: String) throws -> [Int] {
         guard let shapeMarker = header.range(of: "'shape': (") else {
             throw Error.headerParseFailed("missing 'shape' field")
@@ -174,22 +164,12 @@ enum NpyReader {
 
     // MARK: - Convenience
 
-    /// Compile-time path to this very file (resolved once, baked in).
-    /// Used to anchor the fixtures-dir lookup so it doesn't depend on
-    /// which test file calls phase10FixturesDir().
+    /// Compile-time path to this very file (resolved once, baked in). Used to anchor the fixtures-dir lookup so it doesn't depend on which test file calls phase10FixturesDir().
     ///
-    /// CAVEAT: a `#filePath` *default argument* gets re-resolved at
-    /// every call site, so a caller from `LavaSRDenoiserModuleTests.swift`
-    /// would yield the wrong base directory. Capturing it here as a
-    /// stored constant locks it to `Helpers/NpyReader.swift` regardless
-    /// of caller.
+    /// CAVEAT: a `#filePath` *default argument* gets re-resolved at every call site, so a caller from `LavaSRDenoiserModuleTests.swift` would yield the wrong base directory. Capturing it here as a stored constant locks it to `Helpers/NpyReader.swift` regardless of caller.
     private static let _selfFilePath: String = #filePath
 
-    /// Locate the Phase 10 LavaSR fixtures directory at
-    /// `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/`. The
-    /// `#filePath` of THIS file is in `Helpers/`, so we delete the
-    /// `Helpers` last-component to get to `mimika-ai-voice-studioTests/`,
-    /// then descend into the fixtures subdir.
+    /// Locate the Phase 10 LavaSR fixtures directory at `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/`. The `#filePath` of THIS file is in `Helpers/`, so we delete the `Helpers` last-component to get to `mimika-ai-voice-studioTests/`, then descend into the fixtures subdir.
     static func phase10FixturesDir() -> URL {
         let here = URL(fileURLWithPath: _selfFilePath).deletingLastPathComponent()
         // here is .../mimika-ai-voice-studioTests/Helpers/
@@ -199,8 +179,7 @@ enum NpyReader {
             .appendingPathComponent("lavasr_phase10", isDirectory: true)
     }
 
-    /// Convenience: load the named .npy from the lavasr_phase10
-    /// directory, soft-skip the calling test if absent.
+    /// Convenience: load the named .npy from the lavasr_phase10 directory, soft-skip the calling test if absent.
     static func requirePhase10Array(_ name: String) throws -> [Float] {
         let url = phase10FixturesDir().appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -214,9 +193,7 @@ enum NpyReader {
         return try loadFloat32Array(at: url)
     }
 
-    /// N-D variant of `requirePhase10Array`. Returns the flat row-major
-    /// payload plus the parsed shape; the test reshapes the payload
-    /// into an MLXArray of the matching dimensions.
+    /// N-D variant of `requirePhase10Array`. Returns the flat row-major payload plus the parsed shape; the test reshapes the payload into an MLXArray of the matching dimensions.
     static func requirePhase10Tensor(_ name: String) throws -> (samples: [Float], shape: [Int]) {
         let url = phase10FixturesDir().appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -232,8 +209,7 @@ enum NpyReader {
 
     // MARK: - Metrics
 
-    /// Pearson correlation of two same-length arrays. Returns NaN if
-    /// either input has zero variance.
+    /// Pearson correlation of two same-length arrays. Returns NaN if either input has zero variance.
     static func pearsonR(_ a: [Float], _ b: [Float]) -> Double {
         precondition(a.count == b.count, "pearsonR: length mismatch \(a.count) vs \(b.count)")
         let n = Double(a.count)

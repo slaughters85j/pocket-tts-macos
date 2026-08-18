@@ -2,8 +2,7 @@
 //  SpeakerIsolatorViewModel.swift
 //  mimika-ai-voice-studio
 //
-//  State machine + orchestrator for the Speaker Isolator sheet.
-//  Drives the full pipeline:
+//  State machine + orchestrator for the Speaker Isolator sheet. Drives the full pipeline:
 //
 //      input audio/video URL
 //        ↓
@@ -43,9 +42,7 @@
 //    * +ChangeVoices.swift — runChangeVoicesPipeline
 //    * +Exports.swift — single-speaker + batch + combined WAV save
 //
-//  Cancellation: the Stop button calls `cancel()`, which propagates
-//  via `Task.cancel()`. Diarization completes (~30 s) before the
-//  cancel takes effect — see Codex F6 / the pipeline's docstring.
+//  Cancellation: the Stop button calls `cancel()`, which propagates via `Task.cancel()`. Diarization completes (~30 s) before the cancel takes effect — see Codex F6 / the pipeline's docstring.
 
 import AppKit
 import AVFoundation
@@ -56,15 +53,9 @@ import Observation
 
 /// Three mutually-exclusive per-row dispositions the user can pick:
 ///
-///   * `.useOriginal`  — passthrough the speaker's isolated audio
-///                       into the final combined output.
-///   * `.discard`      — exclude this speaker from the final output.
-///                       Useful for silencing a specific speaker.
-///   * `.revoice(voiceID)` — send this speaker's audio through the
-///                          Voice Changer + substitute the chosen
-///                          TTS voice into the timeline-aligned slot.
-///                          Not valid for the background row (you
-///                          can't re-voice music) — picker hides it.
+///   * `.useOriginal`  — passthrough the speaker's isolated audio into the final combined output.
+///   * `.discard`      — exclude this speaker from the final output. Useful for silencing a specific speaker.
+///   * `.revoice(voiceID)` — send this speaker's audio through the Voice Changer + substitute the chosen TTS voice into the timeline-aligned slot. Not valid for the background row (you can't re-voice music) — picker hides it.
 ///
 /// Hashable so it can serve as the SwiftUI Picker selection tag.
 enum SpeakerAction: Hashable, Sendable {
@@ -85,26 +76,14 @@ final class SpeakerIsolatorViewModel {
         case idle
         /// Diarization model fetch in progress.
         case downloadingModels(progress: Double?)
-        /// HTDemucs source-separation model fetch in progress.
-        /// Distinct from `downloadingModels` so the UI can label
-        /// the two phases differently — diarization is mandatory,
-        /// separation is optional + larger (~287 MB vs ~50 MB).
+        /// HTDemucs source-separation model fetch in progress. Distinct from `downloadingModels` so the UI can label the two phases differently — diarization is mandatory, separation is optional + larger (~287 MB vs ~50 MB).
         case downloadingSeparationModels(progress: Double?)
         case loadingAudio
         case diarizing
         case isolating
-        /// HTDemucs running. `chunk`/`total` count the model's
-        /// chunk-by-chunk inference (~7.8 s windows); `etaSec` is a
-        /// rough remaining-time estimate based on the rate of past
-        /// chunks. nil if too early to estimate.
+        /// HTDemucs running. `chunk`/`total` count the model's chunk-by-chunk inference (~7.8 s windows); `etaSec` is a rough remaining-time estimate based on the rate of past chunks. nil if too early to estimate.
         case separatingSources(chunk: Int, total: Int, etaSec: Int?)
-        /// Revoice pipeline kicked off and preparing (STT model load +
-        /// transcription) before per-segment `.revoicing` progress
-        /// begins. Set SYNCHRONOUSLY at the top of
-        /// `runChangeVoicesPipeline` so the FIRST click disables the
-        /// button + shows the spinner — closing the re-entry window
-        /// where rapid taps each spawned (and orphaned) a Task while
-        /// `status` was still `.done`.
+        /// Revoice pipeline kicked off and preparing (STT model load + transcription) before per-segment `.revoicing` progress begins. Set SYNCHRONOUSLY at the top of `runChangeVoicesPipeline` so the FIRST click disables the button + shows the spinner — closing the re-entry window where rapid taps each spawned (and orphaned) a Task while `status` was still `.done`.
         case preparingRevoice
         case revoicing(speakerID: String, current: Int, total: Int)
         case muxingVideo
@@ -132,44 +111,18 @@ final class SpeakerIsolatorViewModel {
         let segments: Int
         let durationSec: Double
         let isolatedSamples: [Float]
-        /// Time ranges (in seconds, original timeline) of this
-        /// speaker's individual utterances (or non-speech regions
-        /// for the background row). Drawn as an activity bar in the
-        /// row's MiniAudioPlayer so the user can see where on the
-        /// timeline this track was active.
+        /// Time ranges (in seconds, original timeline) of this speaker's individual utterances (or non-speech regions for the background row). Drawn as an activity bar in the row's MiniAudioPlayer so the user can see where on the timeline this track was active.
         let segmentRanges: [ClosedRange<Double>]
         /// User's per-row disposition. Default `.useOriginal`.
         var action: SpeakerAction = .useOriginal
 
-        /// True for the synthetic background-audio row (music / SFX
-        /// / ambient — either complement-of-speakers when separation
-        /// is off, or the HTDemucs music stem when on). UI hides
-        /// voice options in the picker; revoicer rejects `.revoice`
-        /// for it.
+        /// True for the synthetic background-audio row (music / SFX / ambient — either complement-of-speakers when separation is off, or the HTDemucs music stem when on). UI hides voice options in the picker; revoicer rejects `.revoice` for it.
         var isBackground: Bool { id == backgroundSpeakerID }
 
         static func == (lhs: SpeakerTrack, rhs: SpeakerTrack) -> Bool {
-            // Compare identity + UI-mutable fields PLUS an O(1)
-            // content fingerprint on `isolatedSamples`. The
-            // fingerprint catches the `convertAndIsolate` step 6 →
-            // step 10 swap: the same `id`/`displayName`/etc. but
-            // freshly-rebuilt isolatedSamples (mix-derived rows
-            // replaced by vocals-stem-derived rows). Without the
-            // fingerprint here, SwiftUI's diff returns "equal" and
-            // skips SpeakerRow re-render — which means
-            // MiniAudioPlayer's `.id(...)` modifier never re-evaluates
-            // and its temp-WAV-cached AVAudioPlayer keeps playing the
-            // stale step-6 (mix-contaminated) audio. The bug
-            // manifested as: per-row preview sounds contaminated
-            // until the user changes any UI field (which DID change
-            // Equatable's result) at which point the player rebuilds
-            // with the clean post-step-10 samples.
+            // Compare identity + UI-mutable fields PLUS an O(1) content fingerprint on `isolatedSamples`. The fingerprint catches the `convertAndIsolate` step 6 → step 10 swap: the same `id`/`displayName`/etc. but freshly-rebuilt isolatedSamples (mix-derived rows replaced by vocals-stem-derived rows). Without the fingerprint here, SwiftUI's diff returns "equal" and skips SpeakerRow re-render — which means MiniAudioPlayer's `.id(...)` modifier never re-evaluates and its temp-WAV-cached AVAudioPlayer keeps playing the stale step-6 (mix-contaminated) audio. The bug manifested as: per-row preview sounds contaminated until the user changes any UI field (which DID change Equatable's result) at which point the player rebuilds with the clean post-step-10 samples.
             //
-            // Fingerprint is `count ^ last-sample-bit-pattern` —
-            // matches the SpeakerRow's `.id(...)` modifier so the
-            // two stay in sync. Statistical collision requires
-            // matching length AND identical last sample, vanishingly
-            // unlikely for real speech content.
+            // Fingerprint is `count ^ last-sample-bit-pattern` — matches the SpeakerRow's `.id(...)` modifier so the two stay in sync. Statistical collision requires matching length AND identical last sample, vanishingly unlikely for real speech content.
             lhs.id == rhs.id
                 && lhs.displayName == rhs.displayName
                 && lhs.segments == rhs.segments
@@ -184,76 +137,33 @@ final class SpeakerIsolatorViewModel {
 
     var inputAudioURL: URL?
     var inputDurationSec: Double?
-    /// When true, isolated-WAV exports carry the silence-padded
-    /// full-length tracks. When false, each export concatenates only
-    /// that speaker's speech (no silences). Internally forced to ON
-    /// for the Change-Voices pipeline regardless of this toggle —
-    /// the multi-speaker sum requires timeline-aligned tracks.
+    /// When true, isolated-WAV exports carry the silence-padded full-length tracks. When false, each export concatenates only that speaker's speech (no silences). Internally forced to ON for the Change-Voices pipeline regardless of this toggle — the multi-speaker sum requires timeline-aligned tracks.
     var preserveSilenceForIsolatedExport: Bool = true
-    /// Which row's inline mini-player is currently expanded. Only
-    /// one at a time.
+    /// Which row's inline mini-player is currently expanded. Only one at a time.
     var expandedSpeakerID: String? = nil
 
-    /// Which row is currently playing audio. `nil` = nothing is
-    /// playing.
+    /// Which row is currently playing audio. `nil` = nothing is playing.
     var playingSpeakerID: String? = nil
 
-    /// User-supplied tuning for the diarization step. Default values
-    /// preserve the FluidInference diarizer's out-of-the-box behavior.
+    /// User-supplied tuning for the diarization step. Default values preserve the FluidInference diarizer's out-of-the-box behavior.
     var diarizationSettings: DiarizationSettings = DiarizationSettings()
 
-    /// User toggle for the "Match original speaking pace" feature.
-    /// When true (default), revoiced segments that take longer to say
-    /// than the original are gently sped up via WSOLA time
-    /// compression so they fit the original timeline without altering
-    /// the new voice's pitch / timbre. When false, the renderer
-    /// allows segments to spill past their original boundaries.
-    /// Synced from the Speaker Isolator sheet's `@AppStorage`-backed
-    /// preference at the moment Change Voices runs.
+    /// User toggle for the "Match original speaking pace" feature. When true (default), revoiced segments that take longer to say than the original are gently sped up via WSOLA time compression so they fit the original timeline without altering the new voice's pitch / timbre. When false, the renderer allows segments to spill past their original boundaries. Synced from the Speaker Isolator sheet's `@AppStorage`-backed preference at the moment Change Voices runs.
     var matchOriginalPace: Bool = true
 
-    /// User toggle for the Audio Preservation feature (HTDemucs
-    /// source separation). Defaults to ON when a separator was
-    /// injected at init time; when no separator is wired up the
-    /// toggle has no effect (the UI hides it). When ON + separator
-    /// available + model downloaded, the pipeline diarizes first,
-    /// populates speakers from the mono mix for immediate UX, then
-    /// runs HTDemucs in the background and re-isolates from the
-    /// vocals stem, appending a Background SpeakerTrack with the
-    /// music stem.
+    /// User toggle for the Audio Preservation feature (HTDemucs source separation). Defaults to ON when a separator was injected at init time; when no separator is wired up the toggle has no effect (the UI hides it). When ON + separator available + model downloaded, the pipeline diarizes first, populates speakers from the mono mix for immediate UX, then runs HTDemucs in the background and re-isolates from the vocals stem, appending a Background SpeakerTrack with the music stem.
     var audioPreservationEnabled: Bool = true
 
-    /// Phase 7 stereo bed: the vocals bed for the final mix. Set by
-    /// `convertAndIsolate()` after isolation completes. AP-on:
-    /// stereo 44.1 kHz HTDemucs vocals stem (model native, no
-    /// downmix). AP-off: the original 24 kHz mono mix (legacy v1
-    /// behavior — final mix collapses to mono with no music bed).
-    /// Consumed by `runChangeVoicesPipeline` as the substrate that
-    /// per-speaker actions modify (`.useOriginal` no-op, `.discard`
-    /// zero-out, `.revoice` zero-out + TTS overlay).
+    /// Phase 7 stereo bed: the vocals bed for the final mix. Set by `convertAndIsolate()` after isolation completes. AP-on:
+    /// stereo 44.1 kHz HTDemucs vocals stem (model native, no downmix). AP-off: the original 24 kHz mono mix (legacy v1 behavior — final mix collapses to mono with no music bed). Consumed by `runChangeVoicesPipeline` as the substrate that per-speaker actions modify (`.useOriginal` no-op, `.discard` zero-out, `.revoice` zero-out + TTS overlay).
     var vocalsBed: AudioBuffer?
 
-    /// Phase 7 stereo bed: the music bed (HTDemucs's drums + bass +
-    /// other summed per channel). Set only when AP-on; nil for
-    /// AP-off so the final mix has no separate music contribution.
-    /// User can opt this out via the Background row's `.discard`
-    /// action.
+    /// Phase 7 stereo bed: the music bed (HTDemucs's drums + bass + other summed per channel). Set only when AP-on; nil for AP-off so the final mix has no separate music contribution. User can opt this out via the Background row's `.discard` action.
     var musicBed: AudioBuffer?
 
-    /// Set to `true` by `convertAndIsolate()` when audio preservation
-    /// was REQUESTED (toggle on + separator wired up) but couldn't
-    /// run because the separator's model isn't downloaded. The UI
-    /// binds this to a yellow "Separation models not downloaded"
-    /// banner that links to Manage Models. Soft-fallback: the
-    /// pipeline still produces speakers via the v1 mix-derived
-    /// path so the user isn't blocked.
+    /// Set to `true` by `convertAndIsolate()` when audio preservation was REQUESTED (toggle on + separator wired up) but couldn't run because the separator's model isn't downloaded. The UI binds this to a yellow "Separation models not downloaded" banner that links to Manage Models. Soft-fallback: the pipeline still produces speakers via the v1 mix-derived path so the user isn't blocked.
     ///
-    /// Auto-downloading the separator model from
-    /// `convertAndIsolate` is intentionally NOT supported: the
-    /// model is 287 MB + optional, so the download is gated behind
-    /// an explicit user action in the Manage Models sheet
-    /// (Commit 8). The toggle here just enables / disables the
-    /// feature ON THE ASSUMPTION the model is already installed.
+    /// Auto-downloading the separator model from `convertAndIsolate` is intentionally NOT supported: the model is 287 MB + optional, so the download is gated behind an explicit user action in the Manage Models sheet (Commit 8). The toggle here just enables / disables the feature ON THE ASSUMPTION the model is already installed.
     private(set) var separationFellBackToV1: Bool = false
 
     // MARK: - Observable state
@@ -267,39 +177,21 @@ final class SpeakerIsolatorViewModel {
 
     let engine: any TTSEngineProtocol
     let pipeline: SpeakerIsolatorPipeline
-    /// Surfaced via `pipeline.hasSourceSeparator` for UI gating —
-    /// stored as a plain Bool so the UI's view-body code doesn't
-    /// have to `await` through the actor barrier.
+    /// Surfaced via `pipeline.hasSourceSeparator` for UI gating — stored as a plain Bool so the UI's view-body code doesn't have to `await` through the actor barrier.
     let hasSourceSeparator: Bool
     var inflightTask: Task<Void, Never>?
 
-    /// Cached STT instance for the Change Voices pipeline. Lazily
-    /// built on the first run, then reused across subsequent
-    /// "Change Voices…" clicks as long as the backend key has not
-    /// changed. Avoids re-paying the FluidAudio model-load cost when
-    /// the user tweaks per-speaker voice assignments and re-runs.
+    /// Cached STT instance for the Change Voices pipeline. Lazily built on the first run, then reused across subsequent "Change Voices…" clicks as long as the backend key has not changed. Avoids re-paying the FluidAudio model-load cost when the user tweaks per-speaker voice assignments and re-runs.
     ///
-    /// Eviction policy: when `cachedSTTKey` differs from the key
-    /// passed to `runChangeVoicesPipeline`, the cached instance is
-    /// dropped + a new one is built. The `clear()` / `clearResults()`
-    /// methods deliberately do NOT evict — the model is orthogonal
-    /// to the input file, and tossing it across input swaps would
-    /// be gratuitous.
+    /// Eviction policy: when `cachedSTTKey` differs from the key passed to `runChangeVoicesPipeline`, the cached instance is dropped + a new one is built. The `clear()` / `clearResults()` methods deliberately do NOT evict — the model is orthogonal to the input file, and tossing it across input swaps would be gratuitous.
     var cachedSTT: STTProvider?
     var cachedSTTKey: String?
 
     // MARK: - Init
 
-    /// Production init. All engines default to their concrete types
-    /// so callers that don't care about DI write
-    /// `SpeakerIsolatorViewModel(engine: tts)` as before. Tests
-    /// inject mocks via the explicit args.
+    /// Production init. All engines default to their concrete types so callers that don't care about DI write `SpeakerIsolatorViewModel(engine: tts)` as before. Tests inject mocks via the explicit args.
     ///
-    /// `sourceSeparator` is nullable — when nil, source separation
-    /// is disabled entirely (the v1 / today's behavior). Pass a
-    /// `DemucsSourceSeparator` (with an installed mlpackage) to
-    /// enable; the VM will gate the actual run on
-    /// `audioPreservationEnabled` and `separator.isModelDownloaded()`.
+    /// `sourceSeparator` is nullable — when nil, source separation is disabled entirely (the v1 / today's behavior). Pass a `DemucsSourceSeparator` (with an installed mlpackage) to enable; the VM will gate the actual run on `audioPreservationEnabled` and `separator.isModelDownloaded()`.
     init(
         engine: any TTSEngineProtocol,
         loader: AudioFileLoader = AudioFileLoader(),
@@ -325,10 +217,7 @@ final class SpeakerIsolatorViewModel {
         inputAudioURL = url
         inputDurationSec = nil
         Task { @MainActor in
-            // Powerbox grant on user-picked URLs has to be claimed
-            // explicitly before reading from a background executor.
-            // Mirrors the VoiceChangerViewModel wrap so the AVURLAsset
-            // duration load doesn't trip NSCocoaErrorDomain 257.
+            // Powerbox grant on user-picked URLs has to be claimed explicitly before reading from a background executor. Mirrors the VoiceChangerViewModel wrap so the AVURLAsset duration load doesn't trip NSCocoaErrorDomain 257.
             let didStart = url.startAccessingSecurityScopedResource()
             defer { if didStart { url.stopAccessingSecurityScopedResource() } }
             do {
@@ -344,10 +233,7 @@ final class SpeakerIsolatorViewModel {
         }
     }
 
-    /// Full wipe — drops the input file in addition to the results.
-    /// Used by the X button on the input row (when allowed) and by
-    /// dismiss. After this, the user has to drop a new file before
-    /// "Isolate Speakers" can re-enable.
+    /// Full wipe — drops the input file in addition to the results. Used by the X button on the input row (when allowed) and by dismiss. After this, the user has to drop a new file before "Isolate Speakers" can re-enable.
     func clear() {
         cancel()
         inputAudioURL = nil
@@ -361,10 +247,7 @@ final class SpeakerIsolatorViewModel {
         status = .idle
     }
 
-    /// Results-only reset — keeps the input file loaded so the user
-    /// can tweak Diarization Settings + re-run on the same file
-    /// without re-dropping. Backs the "Start Over" button in the
-    /// results section header.
+    /// Results-only reset — keeps the input file loaded so the user can tweak Diarization Settings + re-run on the same file without re-dropping. Backs the "Start Over" button in the results section header.
     func clearResults() {
         cancel()
         speakers = []
@@ -382,29 +265,21 @@ final class SpeakerIsolatorViewModel {
         !status.isWorking && inputAudioURL != nil
     }
 
-    /// True when at least one row has been switched off the default
-    /// `.useOriginal` action — that is, the user has picked either
-    /// a voice OR Discard for at least one speaker / background.
-    /// Drives the "Change Voices…" button's enabled state.
+    /// True when at least one row has been switched off the default `.useOriginal` action — that is, the user has picked either a voice OR Discard for at least one speaker / background. Drives the "Change Voices…" button's enabled state.
     var hasAnyActionableChange: Bool {
         speakers.contains { $0.action != .useOriginal }
     }
 
     // MARK: - VideoAsset hand-off
 
-    /// Pipeline phases need to write `videoAsset` after audio load.
-    /// `private(set)` outside but we expose a settor for the
-    /// extension methods so they can update without touching the
-    /// VM's private storage directly.
+    /// Pipeline phases need to write `videoAsset` after audio load. `private(set)` outside but we expose a settor for the extension methods so they can update without touching the VM's private storage directly.
     func setVideoAsset(_ asset: AVURLAsset?) {
         self.videoAsset = asset
     }
 
     // MARK: - Status helpers (callable from extensions)
 
-    /// Used by the save-flow extension methods after a save panel
-    /// cancel or error — clears working state without overwriting
-    /// a terminal status that was already set.
+    /// Used by the save-flow extension methods after a save panel cancel or error — clears working state without overwriting a terminal status that was already set.
     func statusDoneIfActive() {
         if status.isWorking { status = .done }
     }
@@ -414,14 +289,12 @@ final class SpeakerIsolatorViewModel {
         status = .error(message)
     }
 
-    /// Sets the status. Extension methods need this since they
-    /// can't reach `private(set)` directly.
+    /// Sets the status. Extension methods need this since they can't reach `private(set)` directly.
     func setStatus(_ next: Status) {
         status = next
     }
 
-    /// Setter so the convert extension can flip the soft-fallback
-    /// banner state. Extensions can't reach `private(set)`.
+    /// Setter so the convert extension can flip the soft-fallback banner state. Extensions can't reach `private(set)`.
     func setSeparationFellBackToV1(_ flag: Bool) {
         separationFellBackToV1 = flag
     }

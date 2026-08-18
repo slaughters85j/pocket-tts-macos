@@ -2,9 +2,7 @@
 //  DataModels.swift
 //  mimika-ai-voice-studio
 //
-//  Centralized @Model declarations per the 10-step SwiftData pattern in
-//  CLAUDE.md. Phase 2+3 ships history persistence; Phase 4+ may add more
-//  models to this file.
+//  Centralized @Model declarations per the 10-step SwiftData pattern in CLAUDE.md. Phase 2+3 ships history persistence; Phase 4+ may add more models to this file.
 
 import Foundation
 import SwiftData
@@ -17,8 +15,7 @@ enum HistoryEntryType: String, Codable, CaseIterable, Sendable {
 }
 
 // MARK: - TTSHistoryItem
-// One row in the History tab. Single-voice entries populate `text` + `voiceID`;
-// multi-talk entries populate `script` + `speakers[]`.
+// One row in the History tab. Single-voice entries populate `text` + `voiceID`; multi-talk entries populate `script` + `speakers[]`.
 
 @Model
 final class TTSHistoryItem {
@@ -77,12 +74,7 @@ final class HistorySpeaker {
 }
 
 // MARK: - LocalLLMEndpoint
-// Singleton row (one per store, enforced by `AppDataStore`). Holds the
-// connection-side config for the user's local LLM HTTP endpoint —
-// currently just the base URL. Model name and other fields stay in
-// `ChatSettings` (UserDefaults) for now; this exists as its own table
-// so future multi-endpoint support (two LLMs in conversation, say) is
-// a row insert rather than a schema migration.
+// Singleton row (one per store, enforced by `AppDataStore`). Holds the connection-side config for the user's local LLM HTTP endpoint — currently just the base URL. Model name and other fields stay in `ChatSettings` (UserDefaults) for now; this exists as its own table so future multi-endpoint support (two LLMs in conversation, say) is a row insert rather than a schema migration.
 
 @Model
 final class LocalLLMEndpoint {
@@ -98,17 +90,13 @@ final class LocalLLMEndpoint {
 }
 
 // MARK: - PromptScope
-// Which of the three AI-assisted surfaces a system prompt applies to.
-// Each scope has its own pool of prompts; exactly one per scope is
-// marked active at a time (enforced by `AppDataStore.setActive`).
+// Which of the three AI-assisted surfaces a system prompt applies to. Each scope has its own pool of prompts; exactly one per scope is marked active at a time (enforced by `AppDataStore.setActive`).
 
 enum PromptScope: String, Codable, CaseIterable, Sendable {
     case singleVoice
     case multiTalk
     case chat
-    /// The Ensemble Mode persona-writer's editable *expansion* prompt
-    /// (the per-character system-prompt template). The skeleton-pass
-    /// prompt is a hardcoded constant, not user-editable.
+    /// The Ensemble Mode persona-writer's editable *expansion* prompt (the per-character system-prompt template). The skeleton-pass prompt is a hardcoded constant, not user-editable.
     case ensemble
 
     var displayName: String {
@@ -122,23 +110,16 @@ enum PromptScope: String, Codable, CaseIterable, Sendable {
 }
 
 // MARK: - SystemPrompt
-// A named, scoped system prompt the user can pick from a dropdown in
-// the relevant view. Designed for the future "Manage prompts…" sheet
-// where the user can create / rename / duplicate / delete presets the
-// way LM Studio lets you manage prompt presets.
+// A named, scoped system prompt the user can pick from a dropdown in the relevant view. Designed for the future "Manage prompts…" sheet where the user can create / rename / duplicate / delete presets the way LM Studio lets you manage prompt presets.
 
 @Model
 final class SystemPrompt {
     @Attribute(.unique) var id: UUID
     var name: String
-    /// Stored as the rawValue of `PromptScope` so SwiftData can index
-    /// it without bringing the enum into the model layer's type system.
+    /// Stored as the rawValue of `PromptScope` so SwiftData can index it without bringing the enum into the model layer's type system.
     var scopeRaw: String
     var content: String
-    /// Exactly one prompt per scope has this true at any time.
-    /// Enforced at the `AppDataStore` layer — SwiftData doesn't offer
-    /// the kind of cross-row uniqueness constraint that would let us
-    /// declare this as a hard invariant.
+    /// Exactly one prompt per scope has this true at any time. Enforced at the `AppDataStore` layer — SwiftData doesn't offer the kind of cross-row uniqueness constraint that would let us declare this as a hard invariant.
     var isActive: Bool
     /// Solo Chat sampling values owned by this prompt's stable UUID.
     var temperature: Double = 0.7

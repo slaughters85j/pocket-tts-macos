@@ -2,22 +2,13 @@
 //  DemucsZipExtractor.swift
 //  mimika-ai-voice-studio
 //
-//  Minimal in-process zip extractor used by `DemucsModelInstaller`
-//  to unpack the published `htdemucs.mlpackage.zip`. Replaces the
-//  earlier `/usr/bin/unzip` subprocess (the project keeps Process()
-//  spawning off-limits to stay sandbox + notarization-friendly).
+//  Minimal in-process zip extractor used by `DemucsModelInstaller` to unpack the published `htdemucs.mlpackage.zip`. Replaces the earlier `/usr/bin/unzip` subprocess (the project keeps Process() spawning off-limits to stay sandbox + notarization-friendly).
 //
 //  Scope:
-//    * STORE (compressionMethod=0) and DEFLATE (=8) only — what the
-//      published mlpackage zip uses. Other methods (BZIP2, LZMA,
-//      etc.) throw `.unsupportedCompression` rather than silently
-//      mis-extracting.
-//    * Zip32 only. Zip64 support isn't needed; the mlpackage is
-//      ~287 MB with individual files under 4 GB.
-//    * Refuses ".." segments and absolute paths in entry names
-//      (zip-slip protection).
-//    * Mmap-reads the zip via `Data(contentsOf:options:.mappedIfSafe)`
-//      so the working set stays close to the OS file cache.
+//    * STORE (compressionMethod=0) and DEFLATE (=8) only — what the published mlpackage zip uses. Other methods (BZIP2, LZMA, etc.) throw `.unsupportedCompression` rather than silently mis-extracting.
+//    * Zip32 only. Zip64 support isn't needed; the mlpackage is ~287 MB with individual files under 4 GB.
+//    * Refuses ".." segments and absolute paths in entry names (zip-slip protection).
+//    * Mmap-reads the zip via `Data(contentsOf:options:.mappedIfSafe)` so the working set stays close to the OS file cache.
 //
 //  Format references (this file follows the field offsets verbatim):
 //    * Local File Header:    PK 0x04034b50, 30 bytes + filename + extra
@@ -58,11 +49,7 @@ nonisolated enum DemucsZipExtractor {
 
     // MARK: - Public surface
 
-    /// Extract every entry of the zip at `src` into the directory
-    /// `dst`. `dst` is created if it doesn't exist. Throws on the
-    /// first invalid entry — partial extraction is the caller's
-    /// problem to clean up (see `DemucsModelInstaller.install`'s
-    /// staging-dir defer).
+    /// Extract every entry of the zip at `src` into the directory `dst`. `dst` is created if it doesn't exist. Throws on the first invalid entry — partial extraction is the caller's problem to clean up (see `DemucsModelInstaller.install`'s staging-dir defer).
     static func extract(_ src: URL, into dst: URL) throws {
         let data = try Data(contentsOf: src, options: .mappedIfSafe)
         try FileManager.default.createDirectory(at: dst, withIntermediateDirectories: true)
@@ -96,10 +83,7 @@ nonisolated enum DemucsZipExtractor {
 
     // MARK: - EOCD scan
 
-    /// Find the End-of-Central-Directory record by scanning the
-    /// last ~64 KB of the file backwards for the 0x06054b50 magic.
-    /// Zip allows up to a 64 KB comment trailing the EOCD record,
-    /// so we can't just check the last 22 bytes.
+    /// Find the End-of-Central-Directory record by scanning the last ~64 KB of the file backwards for the 0x06054b50 magic. Zip allows up to a 64 KB comment trailing the EOCD record, so we can't just check the last 22 bytes.
     private static func findEOCD(in data: Data) throws -> Int {
         let minOffset = max(0, data.count - 65_536 - 22)
         guard data.count >= 22 else {
@@ -117,10 +101,7 @@ nonisolated enum DemucsZipExtractor {
 
     // MARK: - Central Directory entry parsing
 
-    /// Decoded view of a single central-directory entry. The fields
-    /// we care about (compression method, sizes, filename, local
-    /// header offset) + the offset where the NEXT CD entry starts
-    /// so the iterator can advance.
+    /// Decoded view of a single central-directory entry. The fields we care about (compression method, sizes, filename, local header offset) + the offset where the NEXT CD entry starts so the iterator can advance.
     private struct CDEntry {
         let filename: String
         let compressionMethod: UInt16
@@ -143,10 +124,7 @@ nonisolated enum DemucsZipExtractor {
         guard fnStart + fnLen <= data.count else {
             throw ExtractorError.invalidFormat("filename out of bounds at CD offset \(offset)")
         }
-        // Filenames are UTF-8 (or, historically, CP437; modern zip
-        // writers emit UTF-8 + set bit 11 of the general purpose
-        // flag. The HTDemucs mlpackage zip uses only ASCII inside
-        // a well-known directory tree, so UTF-8 decoding is safe).
+        // Filenames are UTF-8 (or, historically, CP437; modern zip writers emit UTF-8 + set bit 11 of the general purpose flag. The HTDemucs mlpackage zip uses only ASCII inside a well-known directory tree, so UTF-8 decoding is safe).
         let nameData = data[fnStart..<(fnStart + fnLen)]
         let filename = String(data: nameData, encoding: .utf8) ?? ""
         if filename.isEmpty {
@@ -170,16 +148,13 @@ nonisolated enum DemucsZipExtractor {
         entry: CDEntry,
         into dst: URL
     ) throws {
-        // Zip-slip protection — refuse parent-traversal + absolute
-        // paths. A maliciously-crafted zip otherwise writes outside
-        // `dst` (e.g. ../../../etc/whatever).
+        // Zip-slip protection — refuse parent-traversal + absolute paths. A maliciously-crafted zip otherwise writes outside `dst` (e.g. ../../../etc/whatever).
         if entry.filename.contains("..") || entry.filename.hasPrefix("/") {
             throw ExtractorError.unsafeEntryPath(entry.filename)
         }
         let destPath = dst.appendingPathComponent(entry.filename)
 
-        // Directory entry (trailing slash in zip convention). Just
-        // create the dir + move on.
+        // Directory entry (trailing slash in zip convention). Just create the dir + move on.
         if entry.filename.hasSuffix("/") {
             try FileManager.default.createDirectory(
                 at: destPath, withIntermediateDirectories: true
@@ -187,10 +162,7 @@ nonisolated enum DemucsZipExtractor {
             return
         }
 
-        // Find the data bytes via the local file header. The local
-        // header has its own filename + extra-field lengths which
-        // can differ from the central directory's, so we MUST read
-        // them from the local header itself.
+        // Find the data bytes via the local file header. The local header has its own filename + extra-field lengths which can differ from the central directory's, so we MUST read them from the local header itself.
         let lh = entry.localHeaderOffset
         guard lh + 30 <= data.count else {
             throw ExtractorError.invalidFormat("local header out of bounds at \(lh)")
@@ -215,9 +187,7 @@ nonisolated enum DemucsZipExtractor {
         let decompressed: Data
         switch entry.compressionMethod {
         case 0:
-            // STORE — bytes are already raw. Re-wrap in a 0-based
-            // Data so the caller doesn't have to worry about slice
-            // indexing.
+            // STORE — bytes are already raw. Re-wrap in a 0-based Data so the caller doesn't have to worry about slice indexing.
             decompressed = Data(compressed)
         case 8:
             decompressed = try inflate(Data(compressed), expectedSize: entry.uncompressedSize)
@@ -239,15 +209,9 @@ nonisolated enum DemucsZipExtractor {
 
     // MARK: - DEFLATE decompression
 
-    /// Decompress raw-DEFLATE bytes via Apple's Compression
-    /// framework. Despite the constant's name,
-    /// `COMPRESSION_ZLIB` decodes raw DEFLATE (no zlib header /
-    /// adler32 trailer) — which IS what zip uses (RFC 1951).
+    /// Decompress raw-DEFLATE bytes via Apple's Compression framework. Despite the constant's name, `COMPRESSION_ZLIB` decodes raw DEFLATE (no zlib header / adler32 trailer) — which IS what zip uses (RFC 1951).
     private static func inflate(_ data: Data, expectedSize: Int) throws -> Data {
-        // Allocate the exact decompressed buffer. Compression
-        // framework writes directly into it and returns the byte
-        // count actually written; we verify it matches the zip
-        // entry's uncompressed-size field.
+        // Allocate the exact decompressed buffer. Compression framework writes directly into it and returns the byte count actually written; we verify it matches the zip entry's uncompressed-size field.
         var result = Data(count: expectedSize)
         let n: Int = result.withUnsafeMutableBytes { dstBytes in
             data.withUnsafeBytes { srcBytes in
@@ -273,9 +237,7 @@ nonisolated enum DemucsZipExtractor {
 
     // MARK: - Little-endian readers
     //
-    // Zip is little-endian throughout. macOS is also little-endian,
-    // so theoretically a direct memcpy would work; but explicit
-    // bit-shifting reads are clearer + safe at any alignment.
+    // Zip is little-endian throughout. macOS is also little-endian, so theoretically a direct memcpy would work; but explicit bit-shifting reads are clearer + safe at any alignment.
 
     private static func readUInt16LE(_ data: Data, at offset: Int) -> UInt16 {
         let lo = UInt16(data[data.startIndex + offset])

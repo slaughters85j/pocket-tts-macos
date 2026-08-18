@@ -2,43 +2,19 @@
 //  SentencePieceTokenizer.swift
 //  mimika-ai-voice-studio
 //
-//  Canonical SentencePiece BPE tokenizer for the Kyutai pocket-tts model
-//  (`tokenizer.model`, vocab size 4000, byte_fallback=true).
+//  Canonical SentencePiece BPE tokenizer for the Kyutai pocket-tts model (`tokenizer.model`, vocab size 4000, byte_fallback=true).
 //
-//  Algorithm.
-//  SentencePiece BPE with byte_fallback is functionally equivalent to a
-//  Viterbi maximum-score segmentation over the trained vocab. For each
-//  position in the (normalized) input string, we compute the highest
-//  total-score segmentation ending there by dynamic programming over all
-//  vocab pieces that can start at that position. The score for each piece
-//  is its log-frequency at training time, stored in the exported
-//  `tokenizer_vocab.json` as `pieces[].score`.
+//  Algorithm. SentencePiece BPE with byte_fallback is functionally equivalent to a Viterbi maximum-score segmentation over the trained vocab. For each position in the (normalized) input string, we compute the highest total-score segmentation ending there by dynamic programming over all vocab pieces that can start at that position. The score for each piece is its log-frequency at training time, stored in the exported `tokenizer_vocab.json` as `pieces[].score`.
 //
-//  An earlier implementation used greedy longest-match. That produced
-//  different token sequences than canonical SentencePiece on common
-//  English words ("friends" → ['▁f', 'rie', 'nd', 's'] instead of the
-//  canonical ['▁', 'friend', 's']; "perfect" → ['▁per', 'fe', 'c', 't']
-//  instead of ['▁p', 'erfect']). The TTS model was trained on canonical
-//  tokenization so those wrong segmentations produced audible mispronun-
-//  ciations — confirmed by side-by-side comparison with the Electron+
-//  Python reference, which uses canonical SP and pronounces both words
-//  correctly.
+//  An earlier implementation used greedy longest-match. That produced different token sequences than canonical SentencePiece on common English words ("friends" → ['▁f', 'rie', 'nd', 's'] instead of the canonical ['▁', 'friend', 's']; "perfect" → ['▁per', 'fe', 'c', 't'] instead of ['▁p', 'erfect']). The TTS model was trained on canonical tokenization so those wrong segmentations produced audible mispronun-ciations — confirmed by side-by-side comparison with the Electron+ Python reference, which uses canonical SP and pronounces both words correctly.
 //
-//  Byte fallback. If a position can only be advanced by a piece that
-//  isn't in the vocab (rare with the byte-fallback set this model uses),
-//  we fall back to encoding the character's UTF-8 bytes as `<0xXX>`
-//  pieces whose scores are also in the vocab. The DP treats this as a
-//  single transition for that character.
+//  Byte fallback. If a position can only be advanced by a piece that isn't in the vocab (rare with the byte-fallback set this model uses), we fall back to encoding the character's UTF-8 bytes as `<0xXX>` pieces whose scores are also in the vocab. The DP treats this as a single transition for that character.
 //
 //  Vocab schema. The exported `tokenizer_vocab.json` is:
 //    {
-//      "model_type": "BPE",
-//      "byte_fallback": true,
-//      "bos_id": 1, "eos_id": 2, "pad_id": 3, "unk_id": 0,
-//      "pieces": [ { "id": 0, "piece": "<unk>", "score": 0.0, "type": 2 }, ... ]
+//      "model_type": "BPE", "byte_fallback": true, "bos_id": 1, "eos_id": 2, "pad_id": 3, "unk_id": 0, "pieces": [ { "id": 0, "piece": "<unk>", "score": 0.0, "type": 2 }, ... ]
 //    }
-//  Run `scripts/export_sentencepiece_vocab.py` to regenerate after a
-//  tokenizer.model update.
+//  Run `scripts/export_sentencepiece_vocab.py` to regenerate after a tokenizer.model update.
 
 import Foundation
 
@@ -67,39 +43,23 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
     private static let spaceMarker: Character = "\u{2581}"
     private static let spaceMarkerString = String(spaceMarker)
 
-    /// Cap the per-position piece-length search. The longest pieces in the
-    /// Kyutai vocab are well under this; raising it costs measurable time
-    /// for negligible gain.
+    /// Cap the per-position piece-length search. The longest pieces in the Kyutai vocab are well under this; raising it costs measurable time for negligible gain.
     private static let maxPieceLengthScalars = 32
 
     private let pieceToID: [String: Int32]
     private let pieceToScore: [String: Float]
-    /// Reverse of `pieceToID`. Indexed by token ID; `nil` for sparse holes.
-    /// Used by `decodeIDs` to reconstruct text from token IDs.
+    /// Reverse of `pieceToID`. Indexed by token ID; `nil` for sparse holes. Used by `decodeIDs` to reconstruct text from token IDs.
     private let idToPiece: [String?]
-    /// Pre-cached scores for byte-fallback pieces `<0x00>` through `<0xFF>`,
-    /// indexed by byte value. `nil` entries fall back to `<unk>` (id 0).
+    /// Pre-cached scores for byte-fallback pieces `<0x00>` through `<0xFF>`, indexed by byte value. `nil` entries fall back to `<unk>` (id 0).
     private let byteFallbackIDs: [Int32?]
     private let byteFallbackScores: [Float?]
-    /// Token IDs corresponding to the SentencePiece end-of-sentence
-    /// punctuation pieces (`.`, `!`, `...`, `?` and their leading-space
-    /// variants). Computed once at init; consumed by the sentence-aware
-    /// chunker in `TTSEngine`.
+    /// Token IDs corresponding to the SentencePiece end-of-sentence punctuation pieces (`.`, `!`, `...`, `?` and their leading-space variants). Computed once at init; consumed by the sentence-aware chunker in `TTSEngine`.
     let endOfSentenceTokenIDs: Set<Int32>
-    /// Token IDs for sub-sentence soft separators — comma / semicolon /
-    /// colon. Used by `subdivideIfNeeded` to break apart sentences that
-    /// individually exceed the model's hard token limit (e.g. an LLM
-    /// emits a run-on with no internal terminal punctuation).
+    /// Token IDs for sub-sentence soft separators — comma / semicolon / colon. Used by `subdivideIfNeeded` to break apart sentences that individually exceed the model's hard token limit (e.g. an LLM emits a run-on with no internal terminal punctuation).
     let subSentenceBoundaryTokenIDs: Set<Int32>
 
     init() throws {
-        // Phase 8: `tokenizer_vocab.json` is published with the
-        // stock-assets HF bundle and installed under Application
-        // Support on first launch. `ModelPaths.tokenizerVocab()`
-        // resolves the installed copy, falling back to Bundle.main
-        // for any future re-bundled build. Either way, missing →
-        // `LoadError.vocabMissing` so the error vocabulary callers
-        // already handle stays intact.
+        // Phase 8: `tokenizer_vocab.json` is published with the stock-assets HF bundle and installed under Application Support on first launch. `ModelPaths.tokenizerVocab()` resolves the installed copy, falling back to Bundle.main for any future re-bundled build. Either way, missing → `LoadError.vocabMissing` so the error vocabulary callers already handle stays intact.
         let url: URL
         do {
             url = try ModelPaths.tokenizerVocab()
@@ -153,11 +113,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
             self.byteFallbackIDs = idsByByte
             self.byteFallbackScores = scoresByByte
 
-            // EOS-class token IDs: mirror Python's `_, *eos = sp(".!...?")`.
-            // Tokenize the punctuation sentinel string, drop the leading
-            // space-marker token, the remainder are the EOS-class tokens.
-            // Run the static viterbi here because `self` isn't fully formed
-            // yet — these are the final stored properties.
+            // EOS-class token IDs: mirror Python's `_, *eos = sp(".!...?")`. Tokenize the punctuation sentinel string, drop the leading space-marker token, the remainder are the EOS-class tokens. Run the static viterbi here because `self` isn't fully formed yet — these are the final stored properties.
             let eosTokens = Self.viterbiEncode(
                 normalized: Self.normalize(".!...?"),
                 pieceToScore: pieceToScore,
@@ -185,17 +141,12 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
 
     // MARK: - Raw encode / decode (for internal pipeline use)
 
-    /// Encode `text` to a raw, unpadded token-ID sequence. Used by the
-    /// sentence-aware chunker; the protocol's `encode(_:paddedLength:)`
-    /// remains the public interface for the engine.
+    /// Encode `text` to a raw, unpadded token-ID sequence. Used by the sentence-aware chunker; the protocol's `encode(_:paddedLength:)` remains the public interface for the engine.
     func encodeIDs(_ text: String) -> [Int32] {
         viterbiEncode(Self.normalize(text))
     }
 
-    /// Decode a token-ID sequence back to text using SentencePiece's
-    /// canonical rules: concatenate pieces, collapse `<0xXX>` runs into
-    /// UTF-8 bytes, replace `▁` with space, strip the leading space added
-    /// by `add_dummy_prefix=true`.
+    /// Decode a token-ID sequence back to text using SentencePiece's canonical rules: concatenate pieces, collapse `<0xXX>` runs into UTF-8 bytes, replace `▁` with space, strip the leading space added by `add_dummy_prefix=true`.
     func decodeIDs(_ ids: [Int32]) -> String {
         var pieces = ""
         var byteBuf: [UInt8] = []
@@ -232,23 +183,14 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
 
     // MARK: - Sentence-aware chunking
 
-    /// Port of Python `split_into_best_sentences` (tts_model.py:857).
-    /// Tokenizes the whole input once, finds sentence boundaries by looking
-    /// for non-EOS tokens that follow a run of EOS tokens, decodes each
-    /// sentence slice back to text, then greedily packs consecutive
-    /// sentences into chunks of at most `maxTokensPerChunk` tokens.
+    /// Port of Python `split_into_best_sentences` (tts_model.py:857). Tokenizes the whole input once, finds sentence boundaries by looking for non-EOS tokens that follow a run of EOS tokens, decodes each sentence slice back to text, then greedily packs consecutive sentences into chunks of at most `maxTokensPerChunk` tokens.
     ///
-    /// Returns an empty array if `text` tokenizes to nothing; callers
-    /// typically fall back to `[text]` in that case so the engine still
-    /// receives something to synthesize.
+    /// Returns an empty array if `text` tokenizes to nothing; callers typically fall back to `[text]` in that case so the engine still receives something to synthesize.
     func splitIntoBestSentences(_ text: String, maxTokensPerChunk: Int = 50) -> [String] {
         let tokens = encodeIDs(text)
         if tokens.isEmpty { return [] }
 
-        // Sentence-boundary detection. Mirrors Python's behaviour: a
-        // boundary lives at the position where a non-EOS token follows
-        // one or more consecutive EOS tokens. This handles "..." (which
-        // tokenizes to multiple pieces) and "??" the same way Python does.
+        // Sentence-boundary detection. Mirrors Python's behaviour: a boundary lives at the position where a non-EOS token follows one or more consecutive EOS tokens. This handles "..." (which tokenizes to multiple pieces) and "??" the same way Python does.
         var boundaries: [Int] = [0]
         var prevWasEOS = false
         for (idx, tok) in tokens.enumerated() {
@@ -273,10 +215,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
             sentences.append(Sentence(tokenCount: end - start, text: decoded))
         }
 
-        // Greedy pack. A single sentence longer than the budget gets its
-        // own chunk (matches Python — the budget is a packing target, not
-        // a hard ceiling). The 128-token hard limit is enforced separately
-        // by the engine when tokenizing each chunk for synthesis.
+        // Greedy pack. A single sentence longer than the budget gets its own chunk (matches Python — the budget is a packing target, not a hard ceiling). The 128-token hard limit is enforced separately by the engine when tokenizing each chunk for synthesis.
         var chunks: [String] = []
         var current = ""
         var currentTokens = 0
@@ -303,23 +242,13 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
 
     // MARK: - Sub-sentence subdivision (safety net for over-long chunks)
 
-    /// Return `text` split into pieces that each fit within `maxTokens`,
-    /// preferring natural break points in this order:
+    /// Return `text` split into pieces that each fit within `maxTokens`, preferring natural break points in this order:
     ///
-    ///   1. soft-boundary tokens (comma / semicolon / colon) — gives a
-    ///      clean sub-clause break the model handles well
-    ///   2. word-start tokens (any piece prefixed with `▁`) — last-resort
-    ///      cut on a word boundary
-    ///   3. hard token-index cut at the limit — only when there's not
-    ///      even a word boundary in `maxTokens` tokens (effectively
-    ///      "one extremely long word", almost never English)
+    ///   1. soft-boundary tokens (comma / semicolon / colon) — gives a clean sub-clause break the model handles well
+    ///   2. word-start tokens (any piece prefixed with `▁`) — last-resort cut on a word boundary
+    ///   3. hard token-index cut at the limit — only when there's not even a word boundary in `maxTokens` tokens (effectively "one extremely long word", almost never English)
     ///
-    /// Single-element array when `text` already fits — callers can
-    /// flat-map this over the existing sentence-chunker output as a
-    /// safety net. The pre-existing sentence chunker still handles the
-    /// common case; this only kicks in when a sentence is so long
-    /// (e.g. an LLM run-on with no internal `.`/`!`/`?`) that the
-    /// chunker can't produce a fitting chunk on its own.
+    /// Single-element array when `text` already fits — callers can flat-map this over the existing sentence-chunker output as a safety net. The pre-existing sentence chunker still handles the common case; this only kicks in when a sentence is so long (e.g. an LLM run-on with no internal `.`/`!`/`?`) that the chunker can't produce a fitting chunk on its own.
     func subdivideIfNeeded(_ text: String, maxTokens: Int) -> [String] {
         let tokens = encodeIDs(text)
         if tokens.count <= maxTokens { return [text] }
@@ -335,9 +264,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
             let windowEnd = pos + maxTokens
             var cutAt = -1
 
-            // Pass 1: latest soft boundary (`,` / `;` / `:`) — cut just
-            // AFTER the boundary token so the boundary stays with the
-            // preceding piece (matches how a reader would group it).
+            // Pass 1: latest soft boundary (`,` / `;` / `:`) — cut just AFTER the boundary token so the boundary stays with the preceding piece (matches how a reader would group it).
             for i in stride(from: windowEnd - 1, through: pos + 1, by: -1) {
                 if subSentenceBoundaryTokenIDs.contains(tokens[i]) {
                     cutAt = i + 1
@@ -345,9 +272,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
                 }
             }
 
-            // Pass 2: latest word-start (a piece beginning with `▁`).
-            // Cut BEFORE the word-start token so the new piece begins
-            // on a whole word.
+            // Pass 2: latest word-start (a piece beginning with `▁`). Cut BEFORE the word-start token so the new piece begins on a whole word.
             if cutAt < 0 {
                 for i in stride(from: windowEnd - 1, through: pos + 1, by: -1) {
                     let idx = Int(tokens[i])
@@ -359,9 +284,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
                 }
             }
 
-            // Pass 3 (escape hatch): no boundary, no word-start — hard
-            // cut at the window edge. Only happens on pathological input
-            // like a single 200-character word.
+            // Pass 3 (escape hatch): no boundary, no word-start — hard cut at the window edge. Only happens on pathological input like a single 200-character word.
             if cutAt <= pos { cutAt = windowEnd }
 
             pieces.append(decodeIDs(Array(tokens[pos..<cutAt])))
@@ -388,15 +311,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
     // MARK: - Normalization
 
     private static func normalize(_ text: String) -> String {
-        // SentencePiece replaces ASCII spaces with the U+2581 marker so word
-        // boundaries are part of the piece vocab. The Kyutai tokenizer was
-        // trained with add_dummy_prefix=true, which ALWAYS prepends one
-        // leading ▁ regardless of whether the input already starts with a
-        // space. This matters: " leading space" canonicalizes to
-        // "▁▁leading▁space" (two markers), not "▁leading▁space" — and the
-        // model was trained on the two-marker form.
-        // Empty input is the one exception: canonical SP returns [] for
-        // empty input, not [▁]. We pass empty through.
+        // SentencePiece replaces ASCII spaces with the U+2581 marker so word boundaries are part of the piece vocab. The Kyutai tokenizer was trained with add_dummy_prefix=true, which ALWAYS prepends one leading ▁ regardless of whether the input already starts with a space. This matters: " leading space" canonicalizes to "▁▁leading▁space" (two markers), not "▁leading▁space" — and the model was trained on the two-marker form. Empty input is the one exception: canonical SP returns [] for empty input, not [▁]. We pass empty through.
         if text.isEmpty { return "" }
         let collapsed = text
             .replacingOccurrences(of: "\r\n", with: " ")
@@ -408,9 +323,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
 
     // MARK: - Viterbi
 
-    /// Compute the maximum-score segmentation of `normalized` into vocab
-    /// pieces (with byte-fallback for characters not directly in vocab) and
-    /// return the resulting token IDs in order.
+    /// Compute the maximum-score segmentation of `normalized` into vocab pieces (with byte-fallback for characters not directly in vocab) and return the resulting token IDs in order.
     private func viterbiEncode(_ normalized: String) -> [Int32] {
         Self.viterbiEncode(
             normalized: normalized,
@@ -421,8 +334,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
         )
     }
 
-    /// Static implementation so `init` can compute EOS tokens before all
-    /// stored properties have been bound to `self`.
+    /// Static implementation so `init` can compute EOS tokens before all stored properties have been bound to `self`.
     private static func viterbiEncode(
         normalized: String,
         pieceToScore: [String: Float],
@@ -432,15 +344,11 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
     ) -> [Int32] {
         if normalized.isEmpty { return [] }
 
-        // Work over Unicode scalars rather than Character grapheme clusters
-        // because vocab pieces are byte sequences interpreted as UTF-8 and
-        // SP's `▁` is a single scalar. Operating over scalars makes piece
-        // string comparisons exact.
+        // Work over Unicode scalars rather than Character grapheme clusters because vocab pieces are byte sequences interpreted as UTF-8 and SP's `▁` is a single scalar. Operating over scalars makes piece string comparisons exact.
         let scalars = Array(normalized.unicodeScalars)
         let n = scalars.count
 
-        // Pre-compute cumulative UTF-8 byte offsets per scalar boundary so we
-        // can produce String slices without re-walking the input every time.
+        // Pre-compute cumulative UTF-8 byte offsets per scalar boundary so we can produce String slices without re-walking the input every time.
         var scalarStrings = [String](); scalarStrings.reserveCapacity(n)
         for s in scalars { scalarStrings.append(String(s)) }
 
@@ -469,9 +377,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
                         bestPiece[end] = pieceBuilder
                     }
                 } else if length == 1 {
-                    // Byte-fallback path: only attempted at length 1.
-                    // The whole scalar's UTF-8 bytes are emitted as one
-                    // "transition" of cost = sum(byte piece scores).
+                    // Byte-fallback path: only attempted at length 1. The whole scalar's UTF-8 bytes are emitted as one "transition" of cost = sum(byte piece scores).
                     var byteScore: Float = 0
                     var allBytesOK = true
                     for byte in pieceBuilder.utf8 {
@@ -487,8 +393,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
                         if candidate > bestScore[end] {
                             bestScore[end] = candidate
                             bestPrev[end] = i
-                            // Tag with the original scalar so reconstruction
-                            // knows to expand it into byte pieces.
+                            // Tag with the original scalar so reconstruction knows to expand it into byte pieces.
                             bestPiece[end] = pieceBuilder
                         }
                     }
@@ -501,9 +406,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
         var pos = n
         while pos > 0 {
             guard let piece = bestPiece[pos] else {
-                // No path reached the end. Shouldn't be possible with byte-
-                // fallback unless the input contains a byte sequence that
-                // can't be encoded — return what we have.
+                // No path reached the end. Shouldn't be possible with byte-fallback unless the input contains a byte sequence that can't be encoded — return what we have.
                 break
             }
             piecesOut.append(piece)

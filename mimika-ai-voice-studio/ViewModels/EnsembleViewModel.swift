@@ -323,8 +323,7 @@ final class EnsembleViewModel {
         return appState.chatSettings.forcedCapabilities(for: selection).contains(.vision)
     }
 
-    /// Avoid redundant `@Observable` publishes on a 1s poll.
-    /// Always sanitize disconnect reasons so the Ensemble toolbar pill never stores a raw NSError dump (even if a caller forgets friendlyConnectionError).
+    /// Avoid redundant `@Observable` publishes on a 1s poll. Always sanitize disconnect reasons so the Ensemble toolbar pill never stores a raw NSError dump (even if a caller forgets friendlyConnectionError).
     private func setConnectionStateIfChanged(_ next: ConnectionState) {
         let cleaned: ConnectionState
         if case let .disconnected(reason) = next {
@@ -540,8 +539,7 @@ final class EnsembleViewModel {
         EnsembleStore.update(ctx, cast: saved)
     }
 
-    /// Prefer the loaded cast by id; fall back to most-recently-updated.
-    /// Internal so Cast IO / roster extensions can persist membership changes.
+    /// Prefer the loaded cast by id; fall back to most-recently-updated. Internal so Cast IO / roster extensions can persist membership changes.
     func currentSavedCast(_ ctx: ModelContext) -> EnsembleCast? {
         if let id = currentCastID,
            let match = EnsembleStore.casts(ctx).first(where: { $0.id == id }) { return match }
@@ -885,8 +883,7 @@ final class EnsembleViewModel {
         let pickCast = effectiveCastForTurnOrder()
         let excludeLast = lastSpeaker ?? lastSpeakerIDForPick()
         let nextID: UUID?
-        // Boot / Direct force their target next so the instruction lands now.
-        // Boot wins if both are armed (exit is more urgent than a steer).
+        // Boot / Direct force their target next so the instruction lands now. Boot wins if both are armed (exit is more urgent than a steer).
         if let boot = pendingBoot, cast.contains(where: { $0.id == boot.speakerID }) {
             nextID = boot.speakerID
         } else if let dir = pendingDirective, cast.contains(where: { $0.id == dir.speakerID }) {
@@ -1006,8 +1003,7 @@ final class EnsembleViewModel {
             return
         }
 
-        // Clean multi-speaker leakage + a self-prefix, then store the result.
-        // Drop the turn if it ends up empty (garbage / no-output / errored).
+        // Clean multi-speaker leakage + a self-prefix, then store the result. Drop the turn if it ends up empty (garbage / no-output / errored).
         let cleaned = cleanedTurnText(result.text, speaker: persona)
         if cleaned.isEmpty {
             turns.removeAll { $0.id == turnID }
@@ -1019,8 +1015,7 @@ final class EnsembleViewModel {
             noteEnsembleThreadActivity()
         }
 
-        // Boot: after a successful exit line, remove them and arm a note for the table.
-        // Failed/empty turns keep `pendingBoot` so the next pick retries.
+        // Boot: after a successful exit line, remove them and arm a note for the table. Failed/empty turns keep `pendingBoot` so the next pick retries.
         if bootReason != nil, !lastTurnFailed, !cleaned.isEmpty {
             finalizeBoot(of: persona, reason: bootReason ?? "")
         }

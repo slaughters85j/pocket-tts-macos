@@ -78,18 +78,13 @@ struct StatusIndicator: View {
 }
 
 // MARK: - PulseBars
-// Three vertical bars with staggered opacity fade — the Electron equivalent
-// is three `<div class="animate-pulse" style="animation-delay: ...">` bars.
+// Three vertical bars with staggered opacity fade — the Electron equivalent is three `<div class="animate-pulse" style="animation-delay: ...">` bars.
 
 private struct PulseBars: View {
     let active: Bool
 
     var body: some View {
-        // Only run the timeline while actually pulsing. `TimelineView(.animation)`
-        // ticks 30×/s for as long as it exists, and `active` used to gate the
-        // opacity *value* rather than the timeline — so an idle Single Voice or
-        // Multi-Talk tab redrew forever and the window never reached a resting
-        // state (a 15 s idle trace showed 904 surface swaps, ~60/s).
+        // Only run the timeline while actually pulsing. `TimelineView(.animation)` ticks 30×/s for as long as it exists, and `active` used to gate the opacity *value* rather than the timeline — so an idle Single Voice or Multi-Talk tab redrew forever and the window never reached a resting state (a 15 s idle trace showed 904 surface swaps, ~60/s).
         if active {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
                 bars(at: context.date.timeIntervalSinceReferenceDate)

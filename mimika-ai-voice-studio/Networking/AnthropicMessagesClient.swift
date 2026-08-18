@@ -2,15 +2,9 @@
 //  AnthropicMessagesClient.swift
 //  mimika-ai-voice-studio
 //
-//  Minimal native Anthropic Messages API client. There is no official Swift
-//  SDK, so this is raw HTTP against POST /v1/messages with `x-api-key` +
-//  `anthropic-version` headers. When a JSON Schema is supplied it sends
-//  structured outputs (`output_config.format`), which guarantees schema-valid
-//  JSON back — the whole reason the persona-writer can trust this path more
-//  than a local model's free-form output.
+//  Minimal native Anthropic Messages API client. There is no official Swift SDK, so this is raw HTTP against POST /v1/messages with `x-api-key` + `anthropic-version` headers. When a JSON Schema is supplied it sends structured outputs (`output_config.format`), which guarantees schema-valid JSON back — the whole reason the persona-writer can trust this path more than a local model's free-form output.
 //
-//  NOTE: temperature is intentionally NOT sent — Opus 4.8/4.7 reject sampling
-//  params (400), and the persona-writer doesn't need it.
+//  NOTE: temperature is intentionally NOT sent — Opus 4.8/4.7 reject sampling params (400), and the persona-writer doesn't need it.
 //
 
 import Foundation
@@ -34,8 +28,7 @@ nonisolated struct AnthropicMessagesClient: Sendable {
             }
         }
 
-        /// Whether a retry could plausibly help. 4xx (bad key/schema/model) and
-        /// refusals won't change on retry; 429/5xx, truncation, and decode might.
+        /// Whether a retry could plausibly help. 4xx (bad key/schema/model) and refusals won't change on retry; 429/5xx, truncation, and decode might.
         var isRetryable: Bool {
             switch self {
             case let .http(status, _): return status == 429 || (500...599).contains(status)
@@ -67,9 +60,7 @@ nonisolated struct AnthropicMessagesClient: Sendable {
         return req
     }
 
-    /// POST /v1/messages. `schemaJSON` (a JSON Schema string) enables structured
-    /// outputs when non-nil. Returns the first text block's text (with structured
-    /// outputs that block is guaranteed-valid JSON).
+    /// POST /v1/messages. `schemaJSON` (a JSON Schema string) enables structured outputs when non-nil. Returns the first text block's text (with structured outputs that block is guaranteed-valid JSON).
     func complete(model: String, system: String, user: String, schemaJSON: String?, maxTokens: Int = 4096) async throws -> String {
         var req = authorized(baseURL.appendingPathComponent("v1/messages"), method: "POST")
 
@@ -80,8 +71,7 @@ nonisolated struct AnthropicMessagesClient: Sendable {
         ]
         if !system.isEmpty { body["system"] = system }
         if let schemaJSON {
-            // Never silently downgrade to unconstrained text: a non-nil-but-bad
-            // schema is a programming error, surface it.
+            // Never silently downgrade to unconstrained text: a non-nil-but-bad schema is a programming error, surface it.
             guard let schemaObj = try? JSONSerialization.jsonObject(with: Data(schemaJSON.utf8)) else {
                 throw ClientError.decode("invalid output schema JSON")
             }
@@ -99,9 +89,7 @@ nonisolated struct AnthropicMessagesClient: Sendable {
               let content = obj["content"] as? [[String: Any]] else {
             throw ClientError.decode("unexpected response shape")
         }
-        // A 200 can still be off-schema: a refusal or a max_tokens truncation
-        // both yield text that won't satisfy the schema. Surface them explicitly
-        // instead of letting the caller fail later with a generic decode error.
+        // A 200 can still be off-schema: a refusal or a max_tokens truncation both yield text that won't satisfy the schema. Surface them explicitly instead of letting the caller fail later with a generic decode error.
         switch obj["stop_reason"] as? String {
         case "refusal":    throw ClientError.refusal(nil)
         case "max_tokens": throw ClientError.maxTokens

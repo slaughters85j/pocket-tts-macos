@@ -5,24 +5,15 @@
 //  Sheet content wrapper: a header bar (title + close) over the content.
 //
 //  Two layout modes:
-//    * Overlay (default) — the original full-app look: a dimming scrim behind a
-//      centered, inset, rounded, shadowed card. Designed for layering over a
-//      page (mirrors Electron's Modal.tsx).
-//    * fillsSheet — sheet-native: when presented via SwiftUI `.sheet` (which
-//      already provides a floating, rounded window), the scrim + inset + shadow
-//      become a redundant black frame around the card. This mode drops them and
-//      fills the sheet edge-to-edge.
+//    * Overlay (default) — the original full-app look: a dimming scrim behind a centered, inset, rounded, shadowed card. Designed for layering over a page (mirrors Electron's Modal.tsx).
+//    * fillsSheet — sheet-native: when presented via SwiftUI `.sheet` (which already provides a floating, rounded window), the scrim + inset + shadow become a redundant black frame around the card. This mode drops them and fills the sheet edge-to-edge.
 
 import SwiftUI
 
 struct ModalContainer<Content: View>: View {
     let title: String
     let onClose: () -> Void
-    /// When true (the DEFAULT — almost every ModalContainer is hosted in a
-    /// `.sheet`), fill the host sheet edge-to-edge and let it supply the
-    /// window chrome. Pass `false` only for true ZStack overlays layered
-    /// over a page (PauseModal, ScriptGeneratorModal) — inside a `.sheet`,
-    /// overlay mode's scrim + inset render as a black frame around the card.
+    /// When true (the DEFAULT — almost every ModalContainer is hosted in a `.sheet`), fill the host sheet edge-to-edge and let it supply the window chrome. Pass `false` only for true ZStack overlays layered over a page (PauseModal, ScriptGeneratorModal) — inside a `.sheet`, overlay mode's scrim + inset render as a black frame around the card.
     var fillsSheet: Bool = true
     @ViewBuilder var content: Content
 
@@ -51,8 +42,7 @@ struct ModalContainer<Content: View>: View {
         .background(KeyDismissCatcher(onEscape: onClose))
     }
 
-    /// Header bar + content, with no outer framing/background — each mode wraps
-    /// this differently.
+    /// Header bar + content, with no outer framing/background — each mode wraps this differently.
     private var card: some View {
         VStack(spacing: 0) {
             // Header
@@ -86,8 +76,7 @@ struct ModalContainer<Content: View>: View {
 }
 
 // MARK: - Escape-to-dismiss
-// SwiftUI on macOS doesn't have a built-in "Esc closes sheet" for ZStack overlays;
-// the canonical pattern is an invisible NSView that becomes first responder.
+// SwiftUI on macOS doesn't have a built-in "Esc closes sheet" for ZStack overlays; the canonical pattern is an invisible NSView that becomes first responder.
 
 private struct KeyDismissCatcher: NSViewRepresentable {
     let onEscape: () -> Void
