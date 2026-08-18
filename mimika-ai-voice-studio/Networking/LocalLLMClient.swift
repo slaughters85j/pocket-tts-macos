@@ -129,22 +129,14 @@ actor LocalLLMClient {
     /// This is an *inactivity* timeout, not a total one: once tokens start streaming each packet resets it, so a long generation is unaffected. It only bounds how long we wait for the server to say anything at all.
     private static let completionTimeout: TimeInterval = 300
 
-    /// `reasoning_effort` for the app's own internal calls — director, rolling summary, sidebar theme.
-    ///
-    /// These are utility calls with tight token budgets (the director gets 16) whose output is a name, a sentence or a short blurb. None of them benefit from chain-of-thought, and all of them BREAK under it: the thinking consumes the budget and the call returns empty, which is silent because each one has a fallback. The director quietly degraded to weighted-random on every turn.
-    ///
-    /// Sent unconditionally, independent of the user's Thinking setting — that control governs how the cast speaks, not whether the machinery ruminates. Servers that do not recognise the field ignore it.
+    /// `reasoning_effort` for the app's own calls — director, rolling summary, sidebar theme. Sent unconditionally: they want a name, a sentence and a blurb, and thinking eats their tight budgets (the director gets 16 tokens) and returns empty, silently, because each has a fallback.
     nonisolated static let utilityReasoningEffort = "none"
 
-    /// Whether a turn that produced only reasoning is retried with the `max_tokens` cap REMOVED.
+    /// Retry once with `max_tokens` REMOVED when a turn produced only reasoning.
     ///
-    /// Measured against qwen3.5-35b-a3b on LM Studio: a one-line in-character reply took **2,947 reasoning deltas before its first content delta**, then answered in 32. `max_tokens` caps all generated tokens, reasoning included, so the 250-token reply budget stopped the model mid-thought every time and the speaker rendered blank.
+    /// `max_tokens` caps reasoning tokens too, so a 250-token reply budget stops a thinking model mid-thought and the speaker renders blank. Measured on qwen3.5-35b-a3b: 2,947 reasoning deltas before the first content delta, then a 32-delta answer — but uncapped it stopped itself at ~2,980, so no fixed headroom number is right. The cap stays on the first attempt to keep ordinary replies short.
     ///
-    /// A fixed headroom number is the wrong shape — 600 was not close, and the next model's appetite is unknowable. Uncapped is self-limiting in practice: given no cap the same model finished on its own at roughly 2,980 tokens, and the server's context length is the real ceiling.
-    ///
-    /// The cap stays on the FIRST attempt so ordinary models still answer in one or two sentences. Only a model that has demonstrably starved earns the uncapped retry, and it costs one extra call.
-    ///
-    /// Do not "fix" this by sending `enable_thinking: false` or `/no_think`: both were tested against this model and both were ignored — it emitted 245 and 244 reasoning deltas and zero content.
+    /// `enable_thinking: false` and `/no_think` were both tested against this model and both ignored. Neither is a route to fixing this.
     nonisolated static let retriesUncappedOnStarvedReasoning = true
 
     /// POST `/api/v1/models/load` — load a catalog model into memory (LM Studio). Long timeout: large models can take minutes.
@@ -504,7 +496,7 @@ actor LocalLLMClient {
         retryUncapped: Bool,
         continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
     ) async throws {
-        // At most ONE retry, and only when the first attempt yielded nothing at all — see `StreamAttemptOutcome.starvedByReasoning`. Because nothing was emitted, repeating the call cannot duplicate transcript text or spoken audio.
+        // One retry, only when the first attempt yielded nothing — so it cannot duplicate transcript text or audio.
         let canRetry = retryUncapped && maxTokens != nil
         let outcome = try await streamAttempt(
             messages: messages, model: model, systemPrompt: systemPrompt, temperature: temperature,
@@ -609,7 +601,7 @@ actor LocalLLMClient {
         // Reasoning models (gpt-oss via LM Studio, DeepSeek-R1, …) stream their chain-of-thought in a SEPARATE channel and may leave `content` empty entirely. We never merge that into the live content stream (callers would speak it). When `includeReasoning` is set we buffer it and, only if NO content ever arrives, surface it once at the end as a fallback — the LM Studio "content empty, reasoning populated" case the persona-writer needs so its JSONExtractor can still recover the object.
         var reasoningFallback = ""
         var yieldedContent = false
-        // The other reasoning family inlines its thoughts in `content` wrapped in `<think>` tags. Without this filter a cast member would read its own chain-of-thought aloud.
+        // Some models inline thoughts in `content` as `<think>` spans; unstripped, a cast member reads them aloud.
         var thinkFilter = ThinkTagFilter()
         var sawReasoning = false
         var finishReason: String?
@@ -631,7 +623,7 @@ actor LocalLLMClient {
                     finishReason = reason
                 }
                 if let content = chunk?.content, !content.isEmpty {
-                    // Track the RAW arrival, not the filtered output: a chunk that is entirely `<think>` must not count as content, or a thinking-only reply would look like a real answer.
+                    // Count filtered output, not raw: an all-`<think>` chunk must not pass as a real answer.
                     let visible = thinkFilter.filter(content)
                     if !visible.isEmpty {
                         yieldedContent = true
@@ -646,14 +638,14 @@ actor LocalLLMClient {
                 continue
             }
         }
-        // Anything the filter was still holding when the stream ended (a partial `<thi` that never became a tag) is ordinary text and belongs in the transcript.
+        // A held partial tag that never completed was ordinary text — release it.
         let tail = thinkFilter.flush()
         if !tail.isEmpty {
             yieldedContent = true
             continuation.yield(.delta(tail))
         }
 
-        // The starvation case: the server hit `max_tokens` while still thinking, so not one content token was ever written. `max_tokens` caps ALL generated tokens on every OpenAI-compatible server, reasoning included, which is why a 250-token reply budget silently produced blank turns for models that think for longer than that. Report it so the caller can repeat with headroom instead of showing the user an empty line.
+        // Hit the cap while still thinking, so no content was ever written. Report it rather than render a blank turn.
         if !isFinalAttempt, !yieldedContent, sawReasoning, finishReason == "length" {
             return .starvedByReasoning
         }

@@ -4,9 +4,9 @@
 //
 //  Removes inline `<think>…</think>` spans from a STREAMED content feed.
 //
-//  Reasoning models split into two families. Most emit their chain-of-thought on a separate SSE field (`reasoning` / `reasoning_content`), which the client handles on its own. The rest inline it in `content` wrapped in `<think>` tags — and for those the app would otherwise SPEAK the model's thoughts aloud in a cast member's voice.
+//  Most reasoning models use a separate `reasoning_content` field, which the client handles. The rest inline thoughts in `content` as `<think>` spans, which would otherwise be spoken aloud in a cast member's voice.
 //
-//  Streaming makes this stateful: a tag routinely arrives split across deltas ("<th" then "ink>"), so the filter holds back any trailing text that could still turn into a tag and releases it once it cannot.
+//  Stateful because tags arrive split across deltas ("<th" then "ink>"): trailing text that could still become a tag is held back until it can't.
 //
 
 import Foundation
@@ -69,7 +69,7 @@ nonisolated struct ThinkTagFilter {
 
     /// Releases anything still held once the stream ends.
     ///
-    /// Held text is emitted only when the stream ended OUTSIDE a think span — a partial `<thi` that never completed was ordinary text after all. An unclosed span is discarded: the model was still thinking when it was cut off, and none of that is speakable.
+    /// A held partial tag that never completed was ordinary text, so it is emitted. An unclosed span is discarded — the model was cut off mid-thought and none of that is speakable.
     mutating func flush() -> String {
         defer {
             pending = ""

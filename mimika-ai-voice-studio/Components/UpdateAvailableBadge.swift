@@ -11,9 +11,9 @@ import SwiftUI
 
 /// "Update Available" pill for the window header.
 ///
-/// The view always exists so its `.task` can run the throttled check — it renders nothing until the store reports a newer version. Gating the whole view on `updateAvailable` would mean the check never runs, because the view that performs it would not be in the hierarchy.
+/// Always in the hierarchy so its `.task` can run the throttled check; it just renders nothing until the store is ahead. Gating the view on `updateAvailable` would mean the check never runs.
 ///
-/// The pill is FILLED, not outlined. The neighbouring Voice Manager badge is a stroked capsule because it is a persistent affordance; this one is a transient alert and has to read as one at a glance.
+/// Filled, not stroked like the neighbouring Voice Manager badge — that one is a persistent affordance, this is a transient alert.
 struct UpdateAvailableBadge: View {
     @State private var checker = AppUpdateChecker.shared
     @Environment(\.openURL) private var openURL

@@ -162,7 +162,7 @@ struct ModelReasoningControl: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    // Locked only while a Solo turn is in flight, because that request was already built and cannot take the new value. An Ensemble RUN is deliberately not a lock: the loop reads the effort fresh for each speaker, so a change lands on the next turn — and being unable to fix a thinking setting without stopping the whole episode is worse than the change arriving one turn late.
+                    // Locked only for an in-flight Solo turn, whose request is already built. An Ensemble run is NOT a lock — the loop reads the effort per speaker, so a change lands on the next turn.
                     .disabled(
                         viewModel.hasActiveTurn
                             || configuration.allowedOptions.count < 2

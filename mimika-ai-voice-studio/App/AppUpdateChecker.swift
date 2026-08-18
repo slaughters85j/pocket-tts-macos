@@ -4,7 +4,7 @@
 //
 //  Detects when a newer version is live on the App Store using Apple's public iTunes Lookup endpoint — unauthenticated, no API key, no backend.
 //
-//  Exists because macOS users with automatic updates turned off never learn that a release shipped. Mac App Store apps cannot update themselves programmatically, so the badge deep-links to the product page.
+//  Users with automatic updates off never learn a release shipped, and Mac App Store apps cannot self-update, so the badge deep-links to the product page.
 //
 //  Fails silently by design: no network, a malformed response, or an app that isn't published yet all resolve to "no badge" rather than an error surface. Nothing here is on the engine-load path.
 //
@@ -97,7 +97,7 @@ final class AppUpdateChecker {
 
     /// Product page link on the native store scheme, so the App Store app opens directly instead of bouncing the user through a browser.
     ///
-    /// Falls back to `ReviewPromptGate.productPageURL` — the app's one canonical listing URL — so the link is never dead before the first successful lookup. See that property for why the listing must be the full slug path and must NOT carry `action=write-review`.
+    /// Falls back to `ReviewPromptGate.productPageURL` so the link is never dead before the first lookup succeeds. See that property for the slug-path and `action=write-review` constraints.
     var appStoreDeepLink: URL {
         guard let storeURL else { return ReviewPromptGate.productPageURL }
         return Self.nativeScheme(for: storeURL)
