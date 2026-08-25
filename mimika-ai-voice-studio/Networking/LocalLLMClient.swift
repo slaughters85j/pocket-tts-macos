@@ -190,6 +190,20 @@ actor LocalLLMClient {
         }
     }
 
+    /// Free every loaded instance of `model`, resolving the instance ids itself so a caller holding only a model id can eject it. Throws `modelMetadataUnavailable` on a server that does not publish LM Studio's model list, because unload is an LM Studio API with no OpenAI-compatible equivalent — a silent no-op there would read as a successful eject.
+    func unloadModel(named model: String) async throws {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ClientError.invalidURL("empty model id")
+        }
+        guard let snapshot = try? await fetchLMStudioModels() else {
+            throw ClientError.modelMetadataUnavailable(trimmed)
+        }
+        for instanceID in snapshot.loadedInstanceIDs(for: trimmed) {
+            try await unloadModel(instanceID: instanceID)
+        }
+    }
+
     /// Ensure `model` is loaded for chat. On LM Studio: unload other instances, then load the target. On other servers: no-op if the id is in the catalog. Returns the effective serving id when known.
     @discardableResult
     func switchToModel(_ model: String, contextLength: Int? = nil) async throws -> String {

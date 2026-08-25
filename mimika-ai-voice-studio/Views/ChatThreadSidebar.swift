@@ -28,14 +28,15 @@ struct ChatThreadSidebar: View {
                 Spacer()
                 if let onNew = onNew {
                     Button(action: onNew) {
-                        Image(systemName: "square.and.pencil")
+                        // Ensemble borrows the toolbar's own New Cast glyph rather than the compose icon: it is the same action in a second place, and one action wearing two faces is worse than either face.
+                        Image(systemName: browser.kind == .solo ? "square.and.pencil" : "person.3.sequence.fill")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Theme.accent)
                     }
                     .buttonStyle(.plain)
                     .help(browser.kind == .solo
                           ? "Start a new Solo thread"
-                          : "New Ensemble threads start from New Cast or Reuse Last")
+                          : "Generate a new cast — starts a new Ensemble thread")
                     .accessibilityIdentifier("chat.threads.new")
                 }
             }

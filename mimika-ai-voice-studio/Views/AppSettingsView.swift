@@ -16,7 +16,7 @@ import SwiftUI
 struct AppSettingsView: View {
     @Binding var isPresented: Bool
     @Binding var settings: ChatSettings
-    /// Two-way binding to AppState's `pocketTTSChunkBudget`. Edited live from the slider in this view; persistence is handled by `AppState.didSet` so no save button is needed for this field.
+    /// Two-way binding to AppState's `pocketTTSChunkBudget`, written only by Done. The slider edits `workingChunkBudget` instead, because writing straight through made this the one control in the sheet that Cancel could not undo.
     @Binding var chunkBudget: Int
     /// The SwiftData endpoint row holding `baseURL`. We don't `@Bindable` it directly — the view keeps a snapshot in `workingBaseURL` so Cancel can discard edits, matching the rest of the Done/Cancel UX. Done writes back to `endpoint.baseURL`.
     let endpoint: LocalLLMEndpoint
@@ -24,6 +24,8 @@ struct AppSettingsView: View {
 
     @State private var workingCopy: ChatSettings
     @State private var workingBaseURL: String
+    /// Slider-side snapshot of `chunkBudget`, committed by Done and dropped by Cancel.
+    @State private var workingChunkBudget: Int
     /// Downloaded / catalog models for the picker (may include unloaded).
     @State private var availableModels: [String] = []
     /// Currently loaded/serving ids (for ✓ markers + connection truth).
@@ -53,6 +55,7 @@ struct AppSettingsView: View {
         self.onSave = onSave
         self._workingCopy = State(initialValue: settings.wrappedValue)
         self._workingBaseURL = State(initialValue: endpoint.baseURL)
+        self._workingChunkBudget = State(initialValue: chunkBudget.wrappedValue)
     }
 
     enum ProbeState: Equatable {
@@ -81,19 +84,24 @@ struct AppSettingsView: View {
     var body: some View {
         ModalContainer(title: "App Settings", onClose: cancel) {
             VStack(alignment: .leading, spacing: Theme.space4) {
-                lmStudioSection
-                CapabilityOverrideSettingsSection(
-                    settings: $workingCopy,
-                    endpoint: workingBaseURL
-                )
-                Divider().background(Theme.borderColor)
-                personaWriterSection
-                Divider().background(Theme.borderColor)
-                pocketTTSTuningSection
-                Divider().background(Theme.borderColor)
-                readAloudSection
-                Divider().background(Theme.borderColor)
-                AppInformationSection()
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: Theme.space4) {
+                        lmStudioSection
+                        CapabilityOverrideSettingsSection(
+                            settings: $workingCopy,
+                            endpoint: workingBaseURL
+                        )
+                        Divider().background(Theme.borderColor)
+                        personaWriterSection
+                        Divider().background(Theme.borderColor)
+                        pocketTTSTuningSection
+                        Divider().background(Theme.borderColor)
+                        readAloudSection
+                        Divider().background(Theme.borderColor)
+                        AppInformationSection()
+                    }
+                }
+                .frame(maxHeight: maxBodyHeight)
                 Divider().background(Theme.borderColor)
                 actions
             }
@@ -112,6 +120,12 @@ struct AppSettingsView: View {
             }
             Task { await loadSelectedModel(userPicked: trimmed) }
         }
+    }
+
+    /// Cap the scrolling body so the whole sheet fits the screen it opens on. A macOS sheet sizes itself to its content, and this settings stack is taller than a MacBook Air's usable height, so with no cap the sheet grew past the top and bottom of the screen and Cancel/Done became unreachable. The reserve covers the pinned header, the pinned action row, and a margin off the screen edges. Below the cap the sheet still sizes to its content, so a large display is unaffected.
+    private var maxBodyHeight: CGFloat {
+        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
+        return max(320, visibleHeight - 200)
     }
 
     // MARK: - Sections
@@ -163,6 +177,11 @@ struct AppSettingsView: View {
             }
 
             modelLoadStatusRow
+
+            Toggle("Load this model automatically at launch", isOn: $workingCopy.autoLoadModelAtLaunch)
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityIdentifier("appSettings.autoLoadModel")
 
             Text(catalogStatusCaption)
                 .font(.system(size: 10))
@@ -218,7 +237,26 @@ struct AppSettingsView: View {
     private var modelLoadStatusRow: some View {
         switch modelLoadStatus {
         case .idle:
-            EmptyView()
+            // The picker auto-loads on a change, so a pick that is already correct but not running has no way to be started — this is that control. Idle with nothing picked stays silent.
+            if !workingCopy.model.isEmpty, !isSelectedModelLoaded {
+                HStack(spacing: Theme.space2) {
+                    Image(systemName: "circle.dashed")
+                        .foregroundStyle(Theme.textSecondary)
+                        .font(.system(size: 12))
+                    Text("Not loaded — \(shortModelName(workingCopy.model))")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textSecondary)
+                    Button("Load") {
+                        Task { await loadSelectedModel(userPicked: workingCopy.model) }
+                    }
+                    .buttonStyle(.plain)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.accent)
+                }
+                .accessibilityIdentifier("appSettings.modelNotLoaded")
+            } else {
+                EmptyView()
+            }
         case let .loading(id):
             HStack(spacing: Theme.space2) {
                 ProgressView().controlSize(.mini)
@@ -246,6 +284,13 @@ struct AppSettingsView: View {
                 Text("Loaded — \(shortModelName(id))")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.successFG)
+                Button("Eject") {
+                    Task { await ejectSelectedModel() }
+                }
+                .buttonStyle(.plain)
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.accent)
+                .help("Unload this model and free its memory on the server")
             }
             .accessibilityIdentifier("appSettings.modelLoaded")
         case let .failed(id, reason):
@@ -420,21 +465,21 @@ struct AppSettingsView: View {
                     .frame(width: 110, alignment: .leading)
                 Slider(
                     value: Binding(
-                        get: { Double(chunkBudget) },
-                        set: { chunkBudget = Int($0.rounded()) }
+                        get: { Double(workingChunkBudget) },
+                        set: { workingChunkBudget = Int($0.rounded()) }
                     ),
                     in: 15...50,
                     step: 1
                 )
                 .accessibilityIdentifier("appSettings.chunkBudgetSlider")
 
-                Text("\(chunkBudget) tok")
+                Text("\(workingChunkBudget) tok")
                     .font(Theme.fontXS.weight(.semibold))
                     .foregroundStyle(Theme.textPrimary)
                     .frame(width: 56, alignment: .trailing)
                     .monospacedDigit()
 
-                Button(action: { chunkBudget = 50 }) {
+                Button(action: { workingChunkBudget = 50 }) {
                     Text("Reset")
                         .font(Theme.fontXS)
                         .foregroundStyle(Theme.accent)
@@ -526,24 +571,30 @@ struct AppSettingsView: View {
         isPresented = false
     }
 
+    /// Save and close, with no side effect beyond that. Done used to start a model load and block dismissal on it for up to two minutes, which is the wrong job for a button the user reaches for after changing an unrelated setting. Loading a model is now only ever something the user asks for: the picker loads on a change, and the status row's Load button covers a pick that is already correct but not running. Nothing is stranded by this, because a completion request against an unloaded model makes LM Studio load it anyway — `LocalLLMClient` gives those requests a 600 s timeout for exactly that reason.
     private func saveAndClose() {
-        // Best-effort: finish a pending load before dismiss if the pick isn't live yet.
-        Task {
-            if !workingCopy.model.isEmpty, !isSelectedModelLoaded, !modelLoadStatus.isBusy {
-                await loadSelectedModel(userPicked: workingCopy.model)
-            }
-            // If still loading, wait for this generation to settle (cap ~2 min UI wait).
-            var spins = 0
-            while modelLoadStatus.isBusy, spins < 120 {
-                try? await Task.sleep(for: .seconds(1))
-                spins += 1
-            }
-            await MainActor.run {
-                onSave(workingCopy, workingBaseURL)
-                PersonaProviderStore.save(personaConfig)
-                PersonaProviderStore.setAnthropicAPIKey(anthropicKey)
-                isPresented = false
-            }
+        onSave(workingCopy, workingBaseURL)
+        chunkBudget = workingChunkBudget
+        PersonaProviderStore.save(personaConfig)
+        PersonaProviderStore.setAnthropicAPIKey(anthropicKey)
+        isPresented = false
+    }
+
+    /// Unload the selected model and free its memory on the server, leaving the pick in place so the status row falls back to "Not loaded — X" with its Load button. The generation bump matters: a `loadSelectedModel` verify poll may still be running, and without it that poll would re-publish `.loaded` seconds after the eject and the row would lie.
+    private func ejectSelectedModel() async {
+        let model = workingCopy.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty, let url = URL(string: workingBaseURL) else { return }
+
+        modelLoadGeneration += 1
+        let client = LocalLLMClient(baseURL: url)
+        do {
+            try await client.unloadModel(named: model)
+            loadedModels = (try? await client.listServingModels()) ?? []
+            modelLoadStatus = .idle
+            modelLoadError = nil
+            probeState = .idle
+        } catch {
+            modelLoadStatus = .failed(model, reason: "could not unload")
         }
     }
 

@@ -63,6 +63,8 @@ struct mimika_ai_voice_studioApp: App {
                     if appState.chatSettings.launchAtLogin {
                         LoginItem.setEnabled(true)
                     }
+                    // Opt-in LLM warm-up. Deliberately in this task, not the bootstrap one above: a cold model load runs for minutes and must never sit in front of the TTS engine coming up.
+                    appState.autoLoadLLMModelIfEnabled()
                 }
         }
         .windowStyle(.hiddenTitleBar)
