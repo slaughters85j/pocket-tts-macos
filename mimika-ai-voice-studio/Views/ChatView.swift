@@ -10,6 +10,8 @@ import SwiftUI
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     @Bindable var ensembleViewModel: EnsembleViewModel
+    /// Owned by ContentView, NOT `@State` here. Leaving the Chat tab tears this view down, and with it any state it owns — which used to drop the selected thread and the sidebar's collapsed state every time the user visited Single Voice, Multi-Talk or History. Solo↔Ensemble kept its selection only because that stays inside one instance.
+    @Bindable var threadBrowser: ChatThreadBrowser
     @Binding var subMode: ChatSubMode
     let player: StreamingPlayer
     let voices: [BundledVoice]
@@ -25,7 +27,6 @@ struct ChatView: View {
     @State private var showsResetConfirmation = false
     @State private var isAudioMuted = false
     @State private var editingMessage: ChatMessage?
-    @State private var threadBrowser = ChatThreadBrowser()
 
     var body: some View {
         HStack(spacing: 0) {

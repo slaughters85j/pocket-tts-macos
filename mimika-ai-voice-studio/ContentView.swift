@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var historyVM = HistoryViewModel()
     @State private var chatVM: ChatViewModel?
     @State private var ensembleVM: EnsembleViewModel?
+    /// Lives here, not in ChatView, so the selected thread and the sidebar's collapsed state survive a trip to another tab — ChatView is destroyed whenever the user leaves Chat.
+    @State private var threadBrowser = ChatThreadBrowser()
     @State private var voiceChangerVM: VoiceChangerViewModel?
     @State private var speakerIsolatorVM: SpeakerIsolatorViewModel?
 
@@ -318,6 +320,7 @@ struct ContentView: View {
                 ChatView(
                     viewModel: chatVM,
                     ensembleViewModel: ensembleVM,
+                    threadBrowser: threadBrowser,
                     subMode: $appState.chatSubMode,
                     player: appState.player!,
                     voices: voices,

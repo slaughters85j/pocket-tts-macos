@@ -8,7 +8,8 @@ import SwiftUI
 
 struct HistoryCard: View {
     let item: TTSHistoryItem
-    let voiceLookup: (String) -> BundledVoice?
+    /// Resolves a stored voice id to something a human can read. History persists raw ids, and an imported voice's id is `imported:<uuid>`.
+    let voiceName: (String) -> String
 
     let onPin: () -> Void
     let onDelete: () -> Void
@@ -78,13 +79,13 @@ struct HistoryCard: View {
     @ViewBuilder
     private var voicesLine: some View {
         if item.type == .single, let id = item.voiceID {
-            Text("Voice: \(voiceLookup(id)?.name ?? id)")
+            Text("Voice: \(voiceName(id))")
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
         } else if item.type == .multi {
             let names = item.speakers
                 .sorted(by: { $0.sortOrder < $1.sortOrder })
-                .map { "\($0.name) (\(voiceLookup($0.voiceID)?.name ?? $0.voiceID))" }
+                .map { "\($0.name) (\(voiceName($0.voiceID)))" }
                 .joined(separator: ", ")
             Text("Speakers: \(names)")
                 .font(Theme.fontXS)
