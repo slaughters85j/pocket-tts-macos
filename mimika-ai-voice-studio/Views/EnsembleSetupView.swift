@@ -2,10 +2,7 @@
 //  EnsembleSetupView.swift
 //  mimika-ai-voice-studio
 //
-//  The Ensemble cast setup flow: pick N -> name them -> scene + mood ->
-//  persona-writer fills the cast (skeleton-first, progressive) -> confirm/assign
-//  voices -> start. On finish it hands the confirmed cast to the
-//  EnsembleViewModel (which loads + persists it) and dismisses.
+//  The Ensemble cast setup flow: pick N -> name them -> scene + mood -> persona-writer fills the cast (skeleton-first, progressive) -> confirm/assign voices -> start. On finish it hands the confirmed cast to the EnsembleViewModel (which loads + persists it) and dismisses.
 //
 
 import SwiftUI
@@ -24,18 +21,14 @@ struct EnsembleSetupView: View {
     @State private var scene: String = ""
     @State private var mood: String = ""
     @State private var userName: String = ""
-    // Keyed by persona INDEX, not name — the local model may emit duplicate or
-    // blank names and we must not let those collide in setup state.
+    // Keyed by persona INDEX, not name — the local model may emit duplicate or blank names and we must not let those collide in setup state.
     @State private var voiceSelections: [Int: String] = [:]
     @State private var presetSelections: [Int: SamplingPreset] = [:]
     @State private var writer: PersonaWriter
     @State private var showsPromptManager = false
     @State private var editTarget: PersonaEditTarget?
 
-    /// Identifiable wrapper driving the persona-editor `.sheet(item:)`.
-    /// Carries a SNAPSHOT of the persona's editable fields so the sheet
-    /// needs no index guard and no live array bindings (the write-back is
-    /// bounds-checked once, on close).
+    /// Identifiable wrapper driving the persona-editor `.sheet(item:)`. Carries a SNAPSHOT of the persona's editable fields so the sheet needs no index guard and no live array bindings (the write-back is bounds-checked once, on close).
     private struct PersonaEditTarget: Identifiable {
         let id: Int
         let name: String
@@ -74,9 +67,7 @@ struct EnsembleSetupView: View {
                     initialName: target.name,
                     initialPrompt: target.prompt
                 ) { name, prompt in
-                    // Bounds-checked write-back: if the writer rebuilt a
-                    // smaller cast while the sheet was up, the edit is
-                    // dropped rather than trapping on a stale index.
+                    // Bounds-checked write-back: if the writer rebuilt a smaller cast while the sheet was up, the edit is dropped rather than trapping on a stale index.
                     if writer.personas.indices.contains(target.id) {
                         writer.personas[target.id].name = name
                         writer.personas[target.id].personaPrompt = prompt
@@ -178,9 +169,7 @@ struct EnsembleSetupView: View {
         VStack(alignment: .leading, spacing: Theme.space3) {
             stepTitle("Writing the cast…")
             if let skeleton = writer.skeleton {
-                // Key by index (names may be duplicate/blank); a stub is "done"
-                // once the expansion pass has produced that many personas (they
-                // fill in order).
+                // Key by index (names may be duplicate/blank); a stub is "done" once the expansion pass has produced that many personas (they fill in order).
                 ForEach(Array(skeleton.cast.enumerated()), id: \.offset) { index, stub in
                     HStack {
                         Text(stub.name.isEmpty ? "Character \(index + 1)" : stub.name)
@@ -335,10 +324,7 @@ struct EnsembleSetupView: View {
         if names.count > count { names = Array(names.prefix(count)) }
     }
 
-    /// Unified voice list shown in the picker + used for resolution: stock
-    /// built-ins plus the user's imported Pocket-TTS voices (tagged
-    /// "imported:<id>"). Mirrors VoiceSelector's pocketTTSPicker so custom
-    /// voices appear here too.
+    /// Unified voice list shown in the picker + used for resolution: stock built-ins plus the user's imported Pocket-TTS voices (tagged "imported:<id>"). Mirrors VoiceSelector's pocketTTSPicker so custom voices appear here too.
     private var voiceOptions: [VoiceOption] {
         let builtIn = voices
             .filter { $0.type == .predefined }
@@ -363,9 +349,7 @@ struct EnsembleSetupView: View {
         )
     }
 
-    /// Sampling preset for a persona: the user's pick, else the Relaxed
-    /// (balanced) default. The writer no longer assigns a per-character
-    /// temperature — the preset is the single source of sampling settings.
+    /// Sampling preset for a persona: the user's pick, else the Relaxed (balanced) default. The writer no longer assigns a per-character temperature — the preset is the single source of sampling settings.
     private func resolvedPreset(for persona: PersonaFull, index: Int) -> SamplingPreset {
         presetSelections[index] ?? .relaxed
     }

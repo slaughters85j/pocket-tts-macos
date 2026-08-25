@@ -2,9 +2,7 @@
 //  EnsembleMultiTalkVoiceMapSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Pre-flight for Open in Multi-Talk: assign each human character name that
-//  spoke in the episode to a stock or custom voice so Multi-Talk cards don't
-//  collapse onto an unused-stock fallback (often Alba).
+//  Pre-flight for Open in Multi-Talk: assign each human character name that spoke in the episode to a stock or custom voice so Multi-Talk cards don't collapse onto an unused-stock fallback (often Alba).
 //
 
 import SwiftUI
@@ -19,8 +17,7 @@ struct EnsembleMultiTalkVoiceMapSheet: View {
     let onConfirm: () -> Void
 
     private var characterNames: [String] {
-        // Prefer draft keys (seeded by prepareMultiTalkVoiceMap) so order matches
-        // the transcript; fall back to a live re-scan.
+        // Prefer draft keys (seeded by prepareMultiTalkVoiceMap) so order matches the transcript; fall back to a live re-scan.
         let draftKeys = viewModel.multiTalkUserVoiceDraft.keys
         if !draftKeys.isEmpty {
             let order = viewModel.distinctUserSpeakerNamesInTranscript()
@@ -78,7 +75,8 @@ struct EnsembleMultiTalkVoiceMapSheet: View {
             }
             .padding(Theme.space6)
         }
-        .frame(minWidth: 440, minHeight: 280)
+        // Wide enough that a full character name ("Lt. Commander Cock-gobbler") sits beside a 220pt voice picker without truncating.
+        .frame(minWidth: 560, minHeight: 280)
         .accessibilityIdentifier("ensemble.voiceMap.sheet")
     }
 
@@ -87,18 +85,19 @@ struct EnsembleMultiTalkVoiceMapSheet: View {
     private func characterRow(_ name: String) -> some View {
         HStack(spacing: Theme.space3) {
             VStack(alignment: .leading, spacing: 2) {
+                // Wrap rather than truncate — these are user-chosen character names and can be arbitrarily long.
                 Text(name)
                     .font(Theme.fontSM)
                     .fontWeight(.semibold)
                     .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(name)
                 Text("Your character")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
             }
-            .frame(minWidth: 100, alignment: .leading)
-
-            Spacer(minLength: Theme.space2)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             voicePicker(for: name)
                 .frame(width: 220)

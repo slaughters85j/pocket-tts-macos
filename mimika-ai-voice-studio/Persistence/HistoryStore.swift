@@ -2,9 +2,7 @@
 //  HistoryStore.swift
 //  mimika-ai-voice-studio
 //
-//  Helpers around the SwiftData history schema: container construction,
-//  inserts, filtered fetches, and the 30-unpinned-per-type cleanup the
-//  Electron app did via MAX_UNPINNED_ENTRIES.
+//  Helpers around the SwiftData history schema: container construction, inserts, filtered fetches, and the 30-unpinned-per-type cleanup the Electron app did via MAX_UNPINNED_ENTRIES.
 
 import Foundation
 import SwiftData
@@ -20,13 +18,10 @@ enum HistoryStore {
     static let schema = Schema([
         TTSHistoryItem.self,
         HistorySpeaker.self,
-        // Added in the SwiftData LLM-endpoint / system-prompt migration.
-        // Purely additive — SwiftData handles this without an explicit
-        // VersionedSchema since no existing entity types or fields change.
+        // Added in the SwiftData LLM-endpoint / system-prompt migration. Purely additive — SwiftData handles this without an explicit VersionedSchema since no existing entity types or fields change.
         LocalLLMEndpoint.self,
         SystemPrompt.self,
-        // Ensemble Mode — additive (see EnsembleDataModels.swift). Same
-        // no-VersionedSchema reasoning: new entity types only.
+        // Ensemble Mode — additive (see EnsembleDataModels.swift). Same no-VersionedSchema reasoning: new entity types only.
         EnsembleCast.self,
         EnsemblePersona.self,
         EnsembleSession.self,
@@ -72,9 +67,7 @@ enum HistoryStore {
     }
 
     // MARK: Cap enforcement
-    // Mirrors the Electron behavior: keep all pinned + the most recent
-    // `maxUnpinnedPerType` unpinned entries per type. Older unpinned entries
-    // get deleted on each insert.
+    // Mirrors the Electron behavior: keep all pinned + the most recent `maxUnpinnedPerType` unpinned entries per type. Older unpinned entries get deleted on each insert.
 
     @MainActor
     static func enforceCap(type: HistoryEntryType, context: ModelContext) {

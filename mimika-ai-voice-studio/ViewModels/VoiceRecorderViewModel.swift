@@ -2,11 +2,7 @@
 //  VoiceRecorderViewModel.swift
 //  mimika-ai-voice-studio
 //
-//  Drives the Voice Manager "Record Voice" screen: permission → record →
-//  review. Owns a `MicrophoneRecorder`, polls it for the live level + elapsed
-//  time, auto-stops at the cap, analyzes quality on stop, and writes the
-//  reviewed clip to a temp WAV that feeds the existing import flow
-//  (`VoiceManager.importVoice(from:name:)`) via the Save Voice Preset step.
+//  Drives the Voice Manager "Record Voice" screen: permission → record → review. Owns a `MicrophoneRecorder`, polls it for the live level + elapsed time, auto-stops at the cap, analyzes quality on stop, and writes the reviewed clip to a temp WAV that feeds the existing import flow (`VoiceManager.importVoice(from:name:)`) via the Save Voice Preset step.
 //
 
 import Foundation
@@ -94,11 +90,7 @@ final class VoiceRecorderViewModel {
         discard()
     }
 
-    /// Persist the reviewed take to a temp WAV for the import flow to consume.
-    /// The capture is stored raw (unity gain, no waveshaping — see
-    /// `MicrophoneRecorder`), so one LINEAR peak normalization here recovers
-    /// Int16 headroom for quiet mics without altering the waveform shape;
-    /// the import path's RMS normalization handles final leveling.
+    /// Persist the reviewed take to a temp WAV for the import flow to consume. The capture is stored raw (unity gain, no waveshaping — see `MicrophoneRecorder`), so one LINEAR peak normalization here recovers Int16 headroom for quiet mics without altering the waveform shape; the import path's RMS normalization handles final leveling.
     func writeTempWAV() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mimika-recording-\(UUID().uuidString).wav")
@@ -107,12 +99,10 @@ final class VoiceRecorderViewModel {
         return url
     }
 
-    /// −3 dBFS. Loud enough to use the Int16 range, with headroom against
-    /// intersample peaks.
+    /// −3 dBFS. Loud enough to use the Int16 range, with headroom against intersample peaks.
     nonisolated static let savePeakTarget: Float = 0.708
 
-    /// Scale so the loudest sample sits at `targetPeak`. Pure linear gain —
-    /// no compression, no clipping — and a no-op for silence.
+    /// Scale so the loudest sample sits at `targetPeak`. Pure linear gain — no compression, no clipping — and a no-op for silence.
     nonisolated static func peakNormalized(_ samples: [Float], targetPeak: Float) -> [Float] {
         var peak: Float = 0
         for s in samples {
@@ -132,10 +122,7 @@ final class VoiceRecorderViewModel {
             while !Task.isCancelled {
                 guard let self, self.phase == .recording else { break }
                 self.elapsed = Double(self.recorder.currentFrameCount) / self.recorder.sampleRate
-                // Capture is unity-gain now (no tanh/gain in the sink), so
-                // the meter applies its boost display-side only: ×8 matches
-                // the responsiveness of the old ×2-on-boosted-signal meter
-                // without touching the stored samples.
+                // Capture is unity-gain now (no tanh/gain in the sink), so the meter applies its boost display-side only: ×8 matches the responsiveness of the old ×2-on-boosted-signal meter without touching the stored samples.
                 self.level = min(self.recorder.currentLevel * 8, 1)
                 if self.recorder.reachedCap || self.elapsed >= self.maxSeconds {
                     self.finishRecording()

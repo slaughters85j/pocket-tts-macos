@@ -2,12 +2,9 @@
 //  TextNormalizer+DomainTerms.swift
 //  mimika-ai-voice-studio
 //
-//  Domain-specific terms: ISR, radar, EOIR, remote sensing, systems
-//  engineering (DoDAF, SysML, UML), project management, space systems,
-//  astrodynamics, propulsion, and comms/link budget.
+//  Domain-specific terms: ISR, radar, EOIR, remote sensing, systems engineering (DoDAF, SysML, UML), project management, space systems, astrodynamics, propulsion, and comms/link budget.
 //
-//  These get explicit spoken forms rather than generic letter-by-letter
-//  spelling. Ported from pocket_tts/text_normalizer.py.
+//  These get explicit spoken forms rather than generic letter-by-letter spelling. Ported from pocket_tts/text_normalizer.py.
 
 import Foundation
 

@@ -98,6 +98,7 @@ extension ChatViewModel {
         pendingAttachments.removeAll()
         previewAttachment = nil
         showsVisionRecovery = false
+        beginFreshSoloThread()
     }
 
     /// Remove sent images while preserving all transcript text.

@@ -10,6 +10,8 @@ import SwiftUI
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     @Bindable var ensembleViewModel: EnsembleViewModel
+    /// Owned by ContentView, NOT `@State` here. Leaving the Chat tab tears this view down, and with it any state it owns — which used to drop the selected thread and the sidebar's collapsed state every time the user visited Single Voice, Multi-Talk or History. Solo↔Ensemble kept its selection only because that stays inside one instance.
+    @Bindable var threadBrowser: ChatThreadBrowser
     @Binding var subMode: ChatSubMode
     let player: StreamingPlayer
     let voices: [BundledVoice]
@@ -27,46 +29,55 @@ struct ChatView: View {
     @State private var editingMessage: ChatMessage?
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Divider().background(Theme.borderColor)
-            // Transcript/composer stay full-height; the Chair floats over them
-            // (sketch: ZStack overlay + glass, not a layout-pushing strip).
-            ZStack(alignment: .top) {
-                mainChatSurface
-                if subMode == .ensemble, showsDirectorsChair {
-                    DirectorsChairPanel(viewModel: ensembleViewModel) {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            showsDirectorsChair = false
-                        }
-                    }
-                    // In-place: opacity only (no slide/fly-in). 500 ms both ways.
-                    .transition(.asymmetric(insertion: .opacity, removal: .opacity))
-                    .zIndex(10)
+        HStack(spacing: 0) {
+            if !threadBrowser.isCollapsed {
+                ChatThreadSidebar(
+                    browser: threadBrowser,
+                    onSelect: openThread,
+                    onDeleted: detachIfDeleted,
+                    onNew: subMode == .solo
+                        ? { viewModel.startNewSoloConversation() }
+                        : nil
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                Divider().background(Theme.borderColor)
+            }
+            VStack(spacing: 0) {
+                topBar
+                Divider().background(Theme.borderColor)
+                if subMode == .solo {
+                    mainChatSurface
+                } else {
+                    // Own view so token/toolbar Observation cannot recreate glass.
+                    ChatWorkspace(
+                        ensembleViewModel: ensembleViewModel,
+                        player: player,
+                        ensembleViewMode: ensembleViewMode,
+                        showsDirectorsChair: $showsDirectorsChair
+                    )
                 }
             }
+            // REQUIRED, not cosmetic. Without a flexible frame this VStack's ideal width depends on its whole subtree, so the enclosing HStack probes it with several proposals — and every probe re-measures the top bar, the transcript, AND the Director's Chair's ~10 AppKit controls. That is what made the sidebar poison app-wide performance: collapsing the sidebar left one HStack child and the stall vanished. Taking the proposal verbatim ends the search at one pass.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .animation(.easeInOut(duration: 0.5), value: showsDirectorsChair)
         .onChange(of: subMode) { _, newMode in
-            // Solo and Ensemble keep separate thinking defaults/stores;
-            // refresh the shared control when the user flips the sub-mode.
+            // Solo and Ensemble keep separate thinking defaults/stores; refresh the shared control when the user flips the sub-mode.
             viewModel.refreshReasoningForChatSubMode()
             if newMode != .ensemble {
                 showsDirectorsChair = false
             }
+            attachThreads(for: newMode)
         }
         .onAppear {
             viewModel.startHealthChecks()
             // Land on the mode-scoped thinking default (Ensemble → Off).
             viewModel.refreshReasoningForChatSubMode()
+            attachThreads(for: subMode)
             Task { isAudioMuted = await player.isMuted }
         }
         .onDisappear {
             viewModel.stopSoloChatSession()
-            // Mute is Chat-only chrome. Leaving the tab (→ Single Voice /
-            // Multi-Talk / …) must clear it or the shared player stays silent
-            // with no indicator on the other tabs.
+            // Mute is Chat-only chrome. Leaving the tab (→ Single Voice / Multi-Talk / …) must clear it or the shared player stays silent with no indicator on the other tabs.
             isAudioMuted = false
             Task { await player.setMuted(false) }
         }
@@ -106,7 +117,8 @@ struct ChatView: View {
         }
         .sheet(item: $editingMessage) { message in
             ChatMessageEditorSheet(
-                message: message,
+                content: message.content,
+                allowsEmpty: !message.attachments.isEmpty,
                 onCancel: { editingMessage = nil },
                 onSave: { content in
                     viewModel.updateTranscriptMessage(
@@ -145,27 +157,19 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Main surface (under Director's Chair overlay)
+    // MARK: - Main surface
 
-    @ViewBuilder
+    /// Solo only — Ensemble's transcript lives in `ChatWorkspace` with the Chair.
     private var mainChatSurface: some View {
-        if subMode == .solo {
-            VStack(spacing: 0) {
-                if viewModel.viewMode == .orb {
-                    OrbView(amplitudeSource: player.currentAmplitude)
-                        .background(Color.black)
-                } else {
-                    transcript
-                }
-                Divider().background(Theme.borderColor)
-                ChatComposerView(viewModel: viewModel)
+        VStack(spacing: 0) {
+            if viewModel.viewMode == .orb {
+                OrbView(amplitudeSource: player.currentAmplitude)
+                    .background(Color.black)
+            } else {
+                transcript
             }
-        } else {
-            EnsembleSurfaceView(
-                viewModel: ensembleViewModel,
-                player: player,
-                viewMode: ensembleViewMode
-            )
+            Divider().background(Theme.borderColor)
+            ChatComposerView(viewModel: viewModel)
         }
     }
 
@@ -173,6 +177,19 @@ struct ChatView: View {
 
     private var topBar: some View {
         HStack(spacing: Theme.space3) {
+            Button {
+                threadBrowser.isCollapsed.toggle()
+            } label: {
+                Image(systemName: threadBrowser.isCollapsed
+                      ? "sidebar.left"
+                      : "sidebar.leading")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help(threadBrowser.isCollapsed ? "Show threads" : "Hide threads")
+            .accessibilityIdentifier("chat.threads.toggle")
+
             Picker("", selection: $subMode) {
                 Text("Solo").tag(ChatSubMode.solo)
                 Text("Ensemble").tag(ChatSubMode.ensemble)
@@ -182,18 +199,14 @@ struct ChatView: View {
             .fixedSize()
             .accessibilityIdentifier("chat.subModeToggle")
 
-            ConnectionStatusPill(
-                state: subMode == .solo
-                    ? viewModel.connectionState
-                    : ensembleViewModel.connectionState
+            ChatConnectionPill(
+                solo: viewModel,
+                ensemble: ensembleViewModel,
+                isEnsemble: subMode == .ensemble
             )
 
             ModelCapabilityBadges(state: viewModel.capabilityState)
-            ModelReasoningControl(
-                viewModel: viewModel,
-                isExternallyLocked: subMode == .ensemble
-                    && ensembleViewModel.isRunning
-            )
+            ModelReasoningControl(viewModel: viewModel)
 
             // Ensemble-only: live run knobs without leaving the conversation.
             if subMode == .ensemble {
@@ -215,7 +228,14 @@ struct ChatView: View {
             if subMode == .solo {
                 soloControls
             } else {
-                ensembleControls
+                EnsembleToolbarControls(
+                    viewModel: ensembleViewModel,
+                    browser: threadBrowser,
+                    viewMode: $ensembleViewMode,
+                    showsSetup: $showsEnsembleSetup,
+                    showsCastEditor: $showsEnsembleCastEditor,
+                    onOpenMultiTalk: openEnsembleInMultiTalk
+                )
             }
         }
         .padding(.horizontal, Theme.space6)
@@ -232,6 +252,16 @@ struct ChatView: View {
 
     @ViewBuilder
     private var soloControls: some View {
+        Button(action: { viewModel.startNewSoloConversation() }) {
+            Label("New Chat", systemImage: "square.and.pencil")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.accent)
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.hasActiveTurn)
+        .help("Start a new Solo thread. The current conversation stays in the list.")
+        .accessibilityIdentifier("chat.newThread")
+
         Button(action: { viewModel.saveTranscript() }) {
             Image(systemName: "square.and.arrow.down")
                 .font(.system(size: 13))
@@ -289,113 +319,41 @@ struct ChatView: View {
 
     // MARK: Ensemble controls
 
-    @ViewBuilder
-    private var ensembleControls: some View {
-        if let color = ensembleSpeakerColor {
-            Circle().fill(color).frame(width: 8, height: 8)
+    private func attachThreads(for mode: ChatSubMode) {
+        if mode == .solo {
+            viewModel.attachThreadBrowser(threadBrowser)
+        } else {
+            ensembleViewModel.attachThreadBrowser(threadBrowser)
         }
-        Text(ensembleStatusText)
-            .font(Theme.fontXS)
-            .foregroundStyle(Theme.textSecondary)
-
-        if ensembleViewModel.canExport {
-            Button(action: { ensembleViewModel.saveTranscript() }) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Export transcript (.md)")
-            .accessibilityIdentifier("ensemble.saveTranscript")
-
-            Button(action: { ensembleViewModel.saveEpisodeToHistory() }) {
-                Image(systemName: "tray.and.arrow.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Save episode to History")
-            .accessibilityIdentifier("ensemble.saveHistory")
-
-            Button(action: openEnsembleInMultiTalk) {
-                Image(systemName: "person.2.wave.2")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Open episode in Multi-Talk — map your character voices first")
-            .accessibilityIdentifier("ensemble.openMultiTalk")
-        }
-
-        Button(action: { ensembleViewMode = ensembleViewMode == .orb ? .transcript : .orb }) {
-            Image(systemName: ensembleViewMode == .orb ? "list.bullet" : "circle.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .help(ensembleViewMode == .orb ? "Show transcript" : "Show orb")
-        .accessibilityIdentifier("ensemble.viewModeToggle")
-
-        if !ensembleViewModel.cast.isEmpty {
-            Button(action: { showsEnsembleCastEditor = true }) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Edit cast, voices, scene & mood")
-            .accessibilityIdentifier("ensemble.editCast")
-        }
-
-        if ensembleViewModel.hasSavedCast {
-            Button(action: { ensembleViewModel.reuseLastCast() }) {
-                Label("Reuse Last", systemImage: "clock.arrow.circlepath")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.plain)
-            .help("Reload your most recent cast")
-            .accessibilityIdentifier("ensemble.reuseLast")
-        }
-
-        Button(action: { showsEnsembleSetup = true }) {
-            Label("New Cast", systemImage: "person.3.sequence.fill")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.accent)
-        }
-        .buttonStyle(.plain)
-        .help("Generate a new cast with the persona-writer")
-        .accessibilityIdentifier("ensemble.newCast")
     }
 
-    /// Map human character aliases to voices, then hand the episode to Multi-Talk.
-    /// Cast-only episodes (no user lines) skip the sheet.
+    private func detachIfDeleted(_ entry: ChatThreadIndexEntry) {
+        viewModel.detachIfShowing(entry.id)
+        ensembleViewModel.detachIfShowing(entry.id)
+    }
+
+    private func openThread(_ entry: ChatThreadIndexEntry) {
+        #if DEBUG
+        let current = entry.kind == .solo
+            ? viewModel.currentThreadID
+            : ensembleViewModel.currentThreadID
+        print("[ChatThreads] click kind=\(entry.kind.rawValue) title=\(entry.title) id=\(entry.id.uuidString.prefix(8)) selected=\(threadBrowser.selectedID?.uuidString.prefix(8) ?? "nil") current=\(current?.uuidString.prefix(8) ?? "nil") same=\(current == entry.id)")
+        #endif
+        switch entry.kind {
+        case .solo:
+            viewModel.loadSoloThread(id: entry.id)
+        case .ensemble:
+            ensembleViewModel.loadEnsembleThread(id: entry.id)
+        }
+    }
+
+    /// Map human character aliases to voices, then hand the episode to Multi-Talk. Cast-only episodes (no user lines) skip the sheet.
     private func openEnsembleInMultiTalk() {
         if ensembleViewModel.prepareMultiTalkVoiceMap() {
             showsMultiTalkVoiceMap = true
         } else {
             ensembleViewModel.openInMultiTalk()
         }
-    }
-
-    private var ensembleStatusText: String {
-        switch ensembleViewModel.runState {
-        case .idle: return "Idle"
-        case .picking: return "Choosing next speaker…"
-        case .generating: return "\(ensembleViewModel.currentSpeakerName ?? "Someone") is thinking…"
-        case .speaking: return "\(ensembleViewModel.currentSpeakerName ?? "Someone") is talking…"
-        case .awaitingStep: return "Paused — Step or Resume"
-        case .userTurn: return "Your turn…"
-        case let .error(message): return "Error: \(message)"
-        }
-    }
-
-    private var ensembleSpeakerColor: Color? {
-        guard
-            let id = ensembleViewModel.currentSpeakerID,
-            let index = ensembleViewModel.cast.firstIndex(where: { $0.id == id })
-        else { return nil }
-        return Theme.speakerColor(at: index)
     }
 
     // MARK: Transcript
@@ -445,3 +403,4 @@ struct ChatView: View {
         .background(Theme.bgPrimary)
     }
 }
+

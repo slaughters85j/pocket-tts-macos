@@ -2,8 +2,7 @@
 //  TextPreprocessorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Verifies the Swift port of Python `prepare_text_prompt` matches the
-//  reference for the cases that materially affect generation:
+//  Verifies the Swift port of Python `prepare_text_prompt` matches the reference for the cases that materially affect generation:
 //   - whitespace collapse
 //   - terminal punctuation guarantee
 //   - first-character capitalization
@@ -25,17 +24,12 @@ final class TextPreprocessorTests: XCTestCase {
     func test_collapsesNewlinesAndDoubleSpaces() {
         let result = TextPreprocessor.prepareTextPrompt("Hello\nworld,  this  is  a  test.")
         XCTAssertNotNil(result)
-        // Newlines and double-spaces should be gone. Note the leading
-        // pad here would only kick in if word count < 5, which this isn't.
+        // Newlines and double-spaces should be gone. Note the leading pad here would only kick in if word count < 5, which this isn't.
         XCTAssertEqual(result?.text, "Hello world, this is a test.")
     }
 
     func test_collapsesRunsOfWhitespace() {
-        // We collapse any run of whitespace to a single space — stronger
-        // than Python's single-pass `replace("  ", " ")`, but the segment-
-        // level normalizer has already collapsed whitespace before chunks
-        // reach this stage, so the difference doesn't matter in practice.
-        // Use a 5+ word phrase to avoid the short-prompt pad.
+        // We collapse any run of whitespace to a single space — stronger than Python's single-pass `replace("  ", " ")`, but the segment-level normalizer has already collapsed whitespace before chunks reach this stage, so the difference doesn't matter in practice. Use a 5+ word phrase to avoid the short-prompt pad.
         let result = TextPreprocessor.prepareTextPrompt("Hi   there this is a longer phrase.")
         XCTAssertEqual(result?.text, "Hi there this is a longer phrase.")
     }

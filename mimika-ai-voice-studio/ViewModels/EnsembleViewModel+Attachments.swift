@@ -2,8 +2,7 @@
 //  EnsembleViewModel+Attachments.swift
 //  mimika-ai-voice-studio
 //
-//  Solo-parity image attach for Ensemble: picker/drop import via
-//  ChatImageValidator, pending tray, and session-only turn storage.
+//  Solo-parity image attach for Ensemble: picker/drop import via ChatImageValidator, pending tray, and session-only turn storage.
 //
 
 import Foundation

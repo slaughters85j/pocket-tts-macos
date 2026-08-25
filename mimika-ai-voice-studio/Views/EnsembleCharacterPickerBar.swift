@@ -2,9 +2,7 @@
 //  EnsembleCharacterPickerBar.swift
 //  mimika-ai-voice-studio
 //
-//  Compact "Speaking as" strip above the Ensemble composer. Seeds from the
-//  Cast & Settings user name; green + adds an alias that becomes the active
-//  human peer (overrides cast settings for subsequent turns).
+//  Compact "Speaking as" strip above the Ensemble composer. Seeds from the Cast & Settings user name; green + adds an alias that becomes the active human peer (overrides cast settings for subsequent turns).
 //
 
 import SwiftUI
@@ -55,9 +53,7 @@ struct EnsembleCharacterPickerBar: View {
 
     // MARK: - Menu
 
-    /// Menu of remembered names. Always leads with **You** (the Cast & Settings
-    /// empty default: display "You" / model "Guest"), then aliases, then any
-    /// active name that isn't already listed.
+    /// Menu of remembered names. Always leads with **You** (the Cast & Settings empty default: display "You" / model "Guest"), then aliases, then any active name that isn't already listed.
     private var characterMenu: some View {
         Menu {
             ForEach(menuNames, id: \.self) { name in
@@ -96,8 +92,7 @@ struct EnsembleCharacterPickerBar: View {
         .help("Switch which character name you speak as")
     }
 
-    /// **You** always first (Cast & Settings empty), then roster aliases, then
-    /// the active peer if it isn't already in the list.
+    /// **You** always first (Cast & Settings empty), then roster aliases, then the active peer if it isn't already in the list.
     private var menuNames: [String] {
         var names: [String] = ["You"]
         for name in viewModel.userCharacterRoster {

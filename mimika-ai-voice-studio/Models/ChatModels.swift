@@ -20,14 +20,11 @@ nonisolated struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var role: Role
     var content: String
-    /// Session-only image attachments. Custom Codable intentionally omits
-    /// these bytes so no existing persistence/export path can write them.
+    /// Session-only image attachments. Custom Codable intentionally omits these bytes so no existing persistence/export path can write them.
     var attachments: [ChatImageAttachment]
     /// HTTP acceptance state for user turns containing attachments.
     var deliveryState: ChatDeliveryState?
-    /// Sentences already piped to the TTS pipeline. Used by the ChatViewModel
-    /// to track how far auto-speak has advanced on a growing assistant message
-    /// so it doesn't re-synthesize earlier sentences if the model retries.
+    /// Sentences already piped to the TTS pipeline. Used by the ChatViewModel to track how far auto-speak has advanced on a growing assistant message so it doesn't re-synthesize earlier sentences if the model retries.
     var spokenSentences: Int
 
     init(
@@ -78,6 +75,10 @@ nonisolated struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
 nonisolated enum ChatMarkdownSegment: Equatable, Sendable {
     case prose(String)
     case code(language: String?, content: String)
+    /// GFM pipe table. `rows` excludes the header and the `---` separator.
+    ///
+    /// Foundation's `AttributedString(markdown:)` has no table support at all — it handles inline styling only — so a pipe table used to render as literal `| Shift | Role |` text. Segmenting it here lets the view draw a real grid.
+    case table(header: [String], rows: [[String]])
 }
 
 /// Streaming-safe fenced-code segmentation shared by chat display and reuse.
@@ -144,7 +145,83 @@ nonisolated enum ChatMarkdownParser {
             flushProse()
         }
 
-        return segments
+        return segments.flatMap(splitTables)
+    }
+
+    // MARK: - Tables
+
+    /// Split a prose segment into prose / table / prose runs.
+    ///
+    /// Runs after fence handling so a pipe table inside a code fence stays code.
+    private static func splitTables(_ segment: ChatMarkdownSegment) -> [ChatMarkdownSegment] {
+        guard case let .prose(text) = segment else { return [segment] }
+        let lines = text.components(separatedBy: "\n")
+        var out: [ChatMarkdownSegment] = []
+        var prose: [String] = []
+        var index = 0
+
+        func flushProse() {
+            let joined = prose.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if !joined.isEmpty { out.append(.prose(joined)) }
+            prose.removeAll(keepingCapacity: true)
+        }
+
+        while index < lines.count {
+            // A table is a pipe row followed by a |---|---| separator.
+            if index + 1 < lines.count,
+               isPipeRow(lines[index]),
+               isSeparatorRow(lines[index + 1]) {
+                let header = cells(in: lines[index])
+                var rows: [[String]] = []
+                var cursor = index + 2
+                while cursor < lines.count, isPipeRow(lines[cursor]) {
+                    var row = cells(in: lines[cursor])
+                    // Ragged rows are common in model output — pad/trim to header.
+                    if row.count < header.count {
+                        row += Array(repeating: "", count: header.count - row.count)
+                    } else if row.count > header.count {
+                        row = Array(row.prefix(header.count))
+                    }
+                    rows.append(row)
+                    cursor += 1
+                }
+                flushProse()
+                out.append(.table(header: header, rows: rows))
+                index = cursor
+                continue
+            }
+            prose.append(lines[index])
+            index += 1
+        }
+        flushProse()
+        return out
+    }
+
+    private static func isPipeRow(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        return t.hasPrefix("|") && t.count > 1
+    }
+
+    /// `| --- | :--: |` — dashes with optional alignment colons.
+    private static func isSeparatorRow(_ line: String) -> Bool {
+        guard isPipeRow(line) else { return false }
+        let parts = cells(in: line)
+        guard !parts.isEmpty else { return false }
+        return parts.allSatisfy { cell in
+            let c = cell.trimmingCharacters(in: .whitespaces)
+            return !c.isEmpty
+                && c.allSatisfy { $0 == "-" || $0 == ":" }
+                && c.contains("-")
+        }
+    }
+
+    /// Cells of a pipe row, without the leading/trailing delimiters.
+    private static func cells(in line: String) -> [String] {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        return t.components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }
 
@@ -209,8 +286,7 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
     var multiTalkSystemPrompt: String
     var activeBackend: TTSBackendType
     var fishParams: FishGenParams
-    /// Read-Aloud / menu-bar feature (opt-in). When true, the app shows a
-    /// menu-bar voice picker and arms the system "Read Selection Aloud" service.
+    /// Read-Aloud / menu-bar feature (opt-in). When true, the app shows a menu-bar voice picker and arms the system "Read Selection Aloud" service.
     var readAloudEnabled: Bool
     /// Voice used by the menu-bar read-aloud + the Services handler.
     var readAloudVoiceID: String
@@ -266,32 +342,56 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
 nonisolated enum SettingsStore {
     private static let key = "com.slaughtersj.mimika-ai-voice-studio.chatSettings"
 
-    static func load() -> ChatSettings {
-        guard
-            let data = UserDefaults.standard.data(forKey: key),
-            let decoded = try? JSONDecoder().decode(ChatSettings.self, from: data)
-        else {
-            return .default
+    /// Pre-rename storage key. Commit `99bab45` (shipped v1.5.3) renamed this key alone and left its neighbours — `chatSubMode`, `multiTalkTagDisplayMode`, `pocketTTSChunkBudget`, `whisperActiveModel` — on the old prefix, so a user updating from v1.5.2 or earlier silently lost their endpoint, model and all three hand-written system prompts. `load()` falls back to this key once and writes the result forward. It is never written to, and deliberately never removed outside a full reset.
+    private static let legacyKey = "com.slaughtersj.pocket-tts-macos.chatSettings"
+
+    /// Where settings actually live. Under XCTest this is a volatile scratch suite, never the user's real domain.
+    ///
+    /// Data-integrity interlock, matching `ChatThreadStore` and `VoiceManager`. The unit tests run inside the real app host, and six test classes call `resetToDefaults()` in both `setUp` and `tearDown` while others write fixture endpoints and models through `AppState.applyChatConfiguration`. Against `.standard` that destroys the user's real `ChatSettings` blob — which holds not just toggles but all three hand-written system prompts (chat, single-voice, Multi-Talk), the endpoint, model, TTS voice, backend, read-aloud settings and launch-at-login.
+    ///
+    /// `nonisolated(unsafe)` is honest here: `UserDefaults` is documented thread-safe, it is simply not annotated `Sendable`. Immutable after init.
+    nonisolated(unsafe) private static let defaults: UserDefaults = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil else {
+            return .standard
         }
-        return decoded
+        let suite = "mimika.settings.testsandbox.\(ProcessInfo.processInfo.processIdentifier)"
+        UserDefaults.standard.removePersistentDomain(forName: suite)  // PIDs recycle
+        return UserDefaults(suiteName: suite) ?? .standard
+    }()
+
+    /// Reads the stored settings, falling back once to the pre-rename key and writing that blob forward.
+    ///
+    /// The current key is always tried first, so a user who re-entered their settings after the rename can never have them overwritten by the older orphaned blob.
+    static func load() -> ChatSettings {
+        if let current = decode(forKey: key) {
+            return current
+        }
+        guard let migrated = decode(forKey: legacyKey) else { return .default }
+        save(migrated)
+        return migrated
+    }
+
+    /// Decodes one stored blob, returning nil when the key is absent or the payload is unreadable.
+    private static func decode(forKey storageKey: String) -> ChatSettings? {
+        guard let data = defaults.data(forKey: storageKey) else { return nil }
+        return try? JSONDecoder().decode(ChatSettings.self, from: data)
     }
 
     static func save(_ settings: ChatSettings) {
         guard let data = try? JSONEncoder().encode(settings) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        defaults.set(data, forKey: key)
     }
 
+    /// Clears both keys, so a reset cannot be undone by the migration fallback on the next `load()`.
     static func resetToDefaults() {
-        UserDefaults.standard.removeObject(forKey: key)
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: legacyKey)
     }
 }
 
 // MARK: - ChatSettings migration-safe decoding
-// Synthesized Codable throws on a missing key, so adding a field would make
-// every existing saved settings blob fail to decode and silently reset to
-// defaults. This tolerant decoder defaults any absent field to `.default`, so
-// new fields (read-aloud, login item, …) can be added without losing prior
-// settings. `encode(to:)` + `CodingKeys` stay synthesized.
+// Synthesized Codable throws on a missing key, so adding a field would make every existing saved settings blob fail to decode and silently reset to defaults. This tolerant decoder defaults any absent field to `.default`, so new fields (read-aloud, login item, …) can be added without losing prior settings. `encode(to:)` + `CodingKeys` stay synthesized.
 
 extension ChatSettings {
     nonisolated init(from decoder: Decoder) throws {

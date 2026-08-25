@@ -2,11 +2,9 @@
 //  LavaSRDenoiserParityTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Phase 10b / Commit 2 — verify the Swift LavaSRDenoiser
-//  (Core ML model + Swift iSTFT) matches the Python reference end-to-end.
+//  Phase 10b / Commit 2 — verify the Swift LavaSRDenoiser (Core ML model + Swift iSTFT) matches the Python reference end-to-end.
 //
-//  Inputs (gitignored — regenerable from
-//  `scripts/convert_lavasr_denoiser_to_coreml.py` in the lavasr-venv):
+//  Inputs (gitignored — regenerable from `scripts/convert_lavasr_denoiser_to_coreml.py` in the lavasr-venv):
 //
 //    mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/
 //      lavasr_denoiser.mlpackage
@@ -69,9 +67,7 @@ final class LavaSRDenoiserParityTests: XCTestCase {
             "Swift Core ML denoiser vs Python golden Pearson r should be ≥ 0.98; got \(r)"
         )
 
-        // Tighter checks since the conversion script showed Pearson = 1.0
-        // numerical-faithful. Swift-side iSTFT may add a tiny rounding
-        // error (mlx-swift vs torch). Bar set conservatively.
+        // Tighter checks since the conversion script showed Pearson = 1.0 numerical-faithful. Swift-side iSTFT may add a tiny rounding error (mlx-swift vs torch). Bar set conservatively.
         let maxAbsErr = zip(expectedAudio, swiftOutput).map { abs($0 - $1) }.max() ?? 0
         print("[LavaSRDenoiserParityTests] Pearson r=\(r), max |err|=\(maxAbsErr)")
     }
@@ -97,9 +93,7 @@ final class LavaSRDenoiserParityTests: XCTestCase {
     // MARK: - iSTFT-only property tests
 
     func test_istft_silenceInputProducesSilenceOutput() throws {
-        // Build a zero MLMultiArray of shape (1, 257, 501, 2) and run
-        // the iSTFT helper directly. Expected output: all zeros (within
-        // float noise).
+        // Build a zero MLMultiArray of shape (1, 257, 501, 2) and run the iSTFT helper directly. Expected output: all zeros (within float noise).
         let spec = try MLMultiArray(
             shape: [1, 257, 501, 2],
             dataType: .float32

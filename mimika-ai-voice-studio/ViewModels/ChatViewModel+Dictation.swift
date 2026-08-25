@@ -2,8 +2,7 @@
 //  ChatViewModel+Dictation.swift
 //  mimika-ai-voice-studio
 //
-//  Dictation lifecycle extracted from ChatViewModel to stay under
-//  the 300-line file budget. Drives the 3-state mic button cycle:
+//  Dictation lifecycle extracted from ChatViewModel to stay under the 300-line file budget. Drives the 3-state mic button cycle:
 //  idle → listening → ready → submit.
 
 import Foundation

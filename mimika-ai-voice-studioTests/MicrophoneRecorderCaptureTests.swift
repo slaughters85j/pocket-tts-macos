@@ -2,13 +2,7 @@
 //  MicrophoneRecorderCaptureTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Regression tests for the raw (unity-gain) mic capture path. The
-//  original capture sink applied `tanh(x * 4.0)` per sample, which
-//  saturated speech peaks on healthy-level mics and baked waveshaping
-//  distortion into the voice reference — the cause of repeats / long
-//  pauses / garble on in-app recorded voices. These tests pin the
-//  capture as a bit-transparent passthrough, the save-time leveling as
-//  strictly linear, and the analyzer thresholds as raw-calibrated.
+//  Regression tests for the raw (unity-gain) mic capture path. The original capture sink applied `tanh(x * 4.0)` per sample, which saturated speech peaks on healthy-level mics and baked waveshaping distortion into the voice reference — the cause of repeats / long pauses / garble on in-app recorded voices. These tests pin the capture as a bit-transparent passthrough, the save-time leveling as strictly linear, and the analyzer thresholds as raw-calibrated.
 //
 
 import AVFoundation
@@ -43,9 +37,7 @@ final class MicrophoneRecorderCaptureTests: XCTestCase {
     // MARK: - RecordingSampleSink: raw passthrough
 
     func testMonoCaptureIsBitTransparent() {
-        // Values chosen so the old tanh(4x) path would visibly mangle
-        // them (0.5 → 0.964, 0.9 → 0.9985); raw capture must return
-        // them untouched.
+        // Values chosen so the old tanh(4x) path would visibly mangle them (0.5 → 0.964, 0.9 → 0.9985); raw capture must return them untouched.
         let input: [Float] = [0.0, 0.05, -0.1, 0.25, -0.5, 0.5, 0.9, -0.9, 1.0]
         let sink = RecordingSampleSink()
         sink.reset(capacity: 64)
@@ -100,8 +92,7 @@ final class MicrophoneRecorderCaptureTests: XCTestCase {
 
     // MARK: - RecordingQualityAnalyzer: raw-signal calibration
 
-    /// Bursty speech-like signal: alternating 100 ms sine bursts and 100 ms
-    /// silence, so the SNR estimator sees a clean signal/noise split.
+    /// Bursty speech-like signal: alternating 100 ms sine bursts and 100 ms silence, so the SNR estimator sees a clean signal/noise split.
     private func burstySignal(amplitude: Float, seconds: Double = 1.5, sampleRate: Double = 24_000) -> [Float] {
         let total = Int(seconds * sampleRate)
         let burst = Int(0.1 * sampleRate)
@@ -113,8 +104,7 @@ final class MicrophoneRecorderCaptureTests: XCTestCase {
     }
 
     func testAnalyzerAcceptsHealthyRawLevel() {
-        // Raw peaks ~0.15 (RMS ≈ −22 dB): healthy under the raw-signal
-        // calibration; the old post-gain thresholds are gone.
+        // Raw peaks ~0.15 (RMS ≈ −22 dB): healthy under the raw-signal calibration; the old post-gain thresholds are gone.
         let feedback = RecordingQualityAnalyzer.analyze(samples: burstySignal(amplitude: 0.15), sampleRate: 24_000)
         XCTAssertEqual(feedback.severity, .good, "unexpected: \(feedback.message)")
     }
@@ -126,8 +116,7 @@ final class MicrophoneRecorderCaptureTests: XCTestCase {
     }
 
     func testAnalyzerFlagsConverterClipping() {
-        // Full-scale peaks are reachable again now that no tanh ceiling
-        // sits in front of the analyzer.
+        // Full-scale peaks are reachable again now that no tanh ceiling sits in front of the analyzer.
         let clipped = burstySignal(amplitude: 1.0)
         let feedback = RecordingQualityAnalyzer.analyze(samples: clipped, sampleRate: 24_000)
         XCTAssertEqual(feedback.severity, .warning)

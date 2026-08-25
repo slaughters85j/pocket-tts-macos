@@ -31,6 +31,7 @@ extension ChatViewModel {
         deferredVisionRecovery = false
         lastAutomaticVisionRecoveryKey = nil
         status = .idle
+        beginFreshSoloThread()
     }
 
     /// Update one transcript message while preserving role and attachments.
@@ -126,10 +127,7 @@ extension ChatViewModel {
 
 /// Keeps only speech-safe text and punctuation for spoken chat reuse.
 nonisolated enum ChatTranscriptSanitizer {
-    /// `,` `?` `!` carry prosody the model actually uses — dropping them flattened
-    /// questions into statements and split grouped numbers ("45,607" became
-    /// "45 607", read as two numbers). `;` `:` stay out deliberately: they add no
-    /// spoken value the comma doesn't already cover.
+    /// `,` `?` `!` carry prosody the model actually uses — dropping them flattened questions into statements and split grouped numbers ("45,607" became "45 607", read as two numbers). `;` `:` stay out deliberately: they add no spoken value the comma doesn't already cover.
     private static let allowedPunctuation: Set<Character> = [
         ".", ",", "?", "!", "\"", "'", "“", "”", "‘", "’"
     ]
@@ -140,6 +138,12 @@ nonisolated enum ChatTranscriptSanitizer {
                 switch segment {
                 case let .prose(content), let .code(_, content):
                     return content
+                case let .table(header, rows):
+                    // Pipes and dashes are not speakable. Flatten to one line per row with comma-separated cells, header included.
+                    return ([header] + rows)
+                        .map { $0.filter { !$0.isEmpty }.joined(separator: ", ") }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
                 }
             }
             .joined(separator: "\n\n")
@@ -155,12 +159,7 @@ nonisolated enum ChatTranscriptSanitizer {
             }
         }
 
-        // Disallowed characters become spaces above so words never jam together
-        // ("a*b" → "a b"). That leaves a gap when the stripped run sat right
-        // before punctuation — `**John**.` → `John .` — which TTS reads as an
-        // unintended pause. Close it after collapsing, matching the same
-        // tightening TextNormalizer applies. Quotes are excluded so they keep
-        // the leading space they need before an opening mark.
+        // Disallowed characters become spaces above so words never jam together ("a*b" → "a b"). That leaves a gap when the stripped run sat right before punctuation — `**John**.` → `John .` — which TTS reads as an unintended pause. Close it after collapsing, matching the same tightening TextNormalizer applies. Quotes are excluded so they keep the leading space they need before an opening mark.
         return collapseHorizontalWhitespace(in: speechSafeText)
             .replacingOccurrences(
                 of: " ([,.!?])",

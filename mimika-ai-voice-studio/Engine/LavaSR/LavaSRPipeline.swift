@@ -2,8 +2,7 @@
 //  LavaSRPipeline.swift
 //  mimika-ai-voice-studio
 //
-//  Top-level coordinator for the LavaSR voice-enhancement pipeline.
-//  Stages mirror `LavaSR.model.LavaEnhance2.enhance(...)`:
+//  Top-level coordinator for the LavaSR voice-enhancement pipeline. Stages mirror `LavaSR.model.LavaEnhance2.enhance(...)`:
 //
 //      audio[T] @ inputRate (any)
 //        → resample to 16 kHz mono                    (DemucsResampler)
@@ -13,10 +12,7 @@
 //        → FastLRMerge refiner                        (LavaSRFastLRMerge in Swift)
 //        → audio[T] @ 48 kHz mono
 //
-//  Phase 10b / Commit 3 — denoiser stage wired in. The denoiser is
-//  OPTIONAL: if the .mlpackage isn't installed (or callers explicitly
-//  opt out), the pipeline runs the v1 BWE+LR-merge-only path
-//  unchanged. Soft fallback for first-launch UX.
+//  Phase 10b / Commit 3 — denoiser stage wired in. The denoiser is OPTIONAL: if the .mlpackage isn't installed (or callers explicitly opt out), the pipeline runs the v1 BWE+LR-merge-only path unchanged. Soft fallback for first-launch UX.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -24,8 +20,7 @@ import MLX
 
 // MARK: - LavaSRPipeline
 
-/// Owns the LavaSR voice-enhancement model graph and exposes a single
-/// `enhance(_:inputRate:denoise:)` entry point.
+/// Owns the LavaSR voice-enhancement model graph and exposes a single `enhance(_:inputRate:denoise:)` entry point.
 @MainActor
 final class LavaSRPipeline {
 
@@ -34,21 +29,16 @@ final class LavaSRPipeline {
     /// Vocos BWE model. Loaded once during `load()`.
     private let bwe: LavaSREnhancerBWE
 
-    /// Frequency-domain crossover refiner — see LavaSRFastLRMerge.
-    /// Production parameters match `LavaEnhance.load_audio()` in the
-    /// upstream Python:  cutoff = 8000 Hz, transition = 1024 bins.
+    /// Frequency-domain crossover refiner — see LavaSRFastLRMerge. Production parameters match `LavaEnhance.load_audio()` in the upstream Python:  cutoff = 8000 Hz, transition = 1024 bins.
     private let lrMerge: LavaSRFastLRMerge
 
-    /// ULUNAS denoiser (Core ML). Nil when the .mlpackage isn't
-    /// installed — the pipeline soft-falls-back to BWE+LR-merge only.
+    /// ULUNAS denoiser (Core ML). Nil when the .mlpackage isn't installed — the pipeline soft-falls-back to BWE+LR-merge only.
     private let denoiser: LavaSRDenoiser?
 
-    /// Sample rate the BWE operates at end-to-end. Output of `enhance`
-    /// is always at this rate.
+    /// Sample rate the BWE operates at end-to-end. Output of `enhance` is always at this rate.
     var sampleRate: Int { LavaSREnhancerBWE.sampleRate }
 
-    /// Sample rate the denoiser operates at (the model was traced at
-    /// 16 kHz). Internal — only relevant if `denoiser != nil`.
+    /// Sample rate the denoiser operates at (the model was traced at 16 kHz). Internal — only relevant if `denoiser != nil`.
     private static let denoiserSampleRate = LavaSRDenoiser.sampleRate
 
     // MARK: - Init / load
@@ -63,10 +53,7 @@ final class LavaSRPipeline {
         self.denoiser = denoiser
     }
 
-    /// Bootstrap the pipeline. `denoiserMLPackageURL` is OPTIONAL —
-    /// pass `nil` (or omit) to run without the ULUNAS denoiser; pass a
-    /// path to a `lavasr_denoiser.mlpackage` to enable it. The model
-    /// is loaded lazily on first `enhance(..., denoise: true)` call.
+    /// Bootstrap the pipeline. `denoiserMLPackageURL` is OPTIONAL — pass `nil` (or omit) to run without the ULUNAS denoiser; pass a path to a `lavasr_denoiser.mlpackage` to enable it. The model is loaded lazily on first `enhance(..., denoise: true)` call.
     static func load(denoiserMLPackageURL: URL? = nil) async throws -> LavaSRPipeline {
         let bwe = try await LavaSREnhancerBWE.load()
         let lr = LavaSRFastLRMerge(
@@ -84,9 +71,7 @@ final class LavaSRPipeline {
         return LavaSRPipeline(bwe: bwe, lrMerge: lr, denoiser: denoiser)
     }
 
-    /// `true` if the ULUNAS denoiser .mlpackage is installed and the
-    /// pipeline can run with `denoise: true`. UI uses this to decide
-    /// whether to expose the denoise toggle.
+    /// `true` if the ULUNAS denoiser .mlpackage is installed and the pipeline can run with `denoise: true`. UI uses this to decide whether to expose the denoise toggle.
     var hasDenoiser: Bool { denoiser != nil }
 
     // MARK: - Enhance
@@ -96,9 +81,7 @@ final class LavaSRPipeline {
     /// - Parameters:
     ///   - samples: input mono Float32 buffer
     ///   - inputRate: input sample rate in Hz
-    ///   - denoise: if `true` AND the denoiser is installed, runs
-    ///     ULUNAS as the first stage. Soft-falls-back to BWE+LR-merge
-    ///     only when the denoiser isn't available.
+    ///   - denoise: if `true` AND the denoiser is installed, runs ULUNAS as the first stage. Soft-falls-back to BWE+LR-merge only when the denoiser isn't available.
     /// - Returns: enhanced audio at the BWE's 48 kHz output rate.
     func enhance(
         _ samples: [Float],
@@ -119,9 +102,7 @@ final class LavaSRPipeline {
             // Denoiser expects exactly `inputLengthSamples`. Pad/truncate.
             //
             // TODO (phase 10b / chunking): chunk long inputs into 8 s
-            // hops with overlap-add reconstruction (matches Phase 7's
-            // DemucsChunker pattern). Tonight's pass handles ≤ 8 s
-            // inputs only — typical voice-clone reference clips.
+            // hops with overlap-add reconstruction (matches Phase 7's DemucsChunker pattern). Tonight's pass handles ≤ 8 s inputs only — typical voice-clone reference clips.
             let denInput = Self._fitToFixedLength(
                 mono16k, target: LavaSRDenoiser.inputLengthSamples)
             let denoised = try await denoiser.denoise(denInput)
@@ -175,8 +156,7 @@ final class LavaSRPipeline {
 
     // MARK: - Static helpers
 
-    /// Plain Int copy of `sampleRate` so the helpers don't have to hop
-    /// through the @MainActor isolation for a constant.
+    /// Plain Int copy of `sampleRate` so the helpers don't have to hop through the @MainActor isolation for a constant.
     nonisolated private static let sampleRateRaw = LavaSREnhancerBWE.sampleRate
 
     /// Truncate-or-zero-pad `samples` to exactly `target` samples.
@@ -190,10 +170,7 @@ final class LavaSRPipeline {
 
     // MARK: - Teardown
 
-    /// Free MLX-side memory after a one-shot enhancement. Voice enhancement
-    /// is rare enough (per-import) that we don't keep ~280 MB of BWE
-    /// weights resident between calls. After this returns the caller
-    /// should drop its strong reference to the `LavaSRPipeline`.
+    /// Free MLX-side memory after a one-shot enhancement. Voice enhancement is rare enough (per-import) that we don't keep ~280 MB of BWE weights resident between calls. After this returns the caller should drop its strong reference to the `LavaSRPipeline`.
     static func clearMemoryCache() {
         MLX.Memory.clearCache()
     }

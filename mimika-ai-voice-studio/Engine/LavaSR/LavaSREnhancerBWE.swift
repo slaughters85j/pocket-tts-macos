@@ -2,26 +2,18 @@
 //  LavaSREnhancerBWE.swift
 //  mimika-ai-voice-studio
 //
-//  Vocos-based bandwidth-extension (BWE) backbone for LavaSR v2.
-//  Mirrors `LavaSR/enhancer/enhancer.py`'s `LavaBWE` class.
+//  Vocos-based bandwidth-extension (BWE) backbone for LavaSR v2. Mirrors `LavaSR/enhancer/enhancer.py`'s `LavaBWE` class.
 //
 //  Pipeline (matches the Vocos config in `enhancer_v2/config.yaml`):
 //
 //      audio[T]
 //        → MelSpectrogramFeatures (n_fft=2048, hop=512, n_mels=80,
 //                                  f_min=0, f_max=8000, slaney mel)
-//        → VocosBackbone (ConvNeXt, 8 layers, dim=512, intermediate=1536)
-//        → LavaSRISTFTHead (log-mag exp → clip → ISTFT)
-//        → audio[T]
+//        → VocosBackbone (ConvNeXt, 8 layers, dim=512, intermediate=1536) → LavaSRISTFTHead (log-mag exp → clip → ISTFT) → audio[T]
 //
-//  Loads weights from `lavasr_enhancer_v2.safetensors`. Precomputed mel
-//  filterbank + STFT window are pulled directly from the weight file via
-//  `feature_extractor.mel_spec.mel_scale.fb` and
-//  `feature_extractor.mel_spec.spectrogram.window`.
+//  Loads weights from `lavasr_enhancer_v2.safetensors`. Precomputed mel filterbank + STFT window are pulled directly from the weight file via `feature_extractor.mel_spec.mel_scale.fb` and `feature_extractor.mel_spec.spectrogram.window`.
 //
-//  Lifted from the original `VoiceEnhancer.swift` and renamed from
-//  `LavaSREnhancer` to make the role explicit (the BWE half — ULUNAS
-//  denoise lives in `LavaSRDenoiser.swift`, landing in Commit 5).
+//  Lifted from the original `VoiceEnhancer.swift` and renamed from `LavaSREnhancer` to make the role explicit (the BWE half — ULUNAS denoise lives in `LavaSRDenoiser.swift`, landing in Commit 5).
 //
 //  Phase 10 / Commit 1 — pure refactor; behavior unchanged.
 
@@ -35,8 +27,7 @@ import MLXNN
 
 // MARK: - LavaSREnhancerBWE
 
-/// Vocos-based bandwidth extension model with LavaSR v2 weights.
-/// Uses mel spectrogram → ConvNeXt backbone → custom ISTFT head.
+/// Vocos-based bandwidth extension model with LavaSR v2 weights. Uses mel spectrogram → ConvNeXt backbone → custom ISTFT head.
 final class LavaSREnhancerBWE: Module {
     nonisolated(unsafe) let backbone: VocosBackbone
     let head: LavaSRISTFTHead
@@ -46,14 +37,7 @@ final class LavaSREnhancerBWE: Module {
     private nonisolated static let hopLength = 512
     private nonisolated static let nMels = 80
 
-    /// Operating sample rate. The upstream `enhancer_v2/config.yaml`
-    /// declares 44100, but the production Python pipeline
-    /// (`LavaEnhance2.enhance(...)`) resamples to 48 kHz before feeding
-    /// this model. The mel filterbank is parameterized in Hz
-    /// (`f_min=0, f_max=8000`), so the model runs at the higher SR
-    /// without any change in computed mel coefficients. Running here
-    /// at 48 kHz matches the Python reference and is the upstream
-    /// author's intended operating point.
+    /// Operating sample rate. The upstream `enhancer_v2/config.yaml` declares 44100, but the production Python pipeline (`LavaEnhance2.enhance(...)`) resamples to 48 kHz before feeding this model. The mel filterbank is parameterized in Hz (`f_min=0, f_max=8000`), so the model runs at the higher SR without any change in computed mel coefficients. Running here at 48 kHz matches the Python reference and is the upstream author's intended operating point.
     nonisolated static let sampleRate = 48_000
 
     nonisolated(unsafe) var melFilterbank: MLXArray?
@@ -73,14 +57,7 @@ final class LavaSREnhancerBWE: Module {
     static func load() async throws -> LavaSREnhancerBWE {
         let model = LavaSREnhancerBWE()
 
-        // Phase 8.5: LavaSR weights ship via the voice-tools HF bundle,
-        // installed by `BundledMLModelManager` on first launch.
-        // `ModelPaths.lavasrEnhancerWeights()` resolves the installed
-        // copy, falling back to `Bundle.main` for a future re-bundled
-        // build. As a last resort, the legacy ModelUtils-driven
-        // HuggingFace lookup (`YatharthS/LavaSR`) stays as a safety net
-        // for dev environments that have a local conversion-script
-        // output but no installed bundle.
+        // Phase 8.5: LavaSR weights ship via the voice-tools HF bundle, installed by `BundledMLModelManager` on first launch. `ModelPaths.lavasrEnhancerWeights()` resolves the installed copy, falling back to `Bundle.main` for a future re-bundled build. As a last resort, the legacy ModelUtils-driven HuggingFace lookup (`YatharthS/LavaSR`) stays as a safety net for dev environments that have a local conversion-script output but no installed bundle.
         let weightsURL: URL
         if let resolved = try? ModelPaths.lavasrEnhancerWeights() {
             weightsURL = resolved
@@ -128,9 +105,7 @@ final class LavaSREnhancerBWE: Module {
         return model
     }
 
-    /// Run the full BWE forward pass on a mono audio sample.
-    /// `audio` is expected to be at this model's `sampleRate` (44.1 kHz in
-    /// the current code path; 48 kHz after Commit 2).
+    /// Run the full BWE forward pass on a mono audio sample. `audio` is expected to be at this model's `sampleRate` (44.1 kHz in the current code path; 48 kHz after Commit 2).
     func enhance(_ audio: MLXArray) throws -> MLXArray {
         let mel = computeMelSpectrogram(audio)
         let features = backbone(mel)
@@ -152,8 +127,7 @@ final class LavaSREnhancerBWE: Module {
             window = MLXArray((0..<nFft).map { 0.5 - 0.5 * cos(2.0 * factor * Float($0)) })
         }
 
-        // "same" padding: (winLength - hopLength) / 2 on each side, reflect mode
-        // Python: center=False, manual pad of (win_length - hop_length) // 2
+        // "same" padding: (winLength - hopLength) / 2 on each side, reflect mode Python: center=False, manual pad of (win_length - hop_length) // 2
         let padAmount = (nFft - hopLength) / 2
         let n = audio.shape[0]
         let leading = audio[.stride(from: padAmount, to: 0, by: -1)]

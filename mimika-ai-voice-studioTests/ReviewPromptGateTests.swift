@@ -2,8 +2,7 @@
 //  ReviewPromptGateTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Coverage for the review-prompt policy: the pure decision function's
-//  boundary semantics and the UserDefaults-backed store's bookkeeping.
+//  Coverage for the review-prompt policy: the pure decision function's boundary semantics and the UserDefaults-backed store's bookkeeping.
 //
 
 import XCTest
@@ -16,8 +15,7 @@ final class ReviewPromptGateTests: XCTestCase {
 
     private func days(_ n: Double) -> TimeInterval { n * 86_400 }
 
-    /// Convenience: evaluate the gate at `epoch` with an install age,
-    /// defaulting every other input to its most permissive value.
+    /// Convenience: evaluate the gate at `epoch` with an install age, defaulting every other input to its most permissive value.
     private func gate(
         installedDays: Double,
         lastPromptDaysAgo: Double? = nil,
@@ -144,9 +142,7 @@ final class ReviewPromptGateTests: XCTestCase {
         XCTAssertEqual(store.firstUseDate, epoch, "the call must stamp first use as a side effect")
     }
 
-    /// End-to-end through the store: armed state (old install, floor
-    /// met, no prior prompts) prompts; recording the request then
-    /// blocks the next evaluation for the spacing window.
+    /// End-to-end through the store: armed state (old install, floor met, no prior prompts) prompts; recording the request then blocks the next evaluation for the spacing window.
     func test_shouldPromptNow_armedStatePromptsOnceThenSpaces() {
         let store = ReviewPromptStore(defaults: suite)
         store.stampFirstUseIfNeeded(now: epoch.addingTimeInterval(-days(30)))

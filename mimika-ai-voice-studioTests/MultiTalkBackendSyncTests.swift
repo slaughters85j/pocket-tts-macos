@@ -2,9 +2,7 @@
 //  MultiTalkBackendSyncTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Coverage for the pure backend-sync helpers in
-//  MultiTalkViewModel+BackendSync.swift: the Pocket ↔ Fish voice-ID
-//  remap and the import-script tag canonicalization.
+//  Coverage for the pure backend-sync helpers in MultiTalkViewModel+BackendSync.swift: the Pocket ↔ Fish voice-ID remap and the import-script tag canonicalization.
 //
 
 import XCTest
@@ -13,8 +11,7 @@ import XCTest
 @MainActor
 final class MultiTalkBackendSyncTests: XCTestCase {
 
-    /// Saved-voice catalog for the mapper: A is Pocket-capable (has a KV
-    /// file), B is Fish-only (imported but never encoded for Pocket).
+    /// Saved-voice catalog for the mapper: A is Pocket-capable (has a KV file), B is Fish-only (imported but never encoded for Pocket).
     private let savedA = "AAAA-1111"
     private let savedB = "BBBB-2222"
     private var saved: Set<String> { [savedA, savedB] }
@@ -69,30 +66,19 @@ final class MultiTalkBackendSyncTests: XCTestCase {
         XCTAssertEqual(remap("imported:\(savedA)", to: .pocketTTS), "imported:\(savedA)")
     }
 
-    /// Regression: a History setup can reference a voice deleted (or
-    /// re-imported under a new UUID) since it was saved. A stale
-    /// "imported:" ID must fall back to the default voice, not pass
-    /// through to strand the picker on "Unavailable Voice".
+    /// Regression: a History setup can reference a voice deleted (or re-imported under a new UUID) since it was saved. A stale "imported:" ID must fall back to the default voice, not pass through to strand the picker on "Unavailable Voice".
     func test_remap_toPocket_staleImportedIDFallsBackToDefault() {
         XCTAssertEqual(remap("imported:GONE-0000", to: .pocketTTS), BundledVoice.default.id)
-        // A saved voice that exists but was never encoded for Pocket
-        // (Fish-only) is equally unusable behind an "imported:" ID.
+        // A saved voice that exists but was never encoded for Pocket (Fish-only) is equally unusable behind an "imported:" ID.
         XCTAssertEqual(remap("imported:\(savedB)", to: .pocketTTS), BundledVoice.default.id)
     }
 
-    /// Regression: a stale RAW Fish UUID (voice deleted after a
-    /// Fish-era card/History setup captured it) must degrade to the
-    /// default like every other stale shape — the closed-world bundled
-    /// check, not a passthrough that strands the picker and makes
-    /// synthesis throw voiceNotFound.
+    /// Regression: a stale RAW Fish UUID (voice deleted after a Fish-era card/History setup captured it) must degrade to the default like every other stale shape — the closed-world bundled check, not a passthrough that strands the picker and makes synthesis throw voiceNotFound.
     func test_remap_toPocket_staleRawUUIDFallsBackToDefault() {
         XCTAssertEqual(remap("DEAD-BEEF-0000", to: .pocketTTS), BundledVoice.default.id)
     }
 
-    /// History reuse restores card names VERBATIM: with per-ref labels
-    /// equal to the ref names, name-form tags survive unchanged while a
-    /// voice-name-form tag (Voice-names-mode save) is rescued onto its
-    /// card's label instead of stranding.
+    /// History reuse restores card names VERBATIM: with per-ref labels equal to the ref names, name-form tags survive unchanged while a voice-name-form tag (Voice-names-mode save) is rescued onto its card's label instead of stranding.
     func test_canonicalizedScript_historyLabelsPreserveNamesAndRescueVoiceTags() {
         let refs = [SpeakerRef(name: "Alice", voiceID: "x"),
                     SpeakerRef(name: "Bob", voiceID: "y")]
@@ -107,9 +93,7 @@ final class MultiTalkBackendSyncTests: XCTestCase {
         )
     }
 
-    /// Regression: a script saved in Voice-names mode carries voice-name
-    /// tags while its refs are card labels — the alias map canonicalizes
-    /// those too instead of stranding them.
+    /// Regression: a script saved in Voice-names mode carries voice-name tags while its refs are card labels — the alias map canonicalizes those too instead of stranding them.
     func test_canonicalizedScript_voiceNameAliasesRewrite() {
         let refs = [SpeakerRef(name: "Speaker 1", voiceID: "x"),
                     SpeakerRef(name: "Speaker 2", voiceID: "y")]
@@ -123,9 +107,7 @@ final class MultiTalkBackendSyncTests: XCTestCase {
         )
     }
 
-    /// Ref names override voice-name aliases on collision, and duplicated
-    /// ref names resolve LAST-wins — matching the parser's pre-existing
-    /// semantics for ambiguous names.
+    /// Ref names override voice-name aliases on collision, and duplicated ref names resolve LAST-wins — matching the parser's pre-existing semantics for ambiguous names.
     func test_canonicalizedScript_refNamesWinAndDuplicatesResolveLastWins() {
         let refs = [SpeakerRef(name: "Bob", voiceID: "x"),
                     SpeakerRef(name: "Bob", voiceID: "y")]
@@ -165,9 +147,7 @@ final class MultiTalkBackendSyncTests: XCTestCase {
         )
     }
 
-    /// Permuted incoming names must not clobber each other: refs named
-    /// "Speaker 2"/"Speaker 1" (a saved setup restored out of order)
-    /// swap cleanly instead of both collapsing onto one label.
+    /// Permuted incoming names must not clobber each other: refs named "Speaker 2"/"Speaker 1" (a saved setup restored out of order) swap cleanly instead of both collapsing onto one label.
     func test_canonicalizedScript_survivesPermutedSpeakerNames() {
         let refs = [SpeakerRef(name: "Speaker 2", voiceID: "x"),
                     SpeakerRef(name: "Speaker 1", voiceID: "y")]

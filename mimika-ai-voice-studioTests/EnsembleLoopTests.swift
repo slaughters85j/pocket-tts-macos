@@ -2,15 +2,12 @@
 //  EnsembleLoopTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Loop-path coverage for EnsembleViewModel.runOneTurn, exercising the three
-//  regressions caught in review:
+//  Loop-path coverage for EnsembleViewModel.runOneTurn, exercising the three regressions caught in review:
 //    * resolved-model fallback (empty pinned model -> connection-probe model)
 //    * the in-flight placeholder turn is NOT sent as request context
 //    * an HTTP error is preserved as .error and stops the loop
 //
-//  The LLM is stubbed via LLMStubURLProtocol (defined in LocalLLMClientTests)
-//  by injecting an ephemeral URLSession into the view model. speak:false keeps
-//  audio out of it; the no-op StubEngine is never asked to synthesize.
+//  The LLM is stubbed via LLMStubURLProtocol (defined in LocalLLMClientTests) by injecting an ephemeral URLSession into the view model. speak:false keeps audio out of it; the no-op StubEngine is never asked to synthesize.
 //
 
 import XCTest
@@ -405,9 +402,7 @@ final class EnsembleLoopTests: XCTestCase {
     }
 
     func test_userTurns_useModelNameNotDisplayPronoun_inPOV() throws {
-        // The "You: …" leak: the user's display name reached the model, which
-        // echoed it back as address ("Your skepticism"). The model must see a
-        // non-pronoun proper noun instead; display keeps "You".
+        // The "You: …" leak: the user's display name reached the model, which echoed it back as address ("Your skepticism"). The model must see a non-pronoun proper noun instead; display keeps "You".
         let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
         let data = Persona(name: "Data", voiceID: "v", systemPrompt: "")
         vm.cast = [data]
@@ -509,8 +504,7 @@ final class EnsembleLoopTests: XCTestCase {
     }
 
     func test_exportLabels_bootedSpeakersKeepOwnTagsAndVoices() throws {
-        // Boot removes from live cast but past turns keep the UUID. Export must
-        // still map those lines to the booted name/voice — not "You"/alba.
+        // Boot removes from live cast but past turns keep the UUID. Export must still map those lines to the booted name/voice — not "You"/alba.
         let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
         let riker = Persona(name: "Cmdr. Riker", voiceID: "jean", systemPrompt: "")
         let picard = Persona(name: "Picard", voiceID: "javert", systemPrompt: "")

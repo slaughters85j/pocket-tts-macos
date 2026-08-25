@@ -78,25 +78,34 @@ struct StatusIndicator: View {
 }
 
 // MARK: - PulseBars
-// Three vertical bars with staggered opacity fade — the Electron equivalent
-// is three `<div class="animate-pulse" style="animation-delay: ...">` bars.
+// Three vertical bars with staggered opacity fade — the Electron equivalent is three `<div class="animate-pulse" style="animation-delay: ...">` bars.
 
 private struct PulseBars: View {
     let active: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            HStack(spacing: 3) {
-                ForEach(0..<3, id: \.self) { i in
-                    Rectangle()
-                        .fill(Theme.accent)
-                        .frame(width: 4, height: 16)
-                        .opacity(active ? barOpacity(index: i, time: context.date.timeIntervalSinceReferenceDate) : 0.4)
-                        .clipShape(RoundedRectangle(cornerRadius: 2))
-                }
+        // Only run the timeline while actually pulsing. `TimelineView(.animation)` ticks 30×/s for as long as it exists, and `active` used to gate the opacity *value* rather than the timeline — so an idle Single Voice or Multi-Talk tab redrew forever and the window never reached a resting state (a 15 s idle trace showed 904 surface swaps, ~60/s).
+        if active {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                bars(at: context.date.timeIntervalSinceReferenceDate)
             }
-            .frame(width: 22)
+        } else {
+            bars(at: nil)
         }
+    }
+
+    /// `time == nil` renders the resting state with no timeline attached.
+    private func bars(at time: TimeInterval?) -> some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { i in
+                Rectangle()
+                    .fill(Theme.accent)
+                    .frame(width: 4, height: 16)
+                    .opacity(time.map { barOpacity(index: i, time: $0) } ?? 0.4)
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
+            }
+        }
+        .frame(width: 22)
     }
 
     private func barOpacity(index: Int, time: TimeInterval) -> Double {

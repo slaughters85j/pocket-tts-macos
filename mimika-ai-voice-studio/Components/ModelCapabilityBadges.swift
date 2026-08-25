@@ -139,7 +139,6 @@ private struct ReasoningCapabilityGlyph: View {
 /// Reasoning toggle or effort picker derived from LM Studio metadata.
 struct ModelReasoningControl: View {
     @Bindable var viewModel: ChatViewModel
-    var isExternallyLocked = false
 
     @State private var showsInfo = false
 
@@ -163,9 +162,9 @@ struct ModelReasoningControl: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                    // Locked only for an in-flight Solo turn, whose request is already built. An Ensemble run is NOT a lock — the loop reads the effort per speaker, so a change lands on the next turn.
                     .disabled(
                         viewModel.hasActiveTurn
-                            || isExternallyLocked
                             || configuration.allowedOptions.count < 2
                     )
                     .accessibilityLabel("Thinking level")
@@ -178,7 +177,6 @@ struct ModelReasoningControl: View {
                         .foregroundStyle(Theme.textSecondary)
                         .disabled(
                             viewModel.hasActiveTurn
-                                || isExternallyLocked
                                 || !canToggle
                         )
                         .accessibilityIdentifier("chat.reasoningEnabled")

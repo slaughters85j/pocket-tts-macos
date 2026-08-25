@@ -3,21 +3,14 @@
 //  mimika-ai-voice-studioTests
 //
 //  Phase 1 acceptance:
-//    1. StreamingPlayer routes an engine AsyncStream<PCMFrame> to real speakers.
-//       (User listens during xcodebuild test.)
+//    1. StreamingPlayer routes an engine AsyncStream<PCMFrame> to real speakers. (User listens during xcodebuild test.)
 //    2. AACEncoder + MP3Encoder produce readable compressed files.
 
 import AVFoundation
 import XCTest
 @testable import mimika_ai_voice_studio
 
-// `nonisolated` keeps this test off the main actor, so its synchronous
-// `StreamingPlayer()` construction (engine attach/connect/prepare) doesn't run
-// on the main thread. NOTE: XCTest still invokes `async` test methods at
-// `user-initiated` QoS regardless of isolation, so this attribute does NOT
-// lower the test's QoS. The priority inversion that used to fire here was fixed
-// at the source — StreamingPlayer's awaited control-queue hops no longer pin
-// themselves below the caller with `.enforceQoS` — not by changing test isolation.
+// `nonisolated` keeps this test off the main actor, so its synchronous `StreamingPlayer()` construction (engine attach/connect/prepare) doesn't run on the main thread. NOTE: XCTest still invokes `async` test methods at `user-initiated` QoS regardless of isolation, so this attribute does NOT lower the test's QoS. The priority inversion that used to fire here was fixed at the source — StreamingPlayer's awaited control-queue hops no longer pin themselves below the caller with `.enforceQoS` — not by changing test isolation.
 nonisolated final class StreamingPlaybackTests: XCTestCase {
 
     // MARK: - Shared canonical phrase
@@ -25,11 +18,7 @@ nonisolated final class StreamingPlaybackTests: XCTestCase {
     private let testVoiceID = "cosette"
 
     // MARK: - Audible playback test
-    /// Synthesizes the canonical phrase and plays it through the default output
-    /// device. The test passes if the call completes without error in a
-    /// reasonable bound. The *real* acceptance is the user hearing it — this
-    /// test is intended to be run interactively, the same way Phase 0c's
-    /// listening check worked.
+    /// Synthesizes the canonical phrase and plays it through the default output device. The test passes if the call completes without error in a reasonable bound. The *real* acceptance is the user hearing it — this test is intended to be run interactively, the same way Phase 0c's listening check worked.
     func test_streamingPlayer_playsAudibleAudio() async throws {
         let engine = try await TTSEngine()
         let player = try StreamingPlayer()
@@ -46,21 +35,15 @@ nonisolated final class StreamingPlaybackTests: XCTestCase {
         try await player.play(stream: stream)
         let elapsed = Date().timeIntervalSince(start)
 
-        // Audio is ~3 s; with sub-second synthesis lead-in we expect ~3–4 s
-        // wall time. Anything > 10 s indicates either a stall or that the
-        // stream never closed properly.
+        // Audio is ~3 s; with sub-second synthesis lead-in we expect ~3–4 s wall time. Anything > 10 s indicates either a stall or that the stream never closed properly.
         XCTAssertLessThan(elapsed, 10.0, "playback took unreasonably long: \(elapsed)s")
         print("✓ playback completed in \(String(format: "%.2f", elapsed))s")
     }
 
     // MARK: - AAC file export test
-    /// Synthesizes once and writes AAC to the sandbox temp dir, verifying the
-    /// file is non-trivial and parses cleanly via AVAudioFile.
+    /// Synthesizes once and writes AAC to the sandbox temp dir, verifying the file is non-trivial and parses cleanly via AVAudioFile.
     ///
-    /// MP3 export was originally planned for Phase 1 but turned out to be
-    /// unsupported by AVAssetWriter on macOS (no native MP3 encoder ships in
-    /// CoreAudio/AVFoundation as of macOS 26). It's deferred to a later
-    /// phase if/when we want to vendor LAME or a similar third-party encoder.
+    /// MP3 export was originally planned for Phase 1 but turned out to be unsupported by AVAssetWriter on macOS (no native MP3 encoder ships in CoreAudio/AVFoundation as of macOS 26). It's deferred to a later phase if/when we want to vendor LAME or a similar third-party encoder.
     func test_aacEncoder_writesReadableFile() async throws {
         let engine = try await TTSEngine()
 

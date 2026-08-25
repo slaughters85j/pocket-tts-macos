@@ -2,11 +2,7 @@
 //  EnsembleSurfaceView.swift
 //  mimika-ai-voice-studio
 //
-//  The Ensemble sub-mode surface hosted inside the Chat tab. Renders the
-//  shared transcript (one row per turn, tinted per speaker), the run controls
-//  (Start / Step / Pause / Resume / Stop), and a composer so the user can jump
-//  in as a peer. The connection pill + cast/export/view controls live in
-//  ChatView's single top bar (mirroring Solo) — this view owns only the body.
+//  The Ensemble sub-mode surface hosted inside the Chat tab. Renders the shared transcript (one row per turn, tinted per speaker), the run controls (Start / Step / Pause / Resume / Stop), and a composer so the user can jump in as a peer. The connection pill + cast/export/view controls live in ChatView's single top bar (mirroring Solo) — this view owns only the body.
 //
 
 import AppKit
@@ -18,14 +14,17 @@ struct EnsembleSurfaceView: View {
     let player: StreamingPlayer
     let viewMode: ViewMode
 
-    /// Transient control-bar confirmation (grenade armed, pausing, …) + the
-    /// grenade info popover.
+    /// Transient control-bar confirmation (grenade armed, pausing, …) + the grenade info popover.
     @State private var controlFlash: ControlFlash?
     @State private var controlFlashToken = 0
     @State private var showGrenadeInfo = false
     /// Drives the attention shake on the grenade flame (armed or collapse nudge).
     @State private var grenadeShakeTick = false
     @State private var dropIsTargeted = false
+    /// Driven by MacTextEditor's laid-out content height (see the composer).
+    @State private var composerHeight: CGFloat = 42
+    /// Turn being edited from the hover actions.
+    @State private var editingTurn: EnsembleTurn?
 
     /// A short, self-dismissing message shown centered in the controls bar.
     private struct ControlFlash {
@@ -66,6 +65,17 @@ struct EnsembleSurfaceView: View {
                 close: { viewModel.previewAttachment = nil }
             )
         }
+        .sheet(item: $editingTurn) { turn in
+            ChatMessageEditorSheet(
+                content: turn.content,
+                allowsEmpty: !turn.attachments.isEmpty,
+                onCancel: { editingTurn = nil },
+                onSave: { content in
+                    viewModel.updateTurnContent(id: turn.id, content: content)
+                    editingTurn = nil
+                }
+            )
+        }
     }
 
     // MARK: - Transcript
@@ -95,13 +105,27 @@ struct EnsembleSurfaceView: View {
                 .padding(.vertical, Theme.space4)
             }
             .onChange(of: viewModel.turns.last?.content) {
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("tail", anchor: .bottom) }
+                // No animation — tokens can land more than once per frame, and animating scroll under Liquid Glass melts the main thread.
+                proxy.scrollTo("tail", anchor: .bottom)
             }
         }
         .background(Theme.bgPrimary)
     }
 
     private func turnRow(_ turn: EnsembleTurn) -> some View {
+        // Copy / edit / delete on hover, same affordance as Solo. Editing the transcript is how a flattening conversation gets steered: the cast only ever reads `turns`, so trimming a repeated line changes what comes next.
+        TranscriptHoverActions(
+            entryID: turn.id,
+            copyText: turn.content,
+            canModify: !viewModel.isRunning,
+            onEdit: { editingTurn = turn },
+            onDelete: { viewModel.deleteTurn(id: turn.id) }
+        ) {
+            turnBody(turn)
+        }
+    }
+
+    private func turnBody(_ turn: EnsembleTurn) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
                 Text(turn.speakerName)
@@ -133,10 +157,12 @@ struct EnsembleSurfaceView: View {
                 .padding(.top, 2)
             }
             if !turn.content.isEmpty || turn.wasCutOff {
-                Text(turn.content + (turn.wasCutOff ? "  — [cut off]" : ""))
-                    .font(Theme.fontSM)
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Same renderer Solo uses — tables, fenced code and inline styling. Plain dialogue (nearly every turn) takes the fast path and never touches the parser, which matters because this transcript re-renders on every streamed token.
+                MarkdownProseView(
+                    source: turn.content + (turn.wasCutOff ? "  — [cut off]" : ""),
+                    textColor: Theme.textPrimary,
+                    codeBackground: Theme.bgTertiary
+                )
             }
         }
         .padding(Theme.space3)
@@ -187,9 +213,7 @@ struct EnsembleSurfaceView: View {
         .accessibilityLabel("Director Direct landed on this speaker")
     }
 
-    /// Translucent preset badge in a turn's top-right — the sampling preset the
-    /// speaker had WHEN this turn was generated (a per-turn snapshot, so changing
-    /// a preset mid-conversation shows up as old-vs-new across the transcript).
+    /// Translucent preset badge in a turn's top-right — the sampling preset the speaker had WHEN this turn was generated (a per-turn snapshot, so changing a preset mid-conversation shows up as old-vs-new across the transcript).
     private func presetBadge(_ preset: SamplingPreset, tint: Color) -> some View {
         Text(preset.displayName)
             .font(.system(size: 9, weight: .semibold))
@@ -208,8 +232,7 @@ struct EnsembleSurfaceView: View {
         return Theme.speakerColor(at: idx)
     }
 
-    /// The loaded cast as colored name chips — shown in the empty state so a
-    /// freshly generated OR reused cast is visibly confirmed before Start.
+    /// The loaded cast as colored name chips — shown in the empty state so a freshly generated OR reused cast is visibly confirmed before Start.
     private var castRoster: some View {
         VStack(spacing: Theme.space2) {
             Text("CAST").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
@@ -228,9 +251,7 @@ struct EnsembleSurfaceView: View {
         }
     }
 
-    /// Always-available disruption: arms a one-shot "break the consensus" on the
-    /// next turn. Larger + shakes when collapse is detected or already armed so
-    /// it's hard to miss; stays lit while `pendingGrenade` waits for a speaker.
+    /// Always-available disruption: arms a one-shot "break the consensus" on the next turn. Larger + shakes when collapse is detected or already armed so it's hard to miss; stays lit while `pendingGrenade` waits for a speaker.
     private var grenadeButton: some View {
         let nudge = viewModel.agreementCollapsed
         let armed = viewModel.pendingGrenade
@@ -285,8 +306,7 @@ struct EnsembleSurfaceView: View {
         }
     }
 
-    /// Yellow info affordance next to the grenade — a tappable explainer so the
-    /// flame's purpose is discoverable.
+    /// Yellow info affordance next to the grenade — a tappable explainer so the flame's purpose is discoverable.
     private var grenadeInfoButton: some View {
         Button(action: { showGrenadeInfo = true }) {
             Image(systemName: "info.circle")
@@ -329,16 +349,14 @@ struct EnsembleSurfaceView: View {
               seconds: 4.0)
     }
 
-    /// Pause + flash. pause() defers to the END of the current turn (it just
-    /// flips advanceMode to .step), so the message says so rather than "Paused".
+    /// Pause + flash. pause() defers to the END of the current turn (it just flips advanceMode to .step), so the message says so rather than "Paused".
     private func pauseTapped() {
         viewModel.pause()
         flash(ControlFlash(text: "Pausing after this line…",
                            systemImage: "pause.fill", tint: Theme.textSecondary))
     }
 
-    /// Show a transient control-bar message that auto-dismisses (token-guarded so
-    /// a newer flash isn't cleared early by an older one's timer).
+    /// Show a transient control-bar message that auto-dismisses (token-guarded so a newer flash isn't cleared early by an older one's timer).
     private func flash(_ f: ControlFlash, seconds: Double = 2.5) {
         controlFlashToken += 1
         let token = controlFlashToken
@@ -423,6 +441,21 @@ struct EnsembleSurfaceView: View {
                         .monospacedDigit()
                         .contentTransition(.numericText())
                         .animation(.linear(duration: 0.2), value: viewModel.invitedUserTurnSecondsRemaining)
+
+                    // Forfeit without waiting out the countdown — the invite often lands right after you have already said your piece.
+                    Button("Skip") {
+                        viewModel.skipInvitedUserTurn()
+                    }
+                    .buttonStyle(.plain)
+                    .font(Theme.fontXS)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, Theme.space3)
+                    .padding(.vertical, 3)
+                    .background(Theme.accent.opacity(0.18))
+                    .clipShape(Capsule())
+                    .help("Give up this turn and let the cast carry on")
+                    .accessibilityIdentifier("ensemble.composer.skipTurn")
                 }
                 .padding(12)
                 .background(Theme.accent.opacity(0.15))
@@ -439,20 +472,32 @@ struct EnsembleSurfaceView: View {
                 ensembleAttachmentTray
             }
             HStack(spacing: Theme.space3) {
-                TextField(
-                    viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…",
-                    text: $viewModel.draft,
-                    axis: .vertical
-                )
-                    .lineLimit(1...4)
-                    .textFieldStyle(.plain)
-                    .font(Theme.fontSM)
-                    .foregroundStyle(Theme.textPrimary)
-                    .padding(.horizontal, Theme.space4)
-                    .padding(.vertical, Theme.space3)
-                    .themeInputField()
-                    .onSubmit { viewModel.submitUserTurn() }
-                    .accessibilityIdentifier("ensemble.composer.field")
+                // NSTextView-backed, fixed height — same pattern as Solo's ChatComposerView and ScriptGeneratorModal.
+                //
+                // NOT cosmetic. `TextField(axis: .vertical)` has no intrinsic width cap, so the enclosing HStack asks it how wide it wants to be, and answering means re-shaping the WHOLE draft through CoreText. A 15 s trace of a large pasted block showed the main thread in OpenType glyph positioning — `OTL::GPOS::ApplyPairPos`, `PairSet::ValuePair`, variable-font `ItemVariationStore` — for the entire recording, and the stall persisted for as long as the text sat in the field. A fixed-height editor advertises no content-dependent size, so nothing re-measures it.
+                ZStack(alignment: .topLeading) {
+                    if viewModel.draft.isEmpty {
+                        Text(viewModel.awaitingInvitedUserTurn ? "Your line…" : "Jump in…")
+                            .font(Theme.fontSM)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, Theme.space4 + 4)
+                            .padding(.vertical, Theme.space3)
+                            .allowsHitTesting(false)
+                    }
+                    MacTextEditor(
+                        text: $viewModel.draft,
+                        accessibilityID: "ensemble.composer.field",
+                        onSubmit: { viewModel.submitUserTurn() },
+                        onContentHeightChange: { contentHeight in
+                            // Cap ≈ the old `.lineLimit(1...4)`; longer drafts scroll.
+                            composerHeight = min(max(contentHeight + 4, 42), 100)
+                        }
+                    )
+                    .padding(.horizontal, Theme.space4 - 4)
+                    .padding(.vertical, 2)
+                }
+                .frame(height: composerHeight)
+                .themeInputField()
 
                 if viewModel.supportsVision {
                     Button(action: chooseImages) {

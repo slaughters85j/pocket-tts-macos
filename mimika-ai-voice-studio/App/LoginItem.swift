@@ -2,10 +2,7 @@
 //  LoginItem.swift
 //  mimika-ai-voice-studio
 //
-//  Thin wrapper around SMAppService for the optional menu-bar login item.
-//  Registering keeps mimika launching at login so the menu bar + Read-Aloud
-//  service are ready without opening the app first. Best-effort: registration
-//  can fail for an unsigned/dev build, which we log rather than surface.
+//  Thin wrapper around SMAppService for the optional menu-bar login item. Registering keeps mimika launching at login so the menu bar + Read-Aloud service are ready without opening the app first. Best-effort: registration can fail for an unsigned/dev build, which we log rather than surface.
 //
 
 import Foundation

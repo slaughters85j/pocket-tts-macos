@@ -2,26 +2,13 @@
 //  AudioPreservationSection.swift
 //  mimika-ai-voice-studio
 //
-//  Collapsible disclosure for the Phase 7 "Preserve background
-//  under revoiced speech" feature. The whole user-facing surface
-//  of Phase 7's source-separation work is ONE toggle here, plus an
-//  inline "Download Models" CTA when the HTDemucs model hasn't been
-//  installed yet.
+//  Collapsible disclosure for the Phase 7 "Preserve background under revoiced speech" feature. The whole user-facing surface of Phase 7's source-separation work is ONE toggle here, plus an inline "Download Models" CTA when the HTDemucs model hasn't been installed yet.
 //
-//  Visibility: hidden entirely when `viewModel.hasSourceSeparator`
-//  is false (no separator wired up at VM init — e.g. test mode).
-//  Otherwise the section is always shown, and the inner UI changes
-//  based on whether the model is downloaded:
+//  Visibility: hidden entirely when `viewModel.hasSourceSeparator` is false (no separator wired up at VM init — e.g. test mode). Otherwise the section is always shown, and the inner UI changes based on whether the model is downloaded:
 //    * Downloaded → toggle + help text only
-//    * Not downloaded → toggle (greyed when off) + warning hint
-//      with an inline "Download (~287 MB)" button that opens the
-//      Manage Separation Models sheet
+//    * Not downloaded → toggle (greyed when off) + warning hint with an inline "Download (~287 MB)" button that opens the Manage Separation Models sheet
 //
-//  Why a separate sheet for the download (vs. download inline
-//  here)? Because the download has its own progress / SHA-verify
-//  / install lifecycle the user should see; the toggle row is
-//  meant to be glanceable + one-click, not the place where a 287
-//  MB transfer happens.
+//  Why a separate sheet for the download (vs. download inline here)? Because the download has its own progress / SHA-verify / install lifecycle the user should see; the toggle row is meant to be glanceable + one-click, not the place where a 287 MB transfer happens.
 
 import SwiftUI
 
@@ -36,8 +23,7 @@ struct AudioPreservationSection: View {
     @State private var isExpanded: Bool = true
 
     var body: some View {
-        // Hide entirely if no separator was wired up at VM init —
-        // e.g. tests, or a future "separation-disabled" build flag.
+        // Hide entirely if no separator was wired up at VM init — e.g. tests, or a future "separation-disabled" build flag.
         if !viewModel.hasSourceSeparator {
             EmptyView()
         } else {
@@ -119,20 +105,13 @@ struct AudioPreservationSection: View {
 
     // MARK: - Manage Models link (always visible)
 
-    /// Always-visible entry point to the Manage Separation Models
-    /// sheet. Reachable even after the model is installed so the
-    /// user can delete / reveal-in-Finder / re-download if a
-    /// future model update lands. The earlier inline CTA only
-    /// shows pre-install; this link is the post-install path.
+    /// Always-visible entry point to the Manage Separation Models sheet. Reachable even after the model is installed so the user can delete / reveal-in-Finder / re-download if a future model update lands. The earlier inline CTA only shows pre-install; this link is the post-install path.
     private var manageModelsLink: some View {
         let isDownloaded = modelManager.downloaded.contains(.htdemucs)
         return HStack(spacing: 4) {
             Image(systemName: isDownloaded ? "checkmark.seal.fill" : "circle.dashed")
                 .font(.system(size: 11))
-                // Match the Manage Separation Models sheet — green
-                // for "installed", muted for "not installed". Avoids
-                // re-using the orange brand accent for a state
-                // indicator (the accent is reserved for actions).
+                // Match the Manage Separation Models sheet — green for "installed", muted for "not installed". Avoids re-using the orange brand accent for a state indicator (the accent is reserved for actions).
                 .foregroundStyle(isDownloaded ? Theme.successFG : Theme.textSecondary)
             Text(isDownloaded ? "HTDemucs installed" : "HTDemucs not installed")
                 .font(Theme.fontXS)

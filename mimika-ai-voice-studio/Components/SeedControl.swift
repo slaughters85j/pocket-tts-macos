@@ -2,13 +2,9 @@
 //  SeedControl.swift
 //  mimika-ai-voice-studio
 //
-//  Shared per-voice seed affordance. A small icon that reflects whether an
-//  imported voice has a pinned deterministic seed, plus a popover to assign,
-//  clear, or edit it. Reused by the Single Voice picker, Multi-Talk speaker
-//  cards, and the Voice Manager rows so the behavior stays identical.
+//  Shared per-voice seed affordance. A small icon that reflects whether an imported voice has a pinned deterministic seed, plus a popover to assign, clear, or edit it. Reused by the Single Voice picker, Multi-Talk speaker cards, and the Voice Manager rows so the behavior stays identical.
 //
-//  Seeding is imported-voices-only: for a stock voiceID the control renders
-//  nothing. See VoiceManager.resolveSeedForSynthesis / Voice.seed.
+//  Seeding is imported-voices-only: for a stock voiceID the control renders nothing. See VoiceManager.resolveSeedForSynthesis / Voice.seed.
 
 import SwiftUI
 
@@ -19,8 +15,7 @@ struct SeedControl: View {
     /// The synthesis voiceID (`imported:<uuid>`). Stock IDs render nothing.
     let voiceID: String
 
-    /// `.card` — a quick assign/clear popover for the synthesis surfaces.
-    /// `.manager` — an editable-value + remove popover for the Voice Manager.
+    /// `.card` — a quick assign/clear popover for the synthesis surfaces. `.manager` — an editable-value + remove popover for the Voice Manager.
     enum Style { case card, manager }
     var style: Style = .card
 
@@ -138,8 +133,7 @@ struct SeedControl: View {
 
 // MARK: - SeedEditorField
 
-/// The Voice Manager's editable seed field + Save/Remove. Split out so its
-/// local text state has a stable lifetime tied to the popover presentation.
+/// The Voice Manager's editable seed field + Save/Remove. Split out so its local text state has a stable lifetime tied to the popover presentation.
 private struct SeedEditorField: View {
 
     let voiceID: String

@@ -2,18 +2,12 @@
 //  TextNormalizer.swift
 //  mimika-ai-voice-studio
 //
-//  Converts raw text into a form SentencePiece + the TTS model can
-//  pronounce correctly. Port of pocket_tts/text_normalizer.py.
-//  Pure regex + NumberToWords, no heavy NLP libs.
+//  Converts raw text into a form SentencePiece + the TTS model can pronounce correctly. Port of pocket_tts/text_normalizer.py. Pure regex + NumberToWords, no heavy NLP libs.
 
 import Foundation
 
 // MARK: - PauseSegment
-// Output of `TextNormalizer.parsePauseMarkers(_:)`. Alternating list of
-// text and pause-duration segments. The TTS engine iterates these so
-// `.text` goes through the usual chunker + AR loop while `.pause`
-// becomes a stretch of silence frames with 80 ms boundary fades on the
-// neighboring audio.
+// Output of `TextNormalizer.parsePauseMarkers(_:)`. Alternating list of text and pause-duration segments. The TTS engine iterates these so `.text` goes through the usual chunker + AR loop while `.pause` becomes a stretch of silence frames with 80 ms boundary fades on the neighboring audio.
 
 nonisolated enum PauseSegment: Equatable, Sendable {
     case text(String)
@@ -31,11 +25,7 @@ nonisolated enum TextNormalizer {
 
     // MARK: - Pause-marker parsing
     //
-    // Port of Python `parse_pause_markers` (`text_normalizer.py:962-1000`).
-    // Splits `[Xs]` markers (e.g. `[1.5s]`, `[2S]`) out of the input,
-    // returning alternating text and pause segments. Must be called
-    // BEFORE `normalize(_:)` so the digits inside markers aren't
-    // expanded to words by the number rule.
+    // Port of Python `parse_pause_markers` (`text_normalizer.py:962-1000`). Splits `[Xs]` markers (e.g. `[1.5s]`, `[2S]`) out of the input, returning alternating text and pause segments. Must be called BEFORE `normalize(_:)` so the digits inside markers aren't expanded to words by the number rule.
     //
     // Behavior matches Python's:
     //   * Duration clamped to [0, MAX_PAUSE_SECONDS].
@@ -44,8 +34,7 @@ nonisolated enum TextNormalizer {
     //   * Returns `[.text(text)]` for input with no markers.
     //   * Regex is case-insensitive (`[1.5s]` and `[1.5S]` both match).
 
-    /// Upper bound on a single pause's duration in seconds. Matches
-    /// Python's `MAX_PAUSE_SECONDS = 10.0` at `text_normalizer.py:959`.
+    /// Upper bound on a single pause's duration in seconds. Matches Python's `MAX_PAUSE_SECONDS = 10.0` at `text_normalizer.py:959`.
     static let maxPauseSeconds: Double = 10.0
 
     private static let pauseMarkerRegex: NSRegularExpression = {
@@ -102,61 +91,35 @@ nonisolated enum TextNormalizer {
 
     // MARK: - Stage-direction stripping
     //
-    // LLMs (both the AI-Writer script generator and any chat assistant
-    // feeding the Chat-tab TTS) reliably ignore instructions to "no
-    // stage directions" and emit parenthetical asides like
-    // "(slams fist)", asterisk actions like "*squints*", and bracketed
-    // labels like "[whispering]". Strip them at the AI/Chat boundary
-    // before the text reaches the script editor or the synthesis
-    // pipeline.
+    // LLMs (both the AI-Writer script generator and any chat assistant feeding the Chat-tab TTS) reliably ignore instructions to "no stage directions" and emit parenthetical asides like "(slams fist)", asterisk actions like "*squints*", and bracketed labels like "[whispering]". Strip them at the AI/Chat boundary before the text reaches the script editor or the synthesis pipeline.
     //
-    // Backend-aware: the bracket form `[whispering]` is Fish Speech's
-    // emotional-tag syntax (Fish uses it as a control signal, not text),
-    // so we only strip brackets when the active backend is Pocket-TTS.
-    // Parens and asterisks neither model uses meaningfully — both are
-    // always stripped. Pause markers `[Xs]` always survive via the
-    // bracket rule's negative lookahead.
+    // Backend-aware: the bracket form `[whispering]` is Fish Speech's emotional-tag syntax (Fish uses it as a control signal, not text), so we only strip brackets when the active backend is Pocket-TTS. Parens and asterisks neither model uses meaningfully — both are always stripped. Pause markers `[Xs]` always survive via the bracket rule's negative lookahead.
     //
     // Idempotent; safe to run on already-clean text.
 
     private static let parenthetical = try! NSRegularExpression(
-        // Non-greedy parens. Nested parens aren't handled — a `(He said
-        // (loudly))` would leave a trailing `)` after the first pass.
-        // Rare enough in practice that a fixpoint loop isn't worth it.
+        // Non-greedy parens. Nested parens aren't handled — a `(He said (loudly))` would leave a trailing `)` after the first pass. Rare enough in practice that a fixpoint loop isn't worth it.
         pattern: #"\([^)]*\)"#,
         options: []
     )
 
     private static let asteriskAction = try! NSRegularExpression(
-        // Matches `*action*`, `**action**`, `***action***`. Requires at
-        // least one non-`*` char between the markers so `2 * 3` (no
-        // inner content surrounded by *s) doesn't match.
+        // Matches `*action*`, `**action**`, `***action***`. Requires at least one non-`*` char between the markers so `2 * 3` (no inner content surrounded by *s) doesn't match.
         pattern: #"\*+[^*\n]+\*+"#,
         options: []
     )
 
     private static let bracketedAside = try! NSRegularExpression(
-        // Strip `[whispering]` / `[off-screen]` style asides but
-        // PRESERVE `[1.5s]` / `[2s]` pause markers — the negative
-        // lookahead `(?!...)` bails when the bracket contents match
-        // the pause-marker shape `\d+(\.\d+)?s`. Only fired when the
-        // caller passes `stripBracketedTags: true` (Pocket-TTS path).
+        // Strip `[whispering]` / `[off-screen]` style asides but PRESERVE `[1.5s]` / `[2s]` pause markers — the negative lookahead `(?!...)` bails when the bracket contents match the pause-marker shape `\d+(\.\d+)?s`. Only fired when the caller passes `stripBracketedTags: true` (Pocket-TTS path).
         pattern: #"\[(?!\s*\d+(?:\.\d+)?\s*s\s*\])[^\]\n]*\]"#,
         options: .caseInsensitive
     )
 
     /// Strip stage-direction-style markup from `text`.
     ///
-    /// - Always stripped: parenthetical asides `(slams fist)` and
-    ///   asterisk actions `*squints*` / `**laughs**`. Neither the
-    ///   Pocket-TTS nor Fish-Speech model uses these meaningfully.
-    /// - Conditionally stripped: bracketed tags `[whispering]`. Pass
-    ///   `stripBracketedTags: true` for the Pocket-TTS backend (which
-    ///   pronounces them as garbage); leave `false` (the default) for
-    ///   Fish Speech, where bracketed tokens are emotional-tag control
-    ///   signals and must reach the synthesizer verbatim.
-    /// - Always preserved: pause markers `[1.5s]`, speaker tags
-    ///   `{Speaker 1}`. Both use syntax the strip patterns ignore.
+    /// - Always stripped: parenthetical asides `(slams fist)` and asterisk actions `*squints*` / `**laughs**`. Neither the Pocket-TTS nor Fish-Speech model uses these meaningfully.
+    /// - Conditionally stripped: bracketed tags `[whispering]`. Pass `stripBracketedTags: true` for the Pocket-TTS backend (which pronounces them as garbage); leave `false` (the default) for Fish Speech, where bracketed tokens are emotional-tag control signals and must reach the synthesizer verbatim.
+    /// - Always preserved: pause markers `[1.5s]`, speaker tags `{Speaker 1}`. Both use syntax the strip patterns ignore.
     static func stripStageDirections(_ text: String, stripBracketedTags: Bool = false) -> String {
         var working = text
 
@@ -169,17 +132,13 @@ nonisolated enum TextNormalizer {
             working = regex.stringByReplacingMatches(in: working, range: range, withTemplate: "")
         }
 
-        // Collapse the doubled spaces / dangling space-before-punct that
-        // stripping leaves behind. Two passes:
+        // Collapse the doubled spaces / dangling space-before-punct that stripping leaves behind. Two passes:
         //   1. `  +` → single space (any run of 2+ spaces)
         //   2. ` ([,.!?;:])` → just the punctuation (no leading space)
         working = working.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
         working = working.replacingOccurrences(of: " ([,.!?;:])", with: "$1", options: .regularExpression)
 
-        // Trim each line individually so a stripped opening direction
-        // doesn't leave a leading space at the start of a Multi-Talk
-        // speaker block. `\{` speaker tags survive because the
-        // patterns above don't touch curly braces.
+        // Trim each line individually so a stripped opening direction doesn't leave a leading space at the start of a Multi-Talk speaker block. `\{` speaker tags survive because the patterns above don't touch curly braces.
         let lines = working.components(separatedBy: "\n").map { line in
             line.trimmingCharacters(in: .whitespaces)
         }
@@ -188,13 +147,9 @@ nonisolated enum TextNormalizer {
 
     // MARK: - Emoji stripping
     //
-    // LLMs love emoji (😂🔥😉). Pocket-TTS byte-fallbacks them into noise and
-    // the AR loop often glitches hard — users hear garble / runaway tone.
-    // Strip at the speech/export boundary; keep them in the on-screen transcript
-    // so the chat UI still shows the model’s flair.
+    // LLMs love emoji (😂🔥😉). Pocket-TTS byte-fallbacks them into noise and the AR loop often glitches hard — users hear garble / runaway tone. Strip at the speech/export boundary; keep them in the on-screen transcript so the chat UI still shows the model’s flair.
 
-    /// Remove emoji and emoji sequences (flags, skin tones, ZWJ families, keycaps).
-    /// Leaves letters, digits, and ordinary punctuation alone. Idempotent.
+    /// Remove emoji and emoji sequences (flags, skin tones, ZWJ families, keycaps). Leaves letters, digits, and ordinary punctuation alone. Idempotent.
     static func stripEmojis(_ text: String) -> String {
         guard !text.isEmpty else { return text }
         var out = String()
@@ -212,17 +167,10 @@ nonisolated enum TextNormalizer {
         return lines.joined(separator: "\n")
     }
 
-    /// True for emoji grapheme clusters (including multi-scalar sequences).
-    /// Deliberately false for ASCII digits / `#` / `*` which Unicode sometimes
-    /// tags as emoji bases for keycap sequences.
+    /// True for emoji grapheme clusters (including multi-scalar sequences). Deliberately false for ASCII digits / `#` / `*` which Unicode sometimes tags as emoji bases for keycap sequences.
     private static func isEmojiLike(_ ch: Character) -> Bool {
         let scalars = ch.unicodeScalars
-        // ZWJ / emoji-style VS only *glue* an emoji cluster together — on their
-        // own they are not evidence of one. Returning true for any cluster
-        // containing them dropped the whole Character, so a plain letter
-        // followed by a stray joiner took the letter with it
-        // ("foo\u{200D}bar" → "fobar"). Smart-punctuation strips the bare
-        // joiner safely once we decline it here.
+        // ZWJ / emoji-style VS only *glue* an emoji cluster together — on their own they are not evidence of one. Returning true for any cluster containing them dropped the whole Character, so a plain letter followed by a stray joiner took the letter with it ("foo\u{200D}bar" → "fobar"). Smart-punctuation strips the bare joiner safely once we decline it here.
         let hasGlue = scalars.contains { $0.value == 0x200D || $0.value == 0xFE0F }
         for s in scalars {
             if s.properties.isEmojiPresentation { return true }
@@ -234,17 +182,14 @@ nonisolated enum TextNormalizer {
             // Glue promotes a text-presentation emoji (❤ U+2764) into a real one.
             if hasGlue, s.properties.isEmoji, s.value > 0x00FF { return true }
         }
-        // Single-scalar emoji without default presentation (e.g. ☹ U+2639).
-        // Skip ASCII so "1" / "#" never disappear.
+        // Single-scalar emoji without default presentation (e.g. ☹ U+2639). Skip ASCII so "1" / "#" never disappear.
         if scalars.count == 1, let s = scalars.first {
             if s.properties.isEmoji
                 && s.value > 0x00FF
                 && !(s.value >= 0x30 && s.value <= 0x39)
                 && s.value != 0x23
                 && s.value != 0x2A
-                // Unicode tags ™ (and friends) Emoji=Yes, so this branch ate it
-                // before the substitution table could speak it. Anything the
-                // table owns is the table's to handle — strip or expand.
+                // Unicode tags ™ (and friends) Emoji=Yes, so this branch ate it before the substitution table could speak it. Anything the table owns is the table's to handle — strip or expand.
                 && !smartPunctScalars.contains(s) {
                 return true
             }
@@ -252,85 +197,41 @@ nonisolated enum TextNormalizer {
         return false
     }
 
-    /// Scalars `smartPunctSubstitutions` already owns. `stripEmojis` runs first
-    /// (so ZWJ families leave as whole clusters), which means every scalar with
-    /// a spoken expansion has to be excluded here or it never reaches the table.
+    /// Scalars `smartPunctSubstitutions` already owns. `stripEmojis` runs first (so ZWJ families leave as whole clusters), which means every scalar with a spoken expansion has to be excluded here or it never reaches the table.
     private static let smartPunctScalars: Set<Unicode.Scalar> =
         Set(smartPunctSubstitutions.map(\.0))
 
     // MARK: - STT artifact stripping
     //
-    // ASR backends can emit non-speech markers as bracketed text like
-    // `[music]`, `[silence]`, `[BLANK_AUDIO]`, `[laughter]`,
-    // `[applause]`. These flow downstream into the TTS pipeline and get
-    // spoken literally ("bracket music bracket") unless we strip them
-    // upstream of synthesis.
+    // ASR backends can emit non-speech markers as bracketed text like `[music]`, `[silence]`, `[BLANK_AUDIO]`, `[laughter]`, `[applause]`. These flow downstream into the TTS pipeline and get spoken literally ("bracket music bracket") unless we strip them upstream of synthesis.
     //
-    // Distinct from `stripStageDirections` because the strip set is
-    // a FIXED whitelist of known ASR artifacts — we don't want to
-    // strip every bracketed token (Pause markers `[1.5s]` and any
-    // legitimate user-intent bracketed content stay). The whitelist
-    // is case-insensitive and tolerates spaces / underscores
-    // (`[no audio]`, `[BLANK_AUDIO]`, etc.).
+    // Distinct from `stripStageDirections` because the strip set is a FIXED whitelist of known ASR artifacts — we don't want to strip every bracketed token (Pause markers `[1.5s]` and any legitimate user-intent bracketed content stay). The whitelist is case-insensitive and tolerates spaces / underscores (`[no audio]`, `[BLANK_AUDIO]`, etc.).
     //
-    // Add new artifacts here as we see them in console logs — the
-    // MultiSpeakerRevoicer logs every transcribed segment so the
-    // common ones are easy to spot.
+    // Add new artifacts here as we see them in console logs — the MultiSpeakerRevoicer logs every transcribed segment so the common ones are easy to spot.
 
     private static let whisperArtifactRegex = try! NSRegularExpression(
-        // Brackets or parens wrapping a known artifact keyword.
-        // Asterisk-wrapped variants (`*music*`) are already covered
-        // by `stripStageDirections.asteriskAction` when that runs;
-        // here we focus on the bracket/paren forms that survive
-        // stripStageDirections's default (brackets-preserved) mode.
+        // Brackets or parens wrapping a known artifact keyword. Asterisk-wrapped variants (`*music*`) are already covered by `stripStageDirections.asteriskAction` when that runs; here we focus on the bracket/paren forms that survive stripStageDirections's default (brackets-preserved) mode.
         //
-        // The space/underscore class uses `[ _]*` (zero-or-more) so
-        // multi-word artifacts tolerate any combination of separators
-        // ASR output sometimes varies separators: `blank_audio`,
-        // `blank audio`, `blank _audio` (space then underscore),
-        // `BLANK__AUDIO` (double underscore), etc.
+        // The space/underscore class uses `[ _]*` (zero-or-more) so multi-word artifacts tolerate any combination of separators ASR output sometimes varies separators: `blank_audio`, `blank audio`, `blank _audio` (space then underscore), `BLANK__AUDIO` (double underscore), etc.
         //
-        // Compound forms: each keyword optionally followed by a
-        // single descriptive word (`music playing`, `music stops`,
-        // `audience laughs`, etc.). ASR systems can hallucinate these
-        // on content they can't transcribe — historically common on
-        // hip-hop rap over music where the backend fell back to
-        // descriptors instead of lyrics. The
-        // `(?:\s+(?:playing|...))?` non-capture group matches the
-        // compound suffix when present without requiring it.
+        // Compound forms: each keyword optionally followed by a single descriptive word (`music playing`, `music stops`, `audience laughs`, etc.). ASR systems can hallucinate these on content they can't transcribe — historically common on hip-hop rap over music where the backend fell back to descriptors instead of lyrics. The `(?:\s+(?:playing|...))?` non-capture group matches the compound suffix when present without requiring it.
         pattern: #"[\[\(]\s*(silence|blank[ _]*audio|no[ _]*audio|music(?:\s+(?:playing|plays|stops?|starts?|stopping|starting|fading|fades?|over|begins?|ends?|continues?))?|laughter|laughs|laugh|applause|claps|clapping|noise|background[ _]*noise|inaudible|unintelligible|crosstalk|cough|coughs|sigh|sighs|breathing|chuckles?|murmurs?|typing|clicking|static|hissing|footsteps?)\s*[\]\)]"#,
         options: .caseInsensitive
     )
 
-    /// Dialogue-turn arrow emitted by some ASR outputs. Appears both at segment start
-    /// (`">> Hello"`) and mid-segment (`"What we do. >> There's
-    /// more"`). Strip with no whitespace consumption so the
-    /// surrounding text doesn't run together; the subsequent
-    /// space-collapse pass tidies up.
+    /// Dialogue-turn arrow emitted by some ASR outputs. Appears both at segment start (`">> Hello"`) and mid-segment (`"What we do. >> There's more"`). Strip with no whitespace consumption so the surrounding text doesn't run together; the subsequent space-collapse pass tidies up.
     private static let whisperDialogueArrowRegex = try! NSRegularExpression(
         pattern: #">>"#,
         options: []
     )
 
-    /// Leading dialogue dash at segment start (`"- That's Hawkins"`).
-    /// Anchored to the start of the string so internal hyphens in
-    /// words like `self-help` or `co-worker` survive. Tolerates
-    /// hyphen-minus, em dash, and en dash. Trailing space requirement
-    /// keeps it from matching legitimate negative numbers like `-5`.
+    /// Leading dialogue dash at segment start (`"- That's Hawkins"`). Anchored to the start of the string so internal hyphens in words like `self-help` or `co-worker` survive. Tolerates hyphen-minus, em dash, and en dash. Trailing space requirement keeps it from matching legitimate negative numbers like `-5`.
     private static let whisperLeadingDashRegex = try! NSRegularExpression(
         pattern: #"^\s*[-—–]+\s+"#,
         options: []
     )
 
-    /// Strip the known ASR-emitted non-speech markers (see comment
-    /// above for the bracketed list) plus dialogue-marker artifacts
-    /// (`>>`, leading `- `), trailing/leading orphan parens
-    /// (`"text. ("` → `"text."`), empty paren pairs, and finally
-    /// drops the whole segment if no letters survive (catches lone
-    /// parens like `"("`, `"( )"`, `") ( )"` emitted when the backend
-    /// hallucinates a marker around what was actually silence).
-    /// Collapses doubled spaces left behind. Safe to call on any
-    /// text — no-op if no artifacts present.
+    /// Strip the known ASR-emitted non-speech markers (see comment above for the bracketed list) plus dialogue-marker artifacts (`>>`, leading `- `), trailing/leading orphan parens (`"text. ("` → `"text."`), empty paren pairs, and finally drops the whole segment if no letters survive (catches lone parens like `"("`, `"( )"`, `") ( )"` emitted when the backend hallucinates a marker around what was actually silence). Collapses doubled spaces left behind. Safe to call on any text — no-op if no artifacts present.
     static func stripWhisperArtifacts(_ text: String) -> String {
         var out = text
         var range = NSRange(location: 0, length: (out as NSString).length)
@@ -342,17 +243,11 @@ nonisolated enum TextNormalizer {
         range = NSRange(location: 0, length: (out as NSString).length)
         out = whisperLeadingDashRegex.stringByReplacingMatches(in: out, range: range, withTemplate: "")
 
-        // Empty paren pairs: `( )`, `(  )`, `()` → drop. These show up
-        // when ASR marked something as parenthetical but left it
-        // empty (a transcription of a sigh / pause that came out
+        // Empty paren pairs: `( )`, `(  )`, `()` → drop. These show up when ASR marked something as parenthetical but left it empty (a transcription of a sigh / pause that came out
         // blank).
         out = out.replacingOccurrences(of: #"\(\s*\)"#, with: "", options: .regularExpression)
 
-        // Trailing orphan parens at end of segment (after optional
-        // sentence-final punctuation): `"text. ("` → `"text."`,
-        // `"text )"` → `"text"`. Strict pattern requires a space
-        // before the paren so legitimate compound text like
-        // "text(note)" survives.
+        // Trailing orphan parens at end of segment (after optional sentence-final punctuation): `"text. ("` → `"text."`, `"text )"` → `"text"`. Strict pattern requires a space before the paren so legitimate compound text like "text(note)" survives.
         out = out.replacingOccurrences(of: #"\s+[\(\)]+\s*$"#, with: "", options: .regularExpression)
 
         // Leading orphan parens: `") text"` → `"text"`. Same logic.
@@ -362,11 +257,7 @@ nonisolated enum TextNormalizer {
         out = out.replacingOccurrences(of: " ([,.!?;:])", with: "$1", options: .regularExpression)
         out = out.trimmingCharacters(in: .whitespaces)
 
-        // Final sanity check: if nothing letter-shaped remains, the
-        // segment was entirely ASR noise (parens, punctuation,
-        // whitespace). Drop it → TimelineAlignedRenderer skips empty
-        // segments so the timeline slot becomes silence instead of
-        // a TTS reading of "open paren".
+        // Final sanity check: if nothing letter-shaped remains, the segment was entirely ASR noise (parens, punctuation, whitespace). Drop it → TimelineAlignedRenderer skips empty segments so the timeline slot becomes silence instead of a TTS reading of "open paren".
         if !out.contains(where: { $0.isLetter }) {
             return ""
         }
@@ -376,41 +267,15 @@ nonisolated enum TextNormalizer {
     // MARK: - Public API
 
     static func normalize(_ text: String) -> String {
-        // Emoji first (Character-level) so ZWJ families / flags leave as whole
-        // clusters before smart-punct strips ZWJ alone and leaves debris.
+        // Emoji first (Character-level) so ZWJ families / flags leave as whole clusters before smart-punct strips ZWJ alone and leaves debris.
         var t = stripEmojis(text)
-        // Smart-punctuation normalization runs next. The SentencePiece
-        // tokenizer maps ASCII apostrophes / quotes / hyphens / ellipsis to
-        // single canonical pieces; the Unicode "smart" equivalents
-        // byte-fallback into 3-4 separate tokens (e.g. curly `’` →
-        // `<0xE2><0x80><0x99>`), which the model wasn't trained on and
-        // reliably distorts on. This is the most common source of "every
-        // contraction sounds garbled" reports because macOS smart-quote
-        // substitution + LLM-generated scripts (AI Writer) emit curly
-        // punctuation by default. Cheap fix here, audible improvement
-        // everywhere downstream.
+        // Smart-punctuation normalization runs next. The SentencePiece tokenizer maps ASCII apostrophes / quotes / hyphens / ellipsis to single canonical pieces; the Unicode "smart" equivalents byte-fallback into 3-4 separate tokens (e.g. curly `’` → `<0xE2><0x80><0x99>`), which the model wasn't trained on and reliably distorts on. This is the most common source of "every contraction sounds garbled" reports because macOS smart-quote substitution + LLM-generated scripts (AI Writer) emit curly punctuation by default. Cheap fix here, audible improvement everywhere downstream.
         t = normalizeSmartPunctuation(t)
-        // Ellipsis: now handled above (curly … → "...") and otherwise
-        // passed through. The Python reference uses `...` as an
-        // end-of-sentence token inside its SentencePiece-based chunker
-        // and the model handles it correctly. Earlier versions
-        // substituted `...` → `,` (broke chunking) or `. ` (broke token
-        // semantics) to work around audio distortion; that distortion is
-        // now believed to be a CoreML/sampler/token-feeding bug rather
-        // than something text normalization can fix, so we stop masking it.
-        // Pronunciation overrides the model struggles with
+        // Ellipsis: now handled above (curly … → "...") and otherwise passed through. The Python reference uses `...` as an end-of-sentence token inside its SentencePiece-based chunker and the model handles it correctly. Earlier versions substituted `...` → `,` (broke chunking) or `. ` (broke token semantics) to work around audio distortion; that distortion is now believed to be a CoreML/sampler/token-feeding bug rather than something text normalization can fix, so we stop masking it. Pronunciation overrides the model struggles with
         t = applyPronunciationFixes(t)
-        // Digit-grouping commas, removed BEFORE any numeric expander runs.
-        // None of the numeric patterns below tolerate them, so "45,607" was
-        // read as two numbers ("forty-five" + "six hundred and seven") and
-        // "$1,500" as "one dollar" + "five hundred". Stripping the separator
-        // once here lets every existing expander see the plain digit run it
-        // already handles correctly, instead of teaching four regexes and
-        // their expanders about commas.
+        // Digit-grouping commas, removed BEFORE any numeric expander runs. None of the numeric patterns below tolerate them, so "45,607" was read as two numbers ("forty-five" + "six hundred and seven") and "$1,500" as "one dollar" + "five hundred". Stripping the separator once here lets every existing expander see the plain digit run it already handles correctly, instead of teaching four regexes and their expanders about commas.
         //
-        // The lookarounds require exactly three digits followed by a non-digit,
-        // so real grouping ("1,234,567") collapses while "items 1,2,3" and
-        // "January 1, 2026" are left alone.
+        // The lookarounds require exactly three digits followed by a non-digit, so real grouping ("1,234,567") collapses while "items 1,2,3" and "January 1, 2026" are left alone.
         t = t.replacingOccurrences(
             of: "(?<=\\d),(?=\\d{3}(?!\\d))",
             with: "",
@@ -520,15 +385,7 @@ nonisolated enum TextNormalizer {
         pattern: "\\b(\\d{1,3})/(\\d{1,3})\\b", options: []
     )
 
-    // Matches any run of 2+ contiguous uppercase letters with word
-    // boundaries. The expansion (see `expandAcronym`) lowercases the
-    // match by default — letter-spelling is reserved for the
-    // `spokenAcronyms` whitelist's COMPLEMENT only if the user wants
-    // it, but the model handles "fbi" / "cia" passably enough that
-    // emphasis-style ALL CAPS ("HELLO", "AMAZING") was a worse failure
-    // mode than letter-spelled real acronyms. Width is unbounded (was
-    // `{2,5}` previously); 6+ char all-caps words like "AMAZING" need
-    // the same treatment.
+    // Matches any run of 2+ contiguous uppercase letters with word boundaries. The expansion (see `expandAcronym`) lowercases the match by default — letter-spelling is reserved for the `spokenAcronyms` whitelist's COMPLEMENT only if the user wants it, but the model handles "fbi" / "cia" passably enough that emphasis-style ALL CAPS ("HELLO", "AMAZING") was a worse failure mode than letter-spelled real acronyms. Width is unbounded (was `{2,5}` previously); 6+ char all-caps words like "AMAZING" need the same treatment.
     private static let acronymPattern = try! NSRegularExpression(
         pattern: "\\b([A-Z]{2,})\\b", options: []
     )
@@ -689,15 +546,7 @@ nonisolated enum TextNormalizer {
         return domainTerms[term] ?? term
     }
 
-    /// Default behavior for ALL-CAPS runs: lowercase the word so the
-    /// model pronounces it like normal text. The previous behavior was
-    /// to letter-spell it ("FBI" → "F B I"), which is correct for
-    /// initialisms but butchers emphasis-style ALL CAPS ("I LOVE THIS",
-    /// "WOW", "AMAZING") that LLMs + humans frequently produce. Letter
-    /// spelling is preserved only for `spokenAcronyms`-listed words
-    /// flipped into the *spell-out* role — see the whitelist for the
-    /// short list of words we DO want letter-spelled (none currently,
-    /// the set is now used for the opposite: words to read as-is).
+    /// Default behavior for ALL-CAPS runs: lowercase the word so the model pronounces it like normal text. The previous behavior was to letter-spell it ("FBI" → "F B I"), which is correct for initialisms but butchers emphasis-style ALL CAPS ("I LOVE THIS", "WOW", "AMAZING") that LLMs + humans frequently produce. Letter spelling is preserved only for `spokenAcronyms`-listed words flipped into the *spell-out* role — see the whitelist for the short list of words we DO want letter-spelled (none currently, the set is now used for the opposite: words to read as-is).
     private static func expandAcronym(_ m: NSTextCheckingResult, in s: String) -> String {
         guard let word = group(m, 1, in: s) else { return group(m, 0, in: s) ?? "" }
         if spokenAcronyms.contains(word) { return word }
@@ -711,58 +560,28 @@ nonisolated enum TextNormalizer {
 
     // MARK: - Smart-punctuation normalization
 
-    /// Substitution table for Unicode characters that byte-fallback in the
-    /// Kyutai SentencePiece vocab (3-4 `<0xXX>` tokens per character) into
-    /// the closest ASCII equivalent or spoken word that does NOT
-    /// byte-fallback. The model wasn't trained on byte-fallback sequences
-    /// and reliably distorts on them; curly apostrophes in contractions
-    /// were the canonical user-reported case.
+    /// Substitution table for Unicode characters that byte-fallback in the Kyutai SentencePiece vocab (3-4 `<0xXX>` tokens per character) into the closest ASCII equivalent or spoken word that does NOT byte-fallback. The model wasn't trained on byte-fallback sequences and reliably distorts on them; curly apostrophes in contractions were the canonical user-reported case.
     ///
     /// Categories:
-    ///  * **Quotes / apostrophes / ellipsis** → ASCII (`'`, `"`, `...`).
-    ///  * **Whitespace variants** → regular space.
-    ///  * **Invisible / control characters** → stripped or space (these
-    ///    leak in from copy-paste of word-processed text, PDF copy, etc.
-    ///    and are silent killers because the user can't see them).
-    ///  * **Dash variants that byte-fallback** → ASCII `-`. (En `–`/em `—`
-    ///    dashes are intentionally NOT here — both have their own BPE
-    ///    pieces in vocab and tokenize cleanly.)
-    ///  * **Bullets / arrows** → stripped. The model can't pronounce them
-    ///    meaningfully; LLM-generated lists commonly include them.
-    ///  * **Typographic symbols** with obvious words (`©`, `®`, `™`, `§`,
-    ///    `±`, `×`, `÷`, `≈`, etc.) → that word with surrounding spaces.
-    ///  * **Vulgar fractions** (`½`, `¼`, `¾`, `⅓`, …) → spoken form,
-    ///    matching `NumberToWords.ordinal`-based fraction expansion.
+    ///  * **Quotes / apostrophes / ellipsis** → ASCII (`'`, `"`, `...`). * **Whitespace variants** → regular space. * **Invisible / control characters** → stripped or space (these leak in from copy-paste of word-processed text, PDF copy, etc. and are silent killers because the user can't see them).
+    ///  * **Dash variants that byte-fallback** → ASCII `-`. (En `–`/em `—` dashes are intentionally NOT here — both have their own BPE pieces in vocab and tokenize cleanly.)
+    ///  * **Bullets / arrows** → stripped. The model can't pronounce them meaningfully; LLM-generated lists commonly include them.
+    ///  * **Typographic symbols** with obvious words (`©`, `®`, `™`, `§`, `±`, `×`, `÷`, `≈`, etc.) → that word with surrounding spaces.
+    ///  * **Vulgar fractions** (`½`, `¼`, `¾`, `⅓`, …) → spoken form, matching `NumberToWords.ordinal`-based fraction expansion.
     ///  * **Common superscripts** `²` `³` → " squared" / " cubed".
     ///
-    /// Standalone `°` is intentionally skipped — `°C` / `°F` is handled
-    /// upstream by the unit table; replacing `°` here would break that
-    /// match. Rare-enough edge case to defer.
+    /// Standalone `°` is intentionally skipped — `°C` / `°F` is handled upstream by the unit table; replacing `°` here would break that match. Rare-enough edge case to defer.
     private static let smartPunctSubstitutions: [(Unicode.Scalar, String)] = [
-        // Curly single quotes → ASCII apostrophe. ASCII `'` is in vocab
-        // (token 264) and the model handles contractions correctly with
-        // it, so we preserve the apostrophe content.
+        // Curly single quotes → ASCII apostrophe. ASCII `'` is in vocab (token 264) and the model handles contractions correctly with it, so we preserve the apostrophe content.
         ("\u{2018}", "'"),    // ‘ left single
         ("\u{2019}", "'"),    // ’ right single / curly apostrophe
         ("\u{201A}", "'"),    // ‚ single low-9
         ("\u{201B}", "'"),    // ‛ single high-reversed-9
         ("\u{2032}", "'"),    // ′ prime
 
-        // ALL double quote forms → stripped to empty. The ASCII `"`
-        // (U+0022) is in the SP vocab as a single piece (token 3877),
-        // but the model produces audibly distorted output around it
-        // for quoted phrases mid-sentence (user-reported on `"space
-        // station romance"`). Python's reference passes quotes through
-        // verbatim and presumably has the same artifact; we strip on
-        // the Swift side because the audio quality regression matters
-        // more than preserving the quote glyph in token form. Spaces
-        // around the stripped quote get coalesced by the trailing
-        // `"  +" → " "` regex collapse at the end of `normalize(_:)`.
+        // ALL double quote forms → stripped to empty. The ASCII `"` (U+0022) is in the SP vocab as a single piece (token 3877), but the model produces audibly distorted output around it for quoted phrases mid-sentence (user-reported on `"space station romance"`). Python's reference passes quotes through verbatim and presumably has the same artifact; we strip on the Swift side because the audio quality regression matters more than preserving the quote glyph in token form. Spaces around the stripped quote get coalesced by the trailing `"  +" → " "` regex collapse at the end of `normalize(_:)`.
         //
-        // Curly forms must map DIRECTLY to empty, not to ASCII `"`,
-        // because the substitution loop is single-pass over input
-        // scalars — replaced output isn't re-scanned, so a chained
-        // "curly → ASCII → empty" wouldn't fire the second hop.
+        // Curly forms must map DIRECTLY to empty, not to ASCII `"`, because the substitution loop is single-pass over input scalars — replaced output isn't re-scanned, so a chained "curly → ASCII → empty" wouldn't fire the second hop.
         ("\u{0022}", ""),     // " ASCII double quote
         ("\u{201C}", ""),     // “ left double
         ("\u{201D}", ""),     // ” right double
@@ -770,8 +589,7 @@ nonisolated enum TextNormalizer {
         ("\u{201F}", ""),     // ‟ double high-reversed-9
         ("\u{2033}", ""),     // ″ double prime
 
-        // Ellipsis (single char → three ASCII dots, which is the canonical
-        // EOS-class `...` piece in vocab — token 799).
+        // Ellipsis (single char → three ASCII dots, which is the canonical EOS-class `...` piece in vocab — token 799).
         ("\u{2026}", "..."),  // …
 
         // Whitespace variants
@@ -802,8 +620,7 @@ nonisolated enum TextNormalizer {
         ("\u{25AA}", ""),     // ▪ black small square
         ("\u{25AB}", ""),     // ▫ white small square
 
-        // Arrows — strip (LLMs use them to mean "becomes" / "to";
-        // spoken-out versions would be weirder than dropping them)
+        // Arrows — strip (LLMs use them to mean "becomes" / "to"; spoken-out versions would be weirder than dropping them)
         ("\u{2190}", ""),     // ← left arrow
         ("\u{2191}", ""),     // ↑ up arrow
         ("\u{2192}", ""),     // → right arrow
@@ -817,9 +634,7 @@ nonisolated enum TextNormalizer {
         ("\u{2605}", ""),     // ★ black star
         ("\u{2606}", ""),     // ☆ white star
 
-        // Typographic symbols → spoken form. Surrounding spaces keep
-        // them from running into adjacent words; the normalizer's
-        // trailing `"  +"` → " " regex collapses any doubled spaces.
+        // Typographic symbols → spoken form. Surrounding spaces keep them from running into adjacent words; the normalizer's trailing `"  +"` → " " regex collapses any doubled spaces.
         ("\u{00A9}", " copyright "),     // ©
         ("\u{00AE}", " registered "),    // ®
         ("\u{2122}", " trademark "),     // ™
@@ -856,13 +671,7 @@ nonisolated enum TextNormalizer {
     ]
 
     private static func normalizeSmartPunctuation(_ text: String) -> String {
-        // Operate on Unicode scalars, not Characters. Swift's `Character`
-        // is an extended grapheme cluster, and combining-class scalars
-        // (notably the zero-width joiner U+200D and combining accents)
-        // glue themselves to the preceding scalar. A Character-keyed
-        // lookup table would never see those as standalone Characters,
-        // so the silent stripping would silently fail. Scalar-level
-        // iteration handles every case uniformly.
+        // Operate on Unicode scalars, not Characters. Swift's `Character` is an extended grapheme cluster, and combining-class scalars (notably the zero-width joiner U+200D and combining accents) glue themselves to the preceding scalar. A Character-keyed lookup table would never see those as standalone Characters, so the silent stripping would silently fail. Scalar-level iteration handles every case uniformly.
         let triggers = Set(smartPunctSubstitutions.map(\.0))
         var needsReplace = false
         for scalar in text.unicodeScalars where triggers.contains(scalar) {

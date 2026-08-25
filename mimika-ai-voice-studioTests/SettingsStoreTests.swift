@@ -62,9 +62,7 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func test_decode_oldJSONWithoutNewFields_keepsOldValuesAndDefaultsNew() throws {
-        // A settings blob saved BEFORE the read-aloud fields existed. The tolerant
-        // decoder must preserve old fields and default the new ones — synthesized
-        // Codable would throw on the missing keys and silently reset everything.
+        // A settings blob saved BEFORE the read-aloud fields existed. The tolerant decoder must preserve old fields and default the new ones — synthesized Codable would throw on the missing keys and silently reset everything.
         let oldJSON = Data("""
         {"baseURL":"http://host:9000","model":"old-model","systemPrompt":"sp",\
         "ttsVoiceID":"javert","singleVoiceSystemPrompt":"a","multiTalkSystemPrompt":"b",\

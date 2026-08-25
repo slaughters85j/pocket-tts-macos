@@ -3,9 +3,7 @@
 //  mimika-ai-voice-studioTests
 //
 //  Coverage for the timeline-precision helpers behind the re-voice path:
-//  `coalesce`'s `maxSegmentSec` cap (bounds intra-segment lip-sync drift,
-//  splitting only at word boundaries) and `endPaddedSegments` (recaptures
-//  dropped sentence tails without intruding on other speech or the EOF).
+//  `coalesce`'s `maxSegmentSec` cap (bounds intra-segment lip-sync drift, splitting only at word boundaries) and `endPaddedSegments` (recaptures dropped sentence tails without intruding on other speech or the EOF).
 //
 
 import XCTest
@@ -20,8 +18,7 @@ final class RevoicePrecisionTests: XCTestCase {
     // MARK: - coalesce segment cap
 
     func test_coalesce_noCap_keepsLongRunAsOneSegment() {
-        // 6 words 0.5 s apart, 0.4 s each → 0.1 s gaps (< 0.3 utteranceGap),
-        // so with no cap they coalesce into ONE ~2.9 s segment.
+        // 6 words 0.5 s apart, 0.4 s each → 0.1 s gaps (< 0.3 utteranceGap), so with no cap they coalesce into ONE ~2.9 s segment.
         let words = (0..<6).map { span("w\($0)", Double($0) * 0.5) }
         let segs = SpeechFrameworkSTT.coalesce(words, utteranceGapSec: 0.3)
         XCTAssertEqual(segs.count, 1)
@@ -36,14 +33,9 @@ final class RevoicePrecisionTests: XCTestCase {
         }
     }
 
-    /// Regression: in sub-word mode (separator "") the cap must defer its
-    /// split to the next WORD-START token (leading space). Splitting at a
-    /// continuation token severs the word — "…compli" / "cated…" spoken
-    /// as separate utterances by the TTS.
+    /// Regression: in sub-word mode (separator "") the cap must defer its split to the next WORD-START token (leading space). Splitting at a continuation token severs the word — "…compli" / "cated…" spoken as separate utterances by the TTS.
     func test_coalesce_cap_neverSplitsMidWord() {
-        // " the" + " compli" + "cated" + " case": the cap (1.0 s) is first
-        // exceeded at "cated" — a continuation token — so the split must
-        // wait for " case".
+        // " the" + " compli" + "cated" + " case": the cap (1.0 s) is first exceeded at "cated" — a continuation token — so the split must wait for " case".
         let words = [
             span(" the", 0.0),
             span(" compli", 0.5),
@@ -59,9 +51,7 @@ final class RevoicePrecisionTests: XCTestCase {
 
     // MARK: - coalesce WP-VIT-2 (gap-split fragments + punctuation + numbers)
 
-    /// A gap split landing on a CONTINUATION token must backward-attach
-    /// the fragment and defer the split — never open a segment with a
-    /// severed word half ("ism against civilians").
+    /// A gap split landing on a CONTINUATION token must backward-attach the fragment and defer the split — never open a segment with a severed word half ("ism against civilians").
     func test_coalesce_gapSplit_backwardAttachesWordFragment() {
         let words = [
             span(" acts", 0.0),
@@ -77,9 +67,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(segs[0].endSec, 2.1, accuracy: 1e-9, "real sub-word content extends the segment end")
     }
 
-    /// A punctuation token carrying the NEXT phrase's timestamp must not
-    /// open a segment (". As in the bombing…") — it attaches to the
-    /// closing segment WITHOUT dragging its end across the silence.
+    /// A punctuation token carrying the NEXT phrase's timestamp must not open a segment (". As in the bombing…") — it attaches to the closing segment WITHOUT dragging its end across the silence.
     func test_coalesce_gapSplit_punctuationDoesNotLeadSegment() {
         let words = [
             span(" civilians", 0.0, 0.5),
@@ -96,9 +84,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(segs[1].startSec, 4.2, accuracy: 1e-9)
     }
 
-    /// The cap must never split BETWEEN spoken-number words — a split
-    /// number ("…in nineteen" / "eighty three.") reads as two TTS
-    /// utterances and garbles it.
+    /// The cap must never split BETWEEN spoken-number words — a split number ("…in nineteen" / "eighty three.") reads as two TTS utterances and garbles it.
     func test_coalesce_cap_neverSplitsNumberRun() {
         let words = [
             span(" in", 0.0),
@@ -115,9 +101,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(segs[1].text, "later")
     }
 
-    /// Regression: a stray word-start PUNCTUATION token between number
-    /// words (" -") must not reset the number tracker — that severed the
-    /// run linkage and let the cap split mid-number ("…eighty | three.").
+    /// Regression: a stray word-start PUNCTUATION token between number words (" -") must not reset the number tracker — that severed the run linkage and let the cap split mid-number ("…eighty | three.").
     func test_coalesce_cap_numberRunSurvivesStrayPunctuationToken() {
         let words = [
             span(" in", 0.0),
@@ -133,8 +117,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertTrue(segs[0].text.hasSuffix("three."), "the full number stays in one segment")
     }
 
-    /// All-digit tokens count as number words too (ASR variants emit
-    /// "1983" instead of "nineteen eighty three").
+    /// All-digit tokens count as number words too (ASR variants emit "1983" instead of "nineteen eighty three").
     func test_coalesce_cap_digitTokensCountAsNumbers() {
         XCTAssertTrue(SpeechFrameworkSTT.isSpokenNumberToken(" 1983"))
         XCTAssertTrue(SpeechFrameworkSTT.isSpokenNumberToken("80."))
@@ -143,11 +126,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertFalse(SpeechFrameworkSTT.isSpokenNumberToken("later"))
     }
 
-    /// Regression, from a real Parakeet token dump: word-start tokens are
-    /// usually only a PREFIX of the word ("three" arrives as " th"+"ree"),
-    /// so the number test must assemble the full incoming word before the
-    /// wordlist lookup — testing the bare prefix ("th" ∉ set) let the cap
-    /// split "…nineteen eighty | three." mid-number.
+    /// Regression, from a real Parakeet token dump: word-start tokens are usually only a PREFIX of the word ("three" arrives as " th"+"ree"), so the number test must assemble the full incoming word before the wordlist lookup — testing the bare prefix ("th" ∉ set) let the cap split "…nineteen eighty | three." mid-number.
     func test_coalesce_cap_numberRunSurvivesSubWordPrefixTokens() {
         let words = [
             span(" bar", 22.00, 0.08), span("rac", 22.08, 0.16), span("ks", 22.24, 0.08),
@@ -164,8 +143,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(segs[0].text, "barracks in Beirut in nineteen eighty three.")
     }
 
-    /// Number protection suppresses only CAP splits: a real pause between
-    /// number words is still a natural gap split.
+    /// Number protection suppresses only CAP splits: a real pause between number words is still a natural gap split.
     func test_coalesce_numberRun_realPauseStillSplits() {
         let words = [
             span(" nineteen", 0.0),
@@ -192,20 +170,14 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(p.map(\.speakerID), ["A", "B", "A"]) // ids untouched
     }
 
-    /// Regression: the last segment's pad must clamp to the end of the
-    /// audio — an end past EOF over-counts displayed durations and pushes
-    /// segmentRanges past the timeline.
+    /// Regression: the last segment's pad must clamp to the end of the audio — an end past EOF over-counts displayed durations and pushes segmentRanges past the timeline.
     func test_endPaddedSegments_lastSegmentClampsToFileEnd() {
         let segs = [DiarizedSegment(speakerID: "A", startSec: 5.0, endSec: 6.0)]
         let p = FluidAudioDiarizationProvider.endPaddedSegments(segs, padSec: 0.5, totalDurationSec: 6.2)
         XCTAssertEqual(p[0].endSec, 6.2, accuracy: 1e-6, "pad stops at EOF, not endSec + padSec")
     }
 
-    /// Regression: an overlapping interjection must NOT pad into the
-    /// enclosing speaker's active speech. B=[1-2] sits inside A=[0-5];
-    /// B's next segment BY START ORDER is C@5.2, but padding B to 2.5
-    /// would land inside A's utterance (bleeding A's words into B's
-    /// isolated track and silencing A's live audio on .revoice/.discard).
+    /// Regression: an overlapping interjection must NOT pad into the enclosing speaker's active speech. B=[1-2] sits inside A=[0-5]; B's next segment BY START ORDER is C@5.2, but padding B to 2.5 would land inside A's utterance (bleeding A's words into B's isolated track and silencing A's live audio on .revoice/.discard).
     func test_endPaddedSegments_overlappingInterjection_padSuppressed() {
         let segs = [
             DiarizedSegment(speakerID: "A", startSec: 0.0, endSec: 5.0),
@@ -218,8 +190,7 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(p[2].endSec, 8.5, accuracy: 1e-6)
     }
 
-    /// Padded ends must not influence other segments' decisions: A's pad
-    /// reaching toward B must not make B read as "overlapped".
+    /// Padded ends must not influence other segments' decisions: A's pad reaching toward B must not make B read as "overlapped".
     func test_endPaddedSegments_padsComputedAgainstOriginalEnds() {
         let segs = [
             DiarizedSegment(speakerID: "A", startSec: 0.0, endSec: 1.0),   // pads toward B
@@ -240,10 +211,7 @@ final class RevoicePrecisionTests: XCTestCase {
 
     // MARK: - zeroOutRanges release tail
 
-    /// The release ramp lets background audio swell back in across the
-    /// diarization end-pad instead of hard-muting it (the AP-off music
-    /// dropout): body of the range is hard zero, the tail ramps toward
-    /// the original level, and samples past the range are untouched.
+    /// The release ramp lets background audio swell back in across the diarization end-pad instead of hard-muting it (the AP-off music dropout): body of the range is hard zero, the tail ramps toward the original level, and samples past the range are untouched.
     func test_zeroOutRanges_releaseTail_rampsBedBackIn() {
         let rate = 100                              // 100 Hz keeps the math readable
         var left = [Float](repeating: 1.0, count: 300)

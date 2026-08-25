@@ -2,24 +2,15 @@
 //  AudioFileLoaderStereoTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Coverage for the new stereo decode path added to AudioFileLoader
-//  in Phase 7 Commit 3. The mono path is covered by
-//  AudioFileLoaderRegressionTests.swift (CRITICAL REGRESSION 1).
+//  Coverage for the new stereo decode path added to AudioFileLoader in Phase 7 Commit 3. The mono path is covered by AudioFileLoaderRegressionTests.swift (CRITICAL REGRESSION 1).
 //
 //  Specifically asserts:
-//    1. Stereo source loaded with `mixToMono: false` returns
-//       channel-correct L and R (different signals, not duplicates).
-//    2. Mono source loaded with `mixToMono: false` returns L == R
-//       (AVFoundation synthesizes the missing channel by duplication).
-//    3. Stereo source loaded with `mixToMono: true` returns nil
-//       `samplesStereo` and a populated mono `samples` field
-//       (backward-compat invariant).
-//    4. The synthesized mono downmix in `LoadedAudio.samples`
-//       equals (L + R) / 2 within int16 round-trip tolerance.
-//    5. 44.1 kHz stereo path (the rate HTDemucs requires) reports
-//       sample count within 1% of `44_100 * duration`.
-//    6. `LoadedAudio.audioBuffer` returns `.stereo(left:, right:)`
-//       for stereo loads.
+//    1. Stereo source loaded with `mixToMono: false` returns channel-correct L and R (different signals, not duplicates).
+//    2. Mono source loaded with `mixToMono: false` returns L == R (AVFoundation synthesizes the missing channel by duplication).
+//    3. Stereo source loaded with `mixToMono: true` returns nil `samplesStereo` and a populated mono `samples` field (backward-compat invariant).
+//    4. The synthesized mono downmix in `LoadedAudio.samples` equals (L + R) / 2 within int16 round-trip tolerance.
+//    5. 44.1 kHz stereo path (the rate HTDemucs requires) reports sample count within 1% of `44_100 * duration`.
+//    6. `LoadedAudio.audioBuffer` returns `.stereo(left:, right:)` for stereo loads.
 
 import AVFoundation
 import XCTest
@@ -30,9 +21,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
 
     // MARK: - Stereo WAV writer
     //
-    // WAVEncoder is mono-only; inline a minimal 16-bit interleaved
-    // stereo WAV writer here. Same RIFF/WAVE/fmt/data header layout
-    // as WAVEncoder, with channels=2 and interleaved samples.
+    // WAVEncoder is mono-only; inline a minimal 16-bit interleaved stereo WAV writer here. Same RIFF/WAVE/fmt/data header layout as WAVEncoder, with channels=2 and interleaved samples.
 
     private func writeStereoWAV(
         left: [Float],
@@ -91,9 +80,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
         withUnsafeBytes(of: v.littleEndian) { Array($0) }
     }
 
-    /// Build a stereo sine wave with DIFFERENT frequencies on L and R
-    /// so we can verify the decoder doesn't accidentally collapse them
-    /// into the same channel.
+    /// Build a stereo sine wave with DIFFERENT frequencies on L and R so we can verify the decoder doesn't accidentally collapse them into the same channel.
     private func makeDistinctStereoSineWAV(
         leftFreqHz: Double,
         rightFreqHz: Double,
@@ -137,9 +124,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
 
         let stereo = try XCTUnwrap(loaded.samplesStereo)
 
-        // L and R should NOT be equal — distinct frequencies guarantee
-        // they're different signals. A naive bug where the decoder
-        // duplicates L into R (or drops R entirely) would fail here.
+        // L and R should NOT be equal — distinct frequencies guarantee they're different signals. A naive bug where the decoder duplicates L into R (or drops R entirely) would fail here.
         let sampleDiffs = zip(stereo.left.prefix(1000), stereo.right.prefix(1000))
             .map { abs($0.0 - $0.1) }
         let maxDiff = sampleDiffs.max() ?? 0
@@ -175,8 +160,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
         XCTAssertTrue(loaded.isStereo, "mixToMono:false should produce stereo even for mono source")
         let stereo = try XCTUnwrap(loaded.samplesStereo)
 
-        // L == R within int16 quantization tolerance. AVFoundation
-        // upmixes mono → stereo by duplicating the channel.
+        // L == R within int16 quantization tolerance. AVFoundation upmixes mono → stereo by duplicating the channel.
         XCTAssertEqual(stereo.left.count, stereo.right.count)
         for i in stride(from: 0, to: stereo.left.count, by: 100) {
             XCTAssertEqual(
@@ -207,8 +191,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
             mixToMono: true  // explicit default — backward compat
         )
 
-        // Existing callers reading `samples` see populated mono;
-        // they NEVER need to check stereo fields.
+        // Existing callers reading `samples` see populated mono; they NEVER need to check stereo fields.
         XCTAssertFalse(loaded.isStereo)
         XCTAssertEqual(loaded.channelCount, 1)
         XCTAssertNil(loaded.samplesStereo)
@@ -217,12 +200,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
 
     // MARK: - 4. Mono downmix in samples = (L + R) / 2
 
-    /// When stereo is requested, `samples` is synthesized from the
-    /// decoded L/R via `AudioFileLoader.downmix(left:right:)`. Verify
-    /// that synthesis is correct — otherwise existing callers reading
-    /// `loaded.samples` on a stereo-requested load would see drift
-    /// vs. the same callers reading `loaded.samples` on a mono-
-    /// requested load of the same file.
+    /// When stereo is requested, `samples` is synthesized from the decoded L/R via `AudioFileLoader.downmix(left:right:)`. Verify that synthesis is correct — otherwise existing callers reading `loaded.samples` on a stereo-requested load would see drift vs. the same callers reading `loaded.samples` on a mono-requested load of the same file.
     func test_synthesizedMonoDownmix_matchesAveragedLR() async throws {
         let wavURL = try makeDistinctStereoSineWAV(
             leftFreqHz: 200.0,
@@ -242,9 +220,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
 
         let stereo = try XCTUnwrap(loaded.samplesStereo)
 
-        // `samples` should equal (L + R) / 2 within float precision.
-        // Allow 1e-3 to account for any AVFoundation deinterleave
-        // boundary effects on the very first/last frames.
+        // `samples` should equal (L + R) / 2 within float precision. Allow 1e-3 to account for any AVFoundation deinterleave boundary effects on the very first/last frames.
         XCTAssertEqual(loaded.samples.count, stereo.left.count)
         for i in stride(from: 0, to: loaded.samples.count, by: 100) {
             let expected = (stereo.left[i] + stereo.right[i]) * 0.5
@@ -259,10 +235,7 @@ final class AudioFileLoaderStereoTests: XCTestCase {
 
     // MARK: - 5. 44.1 kHz path produces correct frame count
 
-    /// Per Codex Finding F3 + the Phase 7 plan, HTDemucs needs 44.1
-    /// kHz stereo. Confirm the decode reports a sample count that
-    /// matches 44_100 × duration within 1% (per the plan's
-    /// acceptance criterion).
+    /// Per Codex Finding F3 + the Phase 7 plan, HTDemucs needs 44.1 kHz stereo. Confirm the decode reports a sample count that matches 44_100 × duration within 1% (per the plan's acceptance criterion).
     func test_44100SterePath_reportsCorrectFrameCount() async throws {
         let durationSec = 2.0
         let expectedFrames = Int(44_100.0 * durationSec)

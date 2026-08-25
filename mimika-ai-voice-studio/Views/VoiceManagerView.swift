@@ -3,8 +3,7 @@
 //  mimika-ai-voice-studio
 //
 //  Central voice management. Multi-step import flow:
-//  1. Drop/upload → 2. Save Preset → 3. Enhancement Studio (settings)
-//  → 4. Enhancing (progress) → 5. Comparison (A/B) → voices list.
+//  1. Drop/upload → 2. Save Preset → 3. Enhancement Studio (settings) → 4. Enhancing (progress) → 5. Comparison (A/B) → voices list.
 
 import AVFoundation
 import SwiftUI
@@ -15,8 +14,7 @@ import UniformTypeIdentifiers
 private enum ImportStep: Equatable {
     case dropZone
     case record
-    /// WP-VMI-2: video was dropped — diarize it and let the user pick a
-    /// speaker as the new voice's reference audio (VoiceFromVideoView).
+    /// WP-VMI-2: video was dropped — diarize it and let the user pick a speaker as the new voice's reference audio (VoiceFromVideoView).
     case extractVoice
     case savePreset
     case enhancementSettings
@@ -27,37 +25,23 @@ private enum ImportStep: Equatable {
 struct VoiceManagerView: View {
     @Binding var isPresented: Bool
     var onEncodeVoice: ((String) -> Void)?
-    /// `(voiceID, enableDenoise)` — wires the in-view enableDenoise
-    /// toggle through to `VoiceEnhancer.enhance(..., denoise:)`. The
-    /// pipeline soft-falls-back to BWE+LR-merge only when the ULUNAS
-    /// .mlpackage isn't installed, regardless of this flag.
+    /// `(voiceID, enableDenoise)` — wires the in-view enableDenoise toggle through to `VoiceEnhancer.enhance(..., denoise:)`. The pipeline soft-falls-back to BWE+LR-merge only when the ULUNAS .mlpackage isn't installed, regardless of this flag.
     var onEnhanceVoice: ((String, Bool) -> Void)?
-    /// Reject-enhancement path calls this to cancel any in-flight
-    /// background Fish encode + Pocket-TTS KV bake that would
-    /// otherwise persist rejected-audio codes / KV. Pairs with
-    /// `voiceImportQueue` in `ContentView`.
+    /// Reject-enhancement path calls this to cancel any in-flight background Fish encode + Pocket-TTS KV bake that would otherwise persist rejected-audio codes / KV. Pairs with `voiceImportQueue` in `ContentView`.
     var onCancelEncode: ((String) -> Void)?
-    /// WP-VMI-2: builds the Speaker Isolator VM the voice-from-video
-    /// step drives (needs the engine + Demucs separator, which only
-    /// ContentView can supply). Returns nil while the engine is still
-    /// loading — video drops surface a "try again in a moment" note.
+    /// WP-VMI-2: builds the Speaker Isolator VM the voice-from-video step drives (needs the engine + Demucs separator, which only ContentView can supply). Returns nil while the engine is still loading — video drops surface a "try again in a moment" note.
     var makeIsolatorVM: () -> SpeakerIsolatorViewModel? = { nil }
 
     @State private var showImporter = false
     @State private var importStep: ImportStep = .dropZone
     @State private var pendingFileURL: URL?
-    // Voice-from-video state (WP-VMI-2). The VM lives only for the
-    // duration of one extraction flow; discarded on handoff or cancel.
+    // Voice-from-video state (WP-VMI-2). The VM lives only for the duration of one extraction flow; discarded on handoff or cancel.
     @State private var extractVM: SpeakerIsolatorViewModel?
     @State private var pendingVideoURL: URL?
     @State private var dropError: String?
     @State private var voiceName = ""
     @State private var voiceDescription = ""
-    // Default OFF until the LavaSR audio-quality fixes (ULUNAS denoiser
-    // port + artifact tuning) land. Enhancement can still introduce
-    // perceptible artifacts on clean source audio, which is a worse
-    // default UX than leaving the user's recording untouched. Users
-    // who want LavaSR can opt in per voice.
+    // Default OFF until the LavaSR audio-quality fixes (ULUNAS denoiser port + artifact tuning) land. Enhancement can still introduce perceptible artifacts on clean source audio, which is a worse default UX than leaving the user's recording untouched. Users who want LavaSR can opt in per voice.
     @State private var enableEnhancement = false
     @State private var enableDenoise = true
     @State private var rmsTargetDB: Float = -16.0
@@ -66,25 +50,16 @@ struct VoiceManagerView: View {
     @State private var voiceToDelete: Voice?
     @State private var encodingComplete = false
 
-    /// `true` when the user entered Enhancement Studio via the
-    /// inline-row "Enhance" badge (re-enhancing an existing voice)
-    /// rather than via the new-voice import flow. Drives the divergent
-    /// reject behavior: import-reject deletes the whole voice;
-    /// re-enhance-reject just drops the enhancement WAV + flips
-    /// `isEnhanced` back to false (the voice itself stays).
+    /// `true` when the user entered Enhancement Studio via the inline-row "Enhance" badge (re-enhancing an existing voice) rather than via the new-voice import flow. Drives the divergent reject behavior: import-reject deletes the whole voice; re-enhance-reject just drops the enhancement WAV + flips `isEnhanced` back to false (the voice itself stays).
     @State private var isReEnhanceMode: Bool = false
 
-    // Orphan recovery state (step 5). Populated on appear; UI section
-    // only renders when non-empty.
+    // Orphan recovery state (step 5). Populated on appear; UI section only renders when non-empty.
     @State private var orphans: [OrphanedVoice] = []
     @State private var orphanNames: [String: String] = [:]
     @State private var orphanError: String? = nil
     @State private var orphanToDelete: OrphanedVoice?
 
-    // Surfaces failures from the import flow (name collision, disk
-    // I/O, conversion) inline on the Save Voice Preset screen.
-    // Previously the catch in saveVoiceAndProceed only printed — the
-    // user saw the Save button do nothing.
+    // Surfaces failures from the import flow (name collision, disk I/O, conversion) inline on the Save Voice Preset screen. Previously the catch in saveVoiceAndProceed only printed — the user saw the Save button do nothing.
     @State private var importError: String? = nil
 
     // Audio playback for comparison + orphan preview
@@ -94,8 +69,7 @@ struct VoiceManagerView: View {
     @State private var audioPlayer: AVAudioPlayer?
 
     // Enhanced-track analysis for the comparison screen (WP-VMI-3):
-    // cached samples drive the gained Play B preview; the magnitude
-    // histogram drives the live peak-limiting readout under the slider.
+    // cached samples drive the gained Play B preview; the magnitude histogram drives the live peak-limiting readout under the slider.
     @State private var enhancedSamples: [Float]?
     @State private var enhancedSampleRate: Int = 48_000
     @State private var clipAnalysis: ClipHeadroom?
@@ -125,8 +99,7 @@ struct VoiceManagerView: View {
                         },
                         onCancel: { importStep = .dropZone }
                     )
-                    // Fill the modal's full height so the record step doesn't
-                    // shrink the sheet relative to the drop-zone step.
+                    // Fill the modal's full height so the record step doesn't shrink the sheet relative to the drop-zone step.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .extractVoice:
                     if let vm = extractVM, let src = pendingVideoURL {
@@ -134,10 +107,7 @@ struct VoiceManagerView: View {
                             viewModel: vm,
                             sourceURL: src,
                             onUseVoice: { url, suggestedName in
-                                // Hand the extracted reference to the
-                                // standard import flow — from here it's
-                                // the same naming → (optional LavaSR) →
-                                // save → encode-queue path as any WAV.
+                                // Hand the extracted reference to the standard import flow — from here it's the same naming → (optional LavaSR) → save → encode-queue path as any WAV.
                                 vm.cancel()
                                 extractVM = nil
                                 pendingVideoURL = nil
@@ -161,8 +131,7 @@ struct VoiceManagerView: View {
                     comparisonView
                 }
             }
-            // Tall enough that the voices list AND the recovery section
-            // both get full room — at 600 they fought over the leftovers.
+            // Tall enough that the voices list AND the recovery section both get full room — at 600 they fought over the leftovers.
             .frame(maxWidth: 560, maxHeight: 900)
         }
         .fileImporter(
@@ -217,30 +186,18 @@ struct VoiceManagerView: View {
         case .dropZone:
             isPresented = false
         case .record, .savePreset, .extractVoice:
-            // Nothing persisted yet — discard the pending file/recording
-            // (and cancel any in-flight diarization for the video step).
+            // Nothing persisted yet — discard the pending file/recording (and cancel any in-flight diarization for the video step).
             resetImport()
         case .enhancementSettings:
-            // Enhancement hasn't run yet. Import flow: same as the Cancel
-            // button (keep the gate-A-saved voice, encode the original).
-            // Re-enhance on an existing voice: nothing to undo.
+            // Enhancement hasn't run yet. Import flow: same as the Cancel button (keep the gate-A-saved voice, encode the original). Re-enhance on an existing voice: nothing to undo.
             if isReEnhanceMode { resetImport() } else { skipEnhancement() }
         case .enhancing, .comparison:
-            // WP-VMI-1: closing mid-Enhancement-Studio must NOT silently
-            // auto-accept. The old close handler just reset the UI and let
-            // the in-flight enhance+encode Task run to completion — an
-            // un-auditioned enhancement became the voice. Treat close as
-            // "abandon the enhancement, keep the saved voice with its
-            // ORIGINAL audio".
+            // WP-VMI-1: closing mid-Enhancement-Studio must NOT silently auto-accept. The old close handler just reset the UI and let the in-flight enhance+encode Task run to completion — an un-auditioned enhancement became the voice. Treat close as "abandon the enhancement, keep the saved voice with its ORIGINAL audio".
             abandonEnhancementFlow()
         }
     }
 
-    /// Cancel any in-flight enhance/encode work, drop the candidate
-    /// enhancement, and re-encode the voice from its original WAV. The
-    /// voice itself stays — it was saved at the naming gate (import flow)
-    /// or existed already (re-enhance flow). Used when the user closes
-    /// the sheet mid-enhancement instead of choosing Accept / Reject.
+    /// Cancel any in-flight enhance/encode work, drop the candidate enhancement, and re-encode the voice from its original WAV. The voice itself stays — it was saved at the naming gate (import flow) or existed already (re-enhance flow). Used when the user closes the sheet mid-enhancement instead of choosing Accept / Reject.
     private func abandonEnhancementFlow() {
         guard let voiceID = savedVoiceID else { resetImport(); return }
         onCancelEncode?(voiceID)
@@ -628,11 +585,7 @@ struct VoiceManagerView: View {
 
     // MARK: - Peak-limiting headroom (WP-VMI-3)
 
-    /// Fraction of the enhanced track the soft-limiter touches at the
-    /// current slider level. Peak-based "clipping starts at X" is
-    /// degenerate here — the enhancer normalizes peaks up against full
-    /// scale, so it read ≈ −16 dB for every voice. The useful metric is
-    /// how much of the signal a boost drives into the limiter.
+    /// Fraction of the enhanced track the soft-limiter touches at the current slider level. Peak-based "clipping starts at X" is degenerate here — the enhancer normalizes peaks up against full scale, so it read ≈ −16 dB for every voice. The useful metric is how much of the signal a boost drives into the limiter.
     private var limitedFractionNow: Double {
         clipAnalysis?.limitedFraction(
             atGain: VoiceLevel.gainFactor(targetDB: rmsTargetDB)
@@ -641,9 +594,7 @@ struct VoiceManagerView: View {
 
     private var isHeavilyLimited: Bool { limitedFractionNow > 0.05 }
 
-    /// Tiered guidance under the slider: clean → light limiting →
-    /// audition-worthy → heavy. Percentages come from the magnitude
-    /// histogram, so the label updates live as the slider moves.
+    /// Tiered guidance under the slider: clean → light limiting → audition-worthy → heavy. Percentages come from the magnitude histogram, so the label updates live as the slider moves.
     @ViewBuilder
     private var clipHeadroomLabel: some View {
         if clipAnalysis != nil {
@@ -669,9 +620,7 @@ struct VoiceManagerView: View {
         }
     }
 
-    /// Cache the enhanced WAV's samples (drives the gained Play B preview)
-    /// and its magnitude histogram (drives the limiting readout). Re-runs
-    /// whenever the comparison screen appears; cleared on reset/re-enhance.
+    /// Cache the enhanced WAV's samples (drives the gained Play B preview) and its magnitude histogram (drives the limiting readout). Re-runs whenever the comparison screen appears; cleared on reset/re-enhance.
     private func loadEnhancedAnalysis() {
         guard let voiceID = savedVoiceID else { return }
         let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
@@ -686,8 +635,7 @@ struct VoiceManagerView: View {
         clipAnalysis = ClipHeadroom(samples: loaded.samples)
     }
 
-    /// Read a mono WAV fully into memory. Comparison-screen support only
-    /// (reference clips are ≤ 30 s); returns nil on any read failure.
+    /// Read a mono WAV fully into memory. Comparison-screen support only (reference clips are ≤ 30 s); returns nil on any read failure.
     private static func loadMonoSamples(at url: URL) -> (samples: [Float], sampleRate: Int)? {
         guard let file = try? AVAudioFile(forReading: url) else { return nil }
         let format = file.processingFormat
@@ -779,10 +727,7 @@ struct VoiceManagerView: View {
                         ForEach(voices) { voice in voiceRow(voice) }
                     }
                 }
-                // minHeight matters: ScrollViews are infinitely
-                // compressible, so when the fixed-height Recover-from-
-                // Disk rows appear the layout squeezed this list to zero
-                // (user-reported: "My Voices no longer displays").
+                // minHeight matters: ScrollViews are infinitely compressible, so when the fixed-height Recover-from-Disk rows appear the layout squeezed this list to zero (user-reported: "My Voices no longer displays").
                 .frame(minHeight: 140, maxHeight: 280)
             }
         }
@@ -792,11 +737,7 @@ struct VoiceManagerView: View {
         HStack(spacing: Theme.space3) {
             Text(voice.name).font(Theme.fontSM).foregroundStyle(Theme.textPrimary).lineLimit(1)
             Spacer()
-            // Enhancement state: green "Enhanced" badge if done, orange
-            // clickable "Enhance" badge to kick off the LavaSR pipeline
-            // if not. Pulled out of `statusBadges` because the click
-            // target + colored styling don't fit the plain-string
-            // badge model.
+            // Enhancement state: green "Enhanced" badge if done, orange clickable "Enhance" badge to kick off the LavaSR pipeline if not. Pulled out of `statusBadges` because the click target + colored styling don't fit the plain-string badge model.
             enhancementBadge(voice)
             ForEach(statusBadges(voice), id: \.self) { badge in
                 Text(badge).font(.system(size: 10)).foregroundStyle(Theme.textSecondary)
@@ -813,18 +754,11 @@ struct VoiceManagerView: View {
         .background(Theme.bgTertiary.opacity(0.3)).clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
     }
 
-    /// LavaSR enhancement badge for the inline voice row.
-    /// Two states:
+    /// LavaSR enhancement badge for the inline voice row. Two states:
     ///   * `voice.isEnhanced == true`  → green "Enhanced" (static label)
     ///   * otherwise                     → orange "Enhance" (clickable)
     ///
-    /// Click on the orange badge routes into the existing Enhancement
-    /// Studio state machine via `enterEnhancementStudio(for:)` — same
-    /// screens the import flow uses (settings → enhancing → comparison →
-    /// accept / reject). The Enhanced Studio handles polling, the
-    /// comparison A/B audition, and the catalog refresh that ripples
-    /// through to the ✨ sparkle on enhanced-voice pickers
-    /// (`ChatSettingsView`, `SpeakerRow`).
+    /// Click on the orange badge routes into the existing Enhancement Studio state machine via `enterEnhancementStudio(for:)` — same screens the import flow uses (settings → enhancing → comparison → accept / reject). The Enhanced Studio handles polling, the comparison A/B audition, and the catalog refresh that ripples through to the ✨ sparkle on enhanced-voice pickers (`ChatSettingsView`, `SpeakerRow`).
     @ViewBuilder
     private func enhancementBadge(_ voice: Voice) -> some View {
         if voice.isEnhanced {
@@ -848,21 +782,11 @@ struct VoiceManagerView: View {
         }
     }
 
-    /// Open the Enhancement Studio for an EXISTING voice (not a fresh
-    /// import). Sets `savedVoiceID` so `runEnhancement()` and the
-    /// comparison-screen state machine pick up the right ID, then
-    /// jumps `importStep` to `.enhancementSettings`. From there the
-    /// user gets the same screens the new-voice import flow shows:
-    /// tweak denoise + RMS → click Enhance → see "Enhancing..." →
-    /// land on `.comparison` → audition original vs enhanced → accept
-    /// or reject. Skipping our own polling here is intentional —
-    /// `pollForCompletion(voiceID:)` already does the right thing
-    /// inside the modal flow.
+    /// Open the Enhancement Studio for an EXISTING voice (not a fresh import). Sets `savedVoiceID` so `runEnhancement()` and the comparison-screen state machine pick up the right ID, then jumps `importStep` to `.enhancementSettings`. From there the user gets the same screens the new-voice import flow shows:
+    /// tweak denoise + RMS → click Enhance → see "Enhancing..." → land on `.comparison` → audition original vs enhanced → accept or reject. Skipping our own polling here is intentional — `pollForCompletion(voiceID:)` already does the right thing inside the modal flow.
     private func enterEnhancementStudio(for voiceID: String) {
         savedVoiceID = voiceID
-        // Restore the voice's persisted RMS target so the slider
-        // shows the same value the user saw last time (and so the
-        // unchanged-slider case still re-uses their preferred level).
+        // Restore the voice's persisted RMS target so the slider shows the same value the user saw last time (and so the unchanged-slider case still re-uses their preferred level).
         if let voice = VoiceManager.shared.voice(for: voiceID) {
             rmsTargetDB = voice.rmsTargetDB ?? -16.0
         }
@@ -888,10 +812,7 @@ struct VoiceManagerView: View {
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
 
-            // Bounded + scrollable so a pile of orphans can't crowd the
-            // My Voices list out of the sheet — with a minHeight so the
-            // squeeze can't go the other way either (both sections keep
-            // usable room; the sheet itself is tall enough for both).
+            // Bounded + scrollable so a pile of orphans can't crowd the My Voices list out of the sheet — with a minHeight so the squeeze can't go the other way either (both sections keep usable room; the sheet itself is tall enough for both).
             ScrollView {
                 VStack(spacing: Theme.space1) {
                     ForEach(orphans) { orphan in orphanRow(orphan) }
@@ -905,8 +826,7 @@ struct VoiceManagerView: View {
                     .foregroundStyle(Theme.errorFG)
             }
         }
-        // Attached here (not on ModalContainer) so it can't collide with
-        // the voiceToDelete alert already living on the outer view.
+        // Attached here (not on ModalContainer) so it can't collide with the voiceToDelete alert already living on the outer view.
         .alert("Delete Recovered File", isPresented: Binding(
             get: { orphanToDelete != nil },
             set: { if !$0 { orphanToDelete = nil } }
@@ -935,14 +855,10 @@ struct VoiceManagerView: View {
             get: { orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))" },
             set: { orphanNames[orphan.id] = $0 }
         )
-        // Two lines: identification (preview + tag + clip metadata +
-        // badges) above action (name + Adopt). The single-line layout
-        // left the name field a sliver and gave the user nothing to
-        // identify the clip by.
+        // Two lines: identification (preview + tag + clip metadata + badges) above action (name + Adopt). The single-line layout left the name field a sliver and gave the user nothing to identify the clip by.
         return VStack(alignment: .leading, spacing: Theme.space2) {
             HStack(spacing: Theme.space2) {
-                // Audition the clip — the UUID alone says nothing about
-                // which recording this is.
+                // Audition the clip — the UUID alone says nothing about which recording this is.
                 Button(action: { playOrphan(orphan) }) {
                     Image(systemName: playingOrphanID == orphan.id ? "stop.fill" : "play.fill")
                         .font(.system(size: 11))
@@ -977,14 +893,12 @@ struct VoiceManagerView: View {
                         indicatorBadge("✨", color: Theme.accent)
                     }
                     if !orphan.hasKV {
-                        // WAV-only orphan (WP-VMI-1): adoption queues a
-                        // re-encode to rebuild the missing codes/KV.
+                        // WAV-only orphan (WP-VMI-1): adoption queues a re-encode to rebuild the missing codes/KV.
                         indicatorBadge("re-encode", color: Theme.warningFG)
                     }
                 }
 
-                // Decline path: permanently remove the files so this
-                // clip stops resurfacing on every scan.
+                // Decline path: permanently remove the files so this clip stops resurfacing on every scan.
                 Button(action: { orphanToDelete = orphan }) {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
@@ -1018,9 +932,7 @@ struct VoiceManagerView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
     }
 
-    /// "0:07 · Jul 15" — clip length + file date, the human-readable
-    /// hints for telling recovered clips apart (the original names were
-    /// lost with their catalog rows; the user re-names on adoption).
+    /// "0:07 · Jul 15" — clip length + file date, the human-readable hints for telling recovered clips apart (the original names were lost with their catalog rows; the user re-names on adoption).
     private func orphanMetaLabel(_ orphan: OrphanedVoice) -> String {
         var parts: [String] = []
         if let dur = orphan.durationSec {
@@ -1044,8 +956,7 @@ struct VoiceManagerView: View {
 
     private func refreshOrphans() {
         orphans = VoiceManager.shared.scanForOrphans()
-        // Prune the typed-name cache for orphans that vanished (already
-        // adopted or files removed).
+        // Prune the typed-name cache for orphans that vanished (already adopted or files removed).
         let live = Set(orphans.map(\.id))
         orphanNames = orphanNames.filter { live.contains($0.key) }
     }
@@ -1055,10 +966,7 @@ struct VoiceManagerView: View {
         let name = orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))"
         do {
             let voice = try VoiceManager.shared.adoptOrphan(id: orphan.id, name: name)
-            // WP-VMI-1: WAV-only orphans (and KV-orphans missing Fish
-            // codes) need their encode artifacts rebuilt — queue it now
-            // rather than leaving the voice "Partial"/"Pending" until the
-            // next Voice Manager open.
+            // WP-VMI-1: WAV-only orphans (and KV-orphans missing Fish codes) need their encode artifacts rebuilt — queue it now rather than leaving the voice "Partial"/"Pending" until the next Voice Manager open.
             if voice.cachedCodesPath == nil || voice.pocketTTSKVPath == nil {
                 onEncodeVoice?(voice.id)
             }
@@ -1074,8 +982,7 @@ struct VoiceManagerView: View {
 
     private func statusBadges(_ voice: Voice) -> [String] {
         var b: [String] = []
-        // "Enhanced" is rendered by `enhancementBadge(_:)` with its
-        // own green styling + clickable variant. Don't double up here.
+        // "Enhanced" is rendered by `enhancementBadge(_:)` with its own green styling + clickable variant. Don't double up here.
         if voice.cachedCodesPath != nil && voice.pocketTTSKVPath != nil { b.append("Ready") }
         else if voice.cachedCodesPath != nil || voice.pocketTTSKVPath != nil { b.append("Partial") }
         else { b.append("Pending") }
@@ -1088,10 +995,7 @@ struct VoiceManagerView: View {
         guard let url = pendingFileURL else { return }
         let name = voiceName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        // File-importer URLs are security-scoped (start returns true);
-        // drag-dropped URLs are not (start returns false). Treat the
-        // scope as best-effort instead of a guard — if we can't claim
-        // it we still try to read, which works for the drag-drop case.
+        // File-importer URLs are security-scoped (start returns true); drag-dropped URLs are not (start returns false). Treat the scope as best-effort instead of a guard — if we can't claim it we still try to read, which works for the drag-drop case.
         let didStartScope = url.startAccessingSecurityScopedResource()
         defer { if didStartScope { url.stopAccessingSecurityScopedResource() } }
         importError = nil
@@ -1107,9 +1011,7 @@ struct VoiceManagerView: View {
                 resetImport()
             }
         } catch {
-            // Surface the failure inline on the save-preset screen
-            // (LocalizedError → errorDescription for our typed errors;
-            // localizedDescription for system errors like disk full).
+            // Surface the failure inline on the save-preset screen (LocalizedError → errorDescription for our typed errors; localizedDescription for system errors like disk full).
             let message: String
             if let typed = error as? LocalizedError, let desc = typed.errorDescription {
                 message = desc
@@ -1124,12 +1026,7 @@ struct VoiceManagerView: View {
     private func runEnhancement() {
         guard let voiceID = savedVoiceID else { return }
         // NOTE: RMS target is intentionally NOT persisted here. We used
-        // to call `setRmsTargetDB` at run time, but that wrote the
-        // candidate value to the voice catalog BEFORE the user had a
-        // chance to accept the enhancement. If they later rejected,
-        // the catalog kept the rejected RMS. Persistence now happens
-        // ONLY in `acceptEnhancement` — reject is a no-op on the RMS
-        // value (it stays whatever the voice had before this run).
+        // to call `setRmsTargetDB` at run time, but that wrote the candidate value to the voice catalog BEFORE the user had a chance to accept the enhancement. If they later rejected, the catalog kept the rejected RMS. Persistence now happens ONLY in `acceptEnhancement` — reject is a no-op on the RMS value (it stays whatever the voice had before this run).
         importStep = .enhancing
         encodingComplete = false
         enhancedSamples = nil   // this run writes a fresh enhanced WAV
@@ -1151,27 +1048,17 @@ struct VoiceManagerView: View {
                 importStep = .comparison
             }
 
-            // Mark encoding complete when both backends are done. Used
-            // by the comparison view's Accept buttons (gated on this).
+            // Mark encoding complete when both backends are done. Used by the comparison view's Accept buttons (gated on this).
             if voice?.cachedCodesPath != nil && voice?.pocketTTSKVPath != nil {
                 encodingComplete = true
             }
 
-            // Stop polling only once the comparison view is showing AND
-            // encoding has completed. The previous code returned early
-            // as soon as `encodingComplete` flipped true — which is fine
-            // for the new-voice import flow (codes don't exist yet when
-            // we start), but fatal for the inline re-enhance path
-            // where the voice ALREADY has codes+KV from its earlier
-            // import. In that case the very first tick saw encoding-
-            // done and returned, never living long enough to see the
-            // enhancement complete or transition to .comparison.
+            // Stop polling only once the comparison view is showing AND encoding has completed. The previous code returned early as soon as `encodingComplete` flipped true — which is fine for the new-voice import flow (codes don't exist yet when we start), but fatal for the inline re-enhance path where the voice ALREADY has codes+KV from its earlier import. In that case the very first tick saw encoding-done and returned, never living long enough to see the enhancement complete or transition to .comparison.
             if importStep == .comparison && encodingComplete {
                 return
             }
 
-            // Keep polling while still in the enhancement / comparison
-            // pipeline.
+            // Keep polling while still in the enhancement / comparison pipeline.
             if importStep == .enhancing || importStep == .comparison {
                 pollForCompletion(voiceID: voiceID)
             }
@@ -1188,33 +1075,16 @@ struct VoiceManagerView: View {
         guard let voiceID = savedVoiceID else { return }
         stopPlayback()
 
-        // Yank any background Fish/Pocket-TTS encode that might be in
-        // mid-flight. Without this, those encoders may have already
-        // read `isEnhanced=true` + loaded the enhanced WAV's bytes
-        // into memory, and would go on to persist rejected-audio
-        // codes/KV even though the WAV file gets deleted below.
-        // Cancellation is best-effort — long-running MLX inference
-        // blocks don't yield — but the Task.isCancelled checks
-        // between steps stop us BEFORE writing to disk.
+        // Yank any background Fish/Pocket-TTS encode that might be in mid-flight. Without this, those encoders may have already read `isEnhanced=true` + loaded the enhanced WAV's bytes into memory, and would go on to persist rejected-audio codes/KV even though the WAV file gets deleted below. Cancellation is best-effort — long-running MLX inference blocks don't yield — but the Task.isCancelled checks between steps stop us BEFORE writing to disk.
         onCancelEncode?(voiceID)
 
         if isReEnhanceMode {
-            // Re-enhance path: drop just the enhancement WAV + flip
-            // `isEnhanced` back to false. The voice itself stays in
-            // the catalog — user wanted to redo the enhancement, didn't
-            // like it, gets to keep their original voice intact.
+            // Re-enhance path: drop just the enhancement WAV + flip `isEnhanced` back to false. The voice itself stays in the catalog — user wanted to redo the enhancement, didn't like it, gets to keep their original voice intact.
             VoiceManager.shared.clearEnhancement(for: voiceID)
-            // Re-encode from the (now-current) original WAV. This
-            // overwrites any partial codes/KV that the cancelled Task
-            // might have written before we could yank it. `onEncodeVoice`
-            // is ContentView's clean-encode pipeline; it itself cancels
-            // any still-in-flight import Task before launching, so the
-            // ordering is guaranteed.
+            // Re-encode from the (now-current) original WAV. This overwrites any partial codes/KV that the cancelled Task might have written before we could yank it. `onEncodeVoice` is ContentView's clean-encode pipeline; it itself cancels any still-in-flight import Task before launching, so the ordering is guaranteed.
             onEncodeVoice?(voiceID)
         } else {
-            // Import-flow reject: the user just imported this voice
-            // AND auditioned the enhancement; rejecting scraps the
-            // whole voice. Same behavior as before.
+            // Import-flow reject: the user just imported this voice AND auditioned the enhancement; rejecting scraps the whole voice. Same behavior as before.
             VoiceManager.shared.deleteVoice(id: voiceID)
         }
         resetImport()
@@ -1231,9 +1101,7 @@ struct VoiceManagerView: View {
     private func acceptEnhancement() {
         guard let voiceID = savedVoiceID else { return }
         stopPlayback()
-        // P1-N1: pick up any slider tweak the user made on the comparison
-        // screen — `runEnhancement` already persisted the pre-enhance
-        // value, but the slider remains editable here too.
+        // P1-N1: pick up any slider tweak the user made on the comparison screen — `runEnhancement` already persisted the pre-enhance value, but the slider remains editable here too.
         VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         // Enhancement already saved — just encode for both backends
         onEncodeVoice?(voiceID)
@@ -1248,11 +1116,7 @@ struct VoiceManagerView: View {
         togglePlayback(url: url, isOriginal: true)
     }
 
-    /// Play B renders the enhanced track through the CURRENT slider gain
-    /// with the same hard clamp synthesis uses (`VoiceLevel.applyGain`),
-    /// so the preview — including audible clipping — is exactly what the
-    /// voice will sound like at this level. Play A deliberately stays at
-    /// the untouched import baseline for comparison.
+    /// Play B renders the enhanced track through the CURRENT slider gain with the same hard clamp synthesis uses (`VoiceLevel.applyGain`), so the preview — including audible clipping — is exactly what the voice will sound like at this level. Play A deliberately stays at the untouched import baseline for comparison.
     private func playEnhanced() {
         guard let voiceID = savedVoiceID else { return }
         let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
@@ -1282,10 +1146,7 @@ struct VoiceManagerView: View {
         togglePlayback(url: previewURL, isOriginal: false)
     }
 
-    /// Preview an un-adopted orphan's WAV so the user can tell which
-    /// recording it is before naming + adopting. Same 8 s preview cap
-    /// as the comparison players; the identity check on the auto-stop
-    /// keeps an earlier row's timer from cutting off a newer preview.
+    /// Preview an un-adopted orphan's WAV so the user can tell which recording it is before naming + adopting. Same 8 s preview cap as the comparison players; the identity check on the auto-stop keeps an earlier row's timer from cutting off a newer preview.
     private func playOrphan(_ orphan: OrphanedVoice) {
         if playingOrphanID == orphan.id {
             stopPlayback()
@@ -1341,10 +1202,7 @@ struct VoiceManagerView: View {
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
-        // Video first (WP-VMI-2): an .mp4/.mov routes into the speaker-
-        // extraction flow. Checked before .audio because AV containers
-        // conform to audiovisual-content, not .audio — but a provider
-        // could plausibly register both.
+        // Video first (WP-VMI-2): an .mp4/.mov routes into the speaker-extraction flow. Checked before .audio because AV containers conform to audiovisual-content, not .audio — but a provider could plausibly register both.
         if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.movie.identifier) { item, _ in
                 if let url = item as? URL {
@@ -1386,10 +1244,7 @@ struct VoiceManagerView: View {
 
     // MARK: - Voice from video (WP-VMI-2)
 
-    /// True for AV containers (.mp4/.mov/.m4v/…) that should route into
-    /// the speaker-extraction flow instead of the direct import. Audio-
-    /// only formats (.m4a included) conform to .audio, not .movie, so
-    /// they keep the existing path.
+    /// True for AV containers (.mp4/.mov/.m4v/…) that should route into the speaker-extraction flow instead of the direct import. Audio-only formats (.m4a included) conform to .audio, not .movie, so they keep the existing path.
     private static func isVideoFile(_ url: URL) -> Bool {
         guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else {
             return false
@@ -1397,11 +1252,7 @@ struct VoiceManagerView: View {
         return type.conforms(to: .movie)
     }
 
-    /// Kick off diarization on a dropped video with a dedicated isolator
-    /// VM. Audio preservation is forced ON (no toggle): when the HTDemucs
-    /// model is installed the picked voice comes from the vocals stem
-    /// (background stripped); when it's missing the VM soft-falls back
-    /// to the mix and VoiceFromVideoView surfaces the install banner.
+    /// Kick off diarization on a dropped video with a dedicated isolator VM. Audio preservation is forced ON (no toggle): when the HTDemucs model is installed the picked voice comes from the vocals stem (background stripped); when it's missing the VM soft-falls back to the mix and VoiceFromVideoView surfaces the install banner.
     private func startVideoExtract(_ url: URL) {
         guard let vm = makeIsolatorVM() else {
             dropError = "The speech engine is still loading — drop the video again in a moment."

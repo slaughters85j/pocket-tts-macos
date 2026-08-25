@@ -2,18 +2,9 @@
 //  DemucsModelManagerSheet.swift
 //  mimika-ai-voice-studio
 //
-//  Modal sub-sheet for managing the HTDemucs source-separation
-//  model. Mirrors the app's model-manager sheet shape: a single
-//  row for `.htdemucs` (v1 ships one variant), download + delete
-//  actions, and an inline progress indicator while a download
-//  is in flight.
+//  Modal sub-sheet for managing the HTDemucs source-separation model. Mirrors the app's model-manager sheet shape: a single row for `.htdemucs` (v1 ships one variant), download + delete actions, and an inline progress indicator while a download is in flight.
 //
-//  The download itself goes through `DemucsModelManager.shared
-//  .download(.htdemucs)`, which streams the 287 MB zip + SHA256
-//  verifies + unzips. Progress is opaque (a coarse phase: idle /
-//  downloading / verifying / installing / backingOff / failed) —
-//  no per-byte percent today; the user sees the phase transitions
-//  in the sheet's status row.
+//  The download itself goes through `DemucsModelManager.shared .download(.htdemucs)`, which streams the 287 MB zip + SHA256 verifies + unzips. Progress is opaque (a coarse phase: idle / downloading / verifying / installing / backingOff / failed) — no per-byte percent today; the user sees the phase transitions in the sheet's status row.
 
 import SwiftUI
 
@@ -42,10 +33,7 @@ struct DemucsModelManagerSheet: View {
         }
         .frame(width: 540, height: 420)
         .background(Theme.bgPrimary)
-        // Rescan when the sheet appears so a manually-placed
-        // mlpackage (user dropped it into the install dir between
-        // launches) is picked up without requiring a separate
-        // boot cycle. Cheap: one `contentsOfDirectory` per variant.
+        // Rescan when the sheet appears so a manually-placed mlpackage (user dropped it into the install dir between launches) is picked up without requiring a separate boot cycle. Cheap: one `contentsOfDirectory` per variant.
         .onAppear {
             modelManager.rescan()
         }
@@ -96,9 +84,7 @@ struct DemucsModelManagerSheet: View {
             HStack(spacing: Theme.space3) {
                 Image(systemName: isDownloaded ? "checkmark.seal.fill" : "square.and.arrow.down")
                     .font(.system(size: 16))
-                    // Green (not the orange brand accent) for the
-                    // installed state — "installed ✓" reads as a
-                    // success affordance, not the primary CTA.
+                    // Green (not the orange brand accent) for the installed state — "installed ✓" reads as a success affordance, not the primary CTA.
                     .foregroundStyle(isDownloaded ? Theme.successFG : Theme.textSecondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(variant.displayName)

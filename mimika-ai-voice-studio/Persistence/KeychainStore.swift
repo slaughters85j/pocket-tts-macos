@@ -2,10 +2,7 @@
 //  KeychainStore.swift
 //  mimika-ai-voice-studio
 //
-//  Minimal Keychain wrapper for small secrets (e.g. a cloud-provider API key).
-//  Generic-password items scoped to this app's service. Values are UTF-8
-//  strings. The app stays offline by default — this only holds a key the user
-//  explicitly enters to opt into a cloud persona-writer provider.
+//  Minimal Keychain wrapper for small secrets (e.g. a cloud-provider API key). Generic-password items scoped to this app's service. Values are UTF-8 strings. The app stays offline by default — this only holds a key the user explicitly enters to opt into a cloud persona-writer provider.
 //
 
 import Foundation

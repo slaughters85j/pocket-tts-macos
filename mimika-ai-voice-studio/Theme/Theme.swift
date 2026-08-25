@@ -2,9 +2,7 @@
 //  Theme.swift
 //  mimika-ai-voice-studio
 //
-//  Exact-match design tokens from the Electron app's tailwind.config.js.
-//  Anything color-related anywhere in the app references one of these
-//  constants — never a raw hex literal.
+//  Exact-match design tokens from the Electron app's tailwind.config.js. Anything color-related anywhere in the app references one of these constants — never a raw hex literal.
 
 import SwiftUI
 
@@ -32,8 +30,7 @@ nonisolated enum Theme {
     /// `#FF8C5A` — Accent hover state.
     static let accentHover  = Color(red: 0xFF / 255, green: 0x8C / 255, blue: 0x5A / 255)
 
-    // Secondary semantic colors used in History badges (Electron uses tailwind
-    // utility classes like `bg-blue-500/20`, `text-blue-400`, etc.).
+    // Secondary semantic colors used in History badges (Electron uses tailwind utility classes like `bg-blue-500/20`, `text-blue-400`, etc.).
     static let badgeSingleBG = Color.blue.opacity(0.20)
     static let badgeSingleFG = Color(red: 0.4, green: 0.6, blue: 1.0)        // ~tailwind blue-400
     static let badgeMultiBG  = Color.purple.opacity(0.20)
@@ -45,10 +42,7 @@ nonisolated enum Theme {
     static let warningFG = Color(red: 0.95, green: 0.75, blue: 0.30)          // amber-400-ish
 
     // MARK: Speaker palette
-    // Eight visually-distinct hues for the Multi-Talk speaker-colors
-    // toggle. Tuned for readability on the dark Theme.bgPrimary +
-    // Theme.bgTertiary surfaces. Indexed by speaker position (cycles
-    // if more than 8 speakers — unlikely in practice).
+    // Eight visually-distinct hues for the Multi-Talk speaker-colors toggle. Tuned for readability on the dark Theme.bgPrimary + Theme.bgTertiary surfaces. Indexed by speaker position (cycles if more than 8 speakers — unlikely in practice).
     static let speakerColors: [Color] = [
         Color(red: 1.00, green: 0.55, blue: 0.45),   // coral
         Color(red: 1.00, green: 0.78, blue: 0.30),   // amber
@@ -89,13 +83,7 @@ nonisolated enum Theme {
     static let sidebarWidth: CGFloat = 380
     /// Top drag region — overlap with the system title bar.
     static let dragRegionHeight: CGFloat = 56
-    /// Floor height for the single-voice / multi-talk script editors. The
-    /// editor flexes to fill its column (`maxHeight: .infinity`) so it grows
-    /// on large displays and shrinks on short windows; this value is only the
-    /// minimum that keeps it usable near `windowMinHeight`. A former hard
-    /// `minHeight: 900` forced the whole layout taller than short screens,
-    /// which clipped the header / tab bar off the top and the status off the
-    /// bottom — see `TextInput.swift`.
+    /// Floor height for the single-voice / multi-talk script editors. The editor flexes to fill its column (`maxHeight: .infinity`) so it grows on large displays and shrinks on short windows; this value is only the minimum that keeps it usable near `windowMinHeight`. A former hard `minHeight: 900` forced the whole layout taller than short screens, which clipped the header / tab bar off the top and the status off the bottom — see `TextInput.swift`.
     static let textEditorMinHeight: CGFloat = 200
 
     // MARK: Type scale (Tailwind classes → SwiftUI fonts)

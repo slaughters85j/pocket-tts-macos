@@ -2,8 +2,7 @@
 //  EngineEndToEndTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Phase 0c acceptance: synthesize the validated test phrase end-to-end via
-//  the Core ML pipeline and write a WAV to /tmp/. User listens with afplay.
+//  Phase 0c acceptance: synthesize the validated test phrase end-to-end via the Core ML pipeline and write a WAV to /tmp/. User listens with afplay.
 
 import XCTest
 @testable import mimika_ai_voice_studio
@@ -16,10 +15,7 @@ final class EngineEndToEndTests: XCTestCase {
 
     // MARK: - End-to-end
 
-    /// Spins up the engine, synthesizes the canonical phrase, and writes the
-    /// result to /tmp/mimika-ai-voice-studio-test.wav. The success criterion is
-    /// "intelligible audio" — only the user can confirm that via `afplay`.
-    /// This test just verifies the pipeline produces a plausibly-shaped WAV.
+    /// Spins up the engine, synthesizes the canonical phrase, and writes the result to /tmp/mimika-ai-voice-studio-test.wav. The success criterion is "intelligible audio" — only the user can confirm that via `afplay`. This test just verifies the pipeline produces a plausibly-shaped WAV.
     func test_synthesize_intelligibleWav() async throws {
         let engine = try await TTSEngine()
 
@@ -33,9 +29,7 @@ final class EngineEndToEndTests: XCTestCase {
         XCTAssertGreaterThan(samples.count, 24_000, "expected > 1 s of audio; got \(samples.count) samples")
         XCTAssertLessThan(elapsed, 30.0, "synthesis took unreasonably long: \(elapsed)s")
 
-        // The host app target has ENABLE_APP_SANDBOX = YES, so tests can't write
-        // to /tmp/. Use NSTemporaryDirectory() (sandbox-permitted) and print the
-        // absolute path so the user can copy-paste it into afplay.
+        // The host app target has ENABLE_APP_SANDBOX = YES, so tests can't write to /tmp/. Use NSTemporaryDirectory() (sandbox-permitted) and print the absolute path so the user can copy-paste it into afplay.
         let out = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mimika-ai-voice-studio-test.wav")
         try WAVEncoder.write(samples: samples, to: out, sampleRate: 24_000)
@@ -48,10 +42,7 @@ final class EngineEndToEndTests: XCTestCase {
         print("================================================================")
     }
 
-    /// Catalog should expose the stock (baked-in) voices. The old `≥30`
-    /// expectation reflected a prior architecture; the current one bakes in
-    /// only the stock Kyutai voices (BundledVoice.stockIDs) — custom voices
-    /// are user-imported, not part of the catalog under test.
+    /// Catalog should expose the stock (baked-in) voices. The old `≥30` expectation reflected a prior architecture; the current one bakes in only the stock Kyutai voices (BundledVoice.stockIDs) — custom voices are user-imported, not part of the catalog under test.
     func test_voiceCatalog_hasAllBundledVoices() async throws {
         let engine = try await TTSEngine()
         let ids = engine.availableVoiceIDs()

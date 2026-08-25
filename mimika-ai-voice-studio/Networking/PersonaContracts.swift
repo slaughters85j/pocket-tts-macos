@@ -2,14 +2,9 @@
 //  PersonaContracts.swift
 //  mimika-ai-voice-studio
 //
-//  Network DTOs + prompt templates for the Ensemble persona-writer. The cast is
-//  generated skeleton-first: one call returns the cast skeleton + relationship
-//  graph, then each persona is expanded in its own call (keeps ensemble
-//  coherence and avoids one fragile giant JSON blob on local models).
+//  Network DTOs + prompt templates for the Ensemble persona-writer. The cast is generated skeleton-first: one call returns the cast skeleton + relationship graph, then each persona is expanded in its own call (keeps ensemble coherence and avoids one fragile giant JSON blob on local models).
 //
-//  Decoding is deliberately TOLERANT — local models drop or reorder fields —
-//  so every type uses an `init(from:)` that fills sensible defaults for missing
-//  keys. snake_case wire keys map to camelCase Swift via CodingKeys.
+//  Decoding is deliberately TOLERANT — local models drop or reorder fields — so every type uses an `init(from:)` that fills sensible defaults for missing keys. snake_case wire keys map to camelCase Swift via CodingKeys.
 //
 
 import Foundation
@@ -89,10 +84,7 @@ nonisolated struct PersonaFull: Codable, Sendable {
 
 // MARK: - reads_on_others tolerant decode (map OR array form)
 
-/// Local models emit `reads_on_others` as a {Name: read} map; the Anthropic
-/// structured-output schema requires an array of {name, read} (a map with
-/// arbitrary keys can't be expressed under `additionalProperties: false`). Decode
-/// either form into the same [String: String].
+/// Local models emit `reads_on_others` as a {Name: read} map; the Anthropic structured-output schema requires an array of {name, read} (a map with arbitrary keys can't be expressed under `additionalProperties: false`). Decode either form into the same [String: String].
 nonisolated struct ReadPair: Codable, Sendable {
     let name: String
     let read: String
@@ -110,9 +102,7 @@ nonisolated func decodeReadsOnOthers<K: CodingKey>(_ container: KeyedDecodingCon
 
 // MARK: - Structured-output JSON schemas (Anthropic provider)
 
-/// JSON Schemas for the persona-writer's two calls, sent as Anthropic structured
-/// outputs so Claude returns guaranteed-shape JSON. `reads_on_others` uses the
-/// array form (see ReadPair). Kept beside the DTOs so the two can't drift.
+/// JSON Schemas for the persona-writer's two calls, sent as Anthropic structured outputs so Claude returns guaranteed-shape JSON. `reads_on_others` uses the array form (see ReadPair). Kept beside the DTOs so the two can't drift.
 nonisolated enum PersonaWriterSchemas {
     static let skeleton = """
     {"type":"object","additionalProperties":false,"required":["scene","mood","cast"],"properties":{"scene":{"type":"string"},"mood":{"type":"string"},"cast":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","voice","reads_on_others"],"properties":{"name":{"type":"string"},"voice":{"type":"string"},"reads_on_others":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","read"],"properties":{"name":{"type":"string"},"read":{"type":"string"}}}}}}}}}
@@ -142,10 +132,7 @@ nonisolated struct VoiceOption: Identifiable, Hashable, Sendable {
 // MARK: - Voice resolution
 
 nonisolated enum VoiceResolver {
-    /// Map the writer's free-text voice suggestion ("gravelly older man") to a
-    /// real voiceID from the user's library (stock + imported). Exact name/id
-    /// match -> substring match -> nil. Returns the matched option's `id`.
-    /// Caller falls back to round-robin when this returns nil.
+    /// Map the writer's free-text voice suggestion ("gravelly older man") to a real voiceID from the user's library (stock + imported). Exact name/id match -> substring match -> nil. Returns the matched option's `id`. Caller falls back to round-robin when this returns nil.
     static func resolve(suggested: String, library: [VoiceOption]) -> String? {
         let needle = suggested.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty, !library.isEmpty else { return nil }
@@ -183,10 +170,7 @@ enum PersonaWriterPrompts {
         return "Scene: \(scene)\nMood: \(mood)\nCharacter names: \(nameList)"
     }
 
-    /// Expansion-pass system prompt — the user-editable default (PromptScope
-    /// .ensemble). Carries the four load-bearing rules derived from the Picard
-    /// format spec: spoken-only, strong distinct voice, the relationship graph,
-    /// and brush-off-if-called-an-AI.
+    /// Expansion-pass system prompt — the user-editable default (PromptScope .ensemble). Carries the four load-bearing rules derived from the Picard format spec: spoken-only, strong distinct voice, the relationship graph, and brush-off-if-called-an-AI.
     static let expansionSystemDefault = """
     You write ONE character's persona for a voiced group conversation. You are given the full cast skeleton (names, the mood, and the relationship graph) and ONE target character name. Return ONLY a JSON object — no prose, no markdown fences — matching exactly:
     {"name": "...", "voice": "...", "persona_prompt": "...", "reads_on_others": [{"name": "OtherName", "read": "one-line read"}]}
@@ -202,8 +186,7 @@ enum PersonaWriterPrompts {
 
     static func expansionUser(skeleton: CastSkeleton, targetName: String, scene: String, mood: String) -> String {
         let json = (try? String(data: JSONEncoder().encode(skeleton), encoding: .utf8)) ?? "{}"
-        // Pass the user's ORIGINAL scene/mood (not just the skeleton's echoed,
-        // possibly-condensed version) so personas are written against the real setup.
+        // Pass the user's ORIGINAL scene/mood (not just the skeleton's echoed, possibly-condensed version) so personas are written against the real setup.
         return "Scene: \(scene)\nMood: \(mood)\nCast skeleton:\n\(json)\n\nWrite the persona for: \(targetName)"
     }
 }

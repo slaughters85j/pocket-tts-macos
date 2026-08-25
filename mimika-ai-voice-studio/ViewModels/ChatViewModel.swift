@@ -2,10 +2,7 @@
 //  ChatViewModel.swift
 //  mimika-ai-voice-studio
 //
-//  Solo Chat state and dependency ownership. Capability probing, turn
-//  delivery, attachments, dictation, and transcript reuse live in focused
-//  extensions so this type remains the single state owner without one
-//  monolithic implementation file.
+//  Solo Chat state and dependency ownership. Capability probing, turn delivery, attachments, dictation, and transcript reuse live in focused extensions so this type remains the single state owner without one monolithic implementation file.
 
 import Foundation
 import Observation
@@ -52,6 +49,12 @@ final class ChatViewModel {
         return saved == "transcript" ? .transcript : .orb
     }()
     var settings: ChatSettings
+    /// JSON thread currently backing this Solo session (nil = not yet created).
+    var currentThreadID: UUID?
+    var threadBrowser: ChatThreadBrowser?
+    var threadSaveTask: Task<Void, Never>?
+    /// In-flight sidebar theme request. Single-flight — see requestSoloThemeIfNeeded.
+    var themeTask: Task<Void, Never>?
 
     // MARK: Dependencies
 

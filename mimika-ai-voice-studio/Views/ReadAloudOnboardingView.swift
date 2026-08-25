@@ -2,10 +2,7 @@
 //  ReadAloudOnboardingView.swift
 //  mimika-ai-voice-studio
 //
-//  Shown once right after the user enables Read Aloud. Explains the two ways to
-//  use the "Read Selection Aloud" service and walks through the one-time keyboard
-//  shortcut setup — which macOS only lets the user do in System Settings (so we
-//  deep-link to the Keyboard pane and spell out the path).
+//  Shown once right after the user enables Read Aloud. Explains the two ways to use the "Read Selection Aloud" service and walks through the one-time keyboard shortcut setup — which macOS only lets the user do in System Settings (so we deep-link to the Keyboard pane and spell out the path).
 //
 
 import AppKit

@@ -30,8 +30,7 @@ final class ChatCapabilityStateTests: XCTestCase {
         XCTAssertEqual(viewModel.capabilityState.freshness, .current)
         XCTAssertEqual(viewModel.capabilityState.authoritative, [.vision])
 
-        // Polls skip re-probe while freshness is .current. Force a refresh so
-        // a failed metadata read can move current → stale.
+        // Polls skip re-probe while freshness is .current. Force a refresh so a failed metadata read can move current → stale.
         viewModel.capabilityState.freshness = .unknown
         LLMStubURLProtocol.enqueue(metadata(vision: true, tools: false, reasoning: false))
         LLMStubURLProtocol.enqueue(Data("malformed".utf8))
@@ -275,8 +274,7 @@ final class ChatCapabilityStateTests: XCTestCase {
 
         await viewModel.checkConnection()
 
-        // Ensemble injects Off and defaults to it even when LM Studio's
-        // graded list omits it.
+        // Ensemble injects Off and defaults to it even when LM Studio's graded list omits it.
         XCTAssertEqual(viewModel.reasoningSelection, .off)
         XCTAssertTrue(viewModel.reasoningConfiguration?.allowedOptions.contains(.off) == true)
 
@@ -287,8 +285,7 @@ final class ChatCapabilityStateTests: XCTestCase {
             "Larger thinking models tend to cause non-responsive turns in Ensemble."
         )
 
-        // Solo keeps its own store — switching back restores medium default
-        // (no prior solo selection for this model).
+        // Solo keeps its own store — switching back restores medium default (no prior solo selection for this model).
         appState.chatSubMode = .solo
         viewModel.refreshReasoningForChatSubMode()
         XCTAssertEqual(viewModel.reasoningSelection, .medium)
@@ -314,8 +311,7 @@ final class ChatCapabilityStateTests: XCTestCase {
         return (viewModel, appState)
     }
 
-    /// Connection health uses `/api/v1/models` twice (serving list + capability probe).
-    /// Enqueue the same loaded-model payload for both legs.
+    /// Connection health uses `/api/v1/models` twice (serving list + capability probe). Enqueue the same loaded-model payload for both legs.
     private func enqueueModels(_ models: [String]) {
         let payload = servingPayload(models: models, vision: false, tools: false, reasoning: false)
         LLMStubURLProtocol.enqueue(payload)
@@ -450,8 +446,7 @@ final class ChatMarkdownParserTests: XCTestCase {
     }
 
     func test_multiTalkSanitizerKeepsProsodyPunctuationAndGroupedNumbers() {
-        // `,` `?` `!` used to be replaced with spaces, which flattened questions
-        // into statements and turned "45,607" into two separate numbers.
+        // `,` `?` `!` used to be replaced with spaces, which flattened questions into statements and turned "45,607" into two separate numbers.
         XCTAssertEqual(
             ChatTranscriptSanitizer.multiTalkText(
                 from: "The total was 45,607 units. Who are you? Stop!"

@@ -8,8 +8,7 @@ import Foundation
 
 // MARK: - Chat request
 
-/// Optional request properties encode only when present, preserving the
-/// existing text-only request shape for callers that do not use images.
+/// Optional request properties encode only when present, preserving the existing text-only request shape for callers that do not use images.
 nonisolated struct ChatRequest: Encodable {
     let model: String
     let messages: [APIMessage]
@@ -104,6 +103,8 @@ nonisolated struct ChatStreamChunk: Decodable {
 
     struct Choice: Decodable {
         let delta: Delta
+        /// Why the server stopped. `"length"` means it hit `max_tokens` — for a reasoning model that usually means the thinking consumed the whole budget and no content was ever written. Without this the app cannot tell a deliberate short answer from a truncated one.
+        let finish_reason: String?
 
         struct Delta: Decodable {
             let content: String?
@@ -138,8 +139,7 @@ nonisolated struct ModelsResponse: Decodable {
 nonisolated struct LMStudioModelsResponse: Decodable {
     let models: [Entry]
 
-    /// IDs for models that currently have at least one loaded instance.
-    /// Includes both instance ids and catalog keys so saved preferences match.
+    /// IDs for models that currently have at least one loaded instance. Includes both instance ids and catalog keys so saved preferences match.
     func servingModelIDs() -> [String] {
         var out: [String] = []
         var seen = Set<String>()
@@ -208,10 +208,8 @@ nonisolated struct LMStudioModelsResponse: Decodable {
             config = try container.decodeIfPresent(Config.self, forKey: .config)
         }
 
-        /// Fallback when no loaded instance is matched.
-        /// Prefer architecture `max_context_length` over bare `config.context_length`:
-        /// the latter is often a catalog default (e.g. 8192) that understates the
-        /// model’s real ceiling when the instance isn’t matched by id.
+        /// Fallback when no loaded instance is matched. Prefer architecture `max_context_length` over bare `config.context_length`:
+        /// the latter is often a catalog default (e.g. 8192) that understates the model’s real ceiling when the instance isn’t matched by id.
         var resolvedContextLength: Int? {
             if let n = maxContextLength, n > 0 { return n }
             if let n = config?.contextLength, n > 0 { return n }

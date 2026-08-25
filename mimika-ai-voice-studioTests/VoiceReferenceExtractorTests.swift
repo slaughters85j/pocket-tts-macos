@@ -2,13 +2,10 @@
 //  VoiceReferenceExtractorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  WP-VMI-2. Tests for VoiceReferenceExtractor — the pure helper that
-//  collapses an isolated speaker track (silence-padded with exact zeros
-//  between utterances) into a back-to-back voice-reference clip.
+//  WP-VMI-2. Tests for VoiceReferenceExtractor — the pure helper that collapses an isolated speaker track (silence-padded with exact zeros between utterances) into a back-to-back voice-reference clip.
 //
 //  What we check:
-//    * Speech-run detection: exact-zero gaps split, short zero runs
-//      (single zero-crossing samples) do NOT split
+//    * Speech-run detection: exact-zero gaps split, short zero runs (single zero-crossing samples) do NOT split
 //    * Gap silence is fully removed from the output
 //    * Segment joins are crossfaded (no step discontinuity)
 //    * Output is capped at capSeconds
@@ -41,8 +38,7 @@ final class VoiceReferenceExtractorTests: XCTestCase {
     }
 
     func testSpeechRuns_shortZeroRunInsideSpeechDoesNotSplit() {
-        // A lone exact-zero sample (a zero crossing) inside speech must
-        // not fragment the run — that would insert a crossfade mid-word.
+        // A lone exact-zero sample (a zero crossing) inside speech must not fragment the run — that would insert a crossfade mid-word.
         var samples = speech(0.5, seconds: 1)
         samples[rate / 2] = 0
         let runs = VoiceReferenceExtractor.speechRuns(in: samples, minGapSamples: rate / 20)
@@ -68,13 +64,11 @@ final class VoiceReferenceExtractorTests: XCTestCase {
             + silence(seconds: 1)
         let out = VoiceReferenceExtractor.extractReference(from: samples, sampleRate: rate)
 
-        // ~3 s of speech survive; the crossfade overlap shaves a few
-        // milliseconds off the concatenated total.
+        // ~3 s of speech survive; the crossfade overlap shaves a few milliseconds off the concatenated total.
         let expected = 3 * rate
         XCTAssertLessThanOrEqual(out.count, expected)
         XCTAssertGreaterThan(out.count, expected - rate / 50, "join overlap should cost ≤ ~20 ms")
-        // No silence gap can survive: with constant-value segments the
-        // only near-zero samples would be leftover gap audio.
+        // No silence gap can survive: with constant-value segments the only near-zero samples would be leftover gap audio.
         XCTAssertFalse(out.contains(0), "gap silence must be fully stripped")
     }
 
@@ -82,8 +76,7 @@ final class VoiceReferenceExtractorTests: XCTestCase {
         let samples = speech(0.5, seconds: 1) + silence(seconds: 2) + speech(-0.5, seconds: 1)
         let out = VoiceReferenceExtractor.extractReference(from: samples, sampleRate: rate)
 
-        // A hard splice from +0.5 to -0.5 is a 1.0 step. The crossfade
-        // must smooth it: no adjacent-sample jump anywhere near that.
+        // A hard splice from +0.5 to -0.5 is a 1.0 step. The crossfade must smooth it: no adjacent-sample jump anywhere near that.
         var maxStep: Float = 0
         for i in 1..<out.count {
             maxStep = max(maxStep, abs(out[i] - out[i - 1]))

@@ -2,14 +2,9 @@
 //  Conductor.swift
 //  mimika-ai-voice-studio
 //
-//  Turn-taking for Ensemble Mode. Pure + nonisolated so it's trivially
-//  unit-testable and free of any I/O for the "free" modes. Selection order:
-//    1. Mention override (every mode honors it): if the last line directly
-//       addresses another cast member by name, that member goes next.
-//    2. Mode-specific base selection: round-robin, or weighted-random
-//       (excluding the immediate last speaker so nobody answers themselves).
-//  Director mode does one LLM call per turn and is resolved by the view model;
-//  if it ever falls through to here it behaves as weighted-random.
+//  Turn-taking for Ensemble Mode. Pure + nonisolated so it's trivially unit-testable and free of any I/O for the "free" modes. Selection order:
+//    1. Mention override (every mode honors it): if the last line directly addresses another cast member by name, that member goes next.
+//    2. Mode-specific base selection: round-robin, or weighted-random (excluding the immediate last speaker so nobody answers themselves). Director mode does one LLM call per turn and is resolved by the view model; if it ever falls through to here it behaves as weighted-random.
 //
 
 import Foundation
@@ -32,10 +27,7 @@ nonisolated enum Conductor {
         let picked: UUID?
         let rule: String
 
-        // 1) Mention override — highest priority, free, honored by every mode...
-        //    ...UNLESS honouring it would extend an A↔B mutual-mention ping-pong
-        //    in a cast of 3+ (which starves everyone else); then defer to the mode
-        //    so a quiet third voice can take the turn.
+        // 1) Mention override — highest priority, free, honored by every mode... ...UNLESS honouring it would extend an A↔B mutual-mention ping-pong in a cast of 3+ (which starves everyone else); then defer to the mode so a quiet third voice can take the turn.
         if let last = turns.last,
            let mentioned = detectMention(in: last.content, cast: cast, excluding: last.speakerID),
            !wouldExtendMentionPingPong(mentioned: mentioned, cast: cast, turns: turns) {
@@ -56,24 +48,15 @@ nonisolated enum Conductor {
             }
         }
 
-        // Diagnostic (un-gated, like the always-on [PocketTTS] logs — DEBUG is
-        // only set in the Debug config, so a Release run would strip a #if DEBUG
-        // block): verify the conductor's choice in the console, e.g.
-        // "[Conductor] mention-override → Dana Scully" when you address someone.
+        // Diagnostic (un-gated, like the always-on [PocketTTS] logs — DEBUG is only set in the Debug config, so a Release run would strip a #if DEBUG block): verify the conductor's choice in the console, e.g. "[Conductor] mention-override → Dana Scully" when you address someone.
         let name = cast.first { $0.id == picked }?.name ?? "—"
         print("[Conductor] \(rule) → \(name)")
         return picked
     }
 
-    /// Detect a direct address of another cast member in `text`. Scans only the
-    /// last ~120 chars (a direct address lands near the end of a line, not in a
-    /// passing "as Marx said earlier…"), case-insensitive, word-boundary,
-    /// longest-name-first so "Jean-Luc" beats "Luc". Excludes self-mentions.
+    /// Detect a direct address of another cast member in `text`. Scans only the last ~120 chars (a direct address lands near the end of a line, not in a passing "as Marx said earlier…"), case-insensitive, word-boundary, longest-name-first so "Jean-Luc" beats "Luc". Excludes self-mentions.
     ///
-    /// Matches the FULL name first, then falls back to a first/last-name word
-    /// ("Dana" → "Dana Scully") so addressing someone casually works — but only
-    /// when exactly one cast member matches that word, so an ambiguous first name
-    /// (two "Dana"s) can't mis-route and instead defers to the mode.
+    /// Matches the FULL name first, then falls back to a first/last-name word ("Dana" → "Dana Scully") so addressing someone casually works — but only when exactly one cast member matches that word, so an ambiguous first name (two "Dana"s) can't mis-route and instead defers to the mode.
     static func detectMention(in text: String, cast: [Persona], excluding selfID: UUID?) -> UUID? {
         let tail = String(text.suffix(120)).lowercased()
         guard !tail.isEmpty else { return nil }
@@ -103,13 +86,8 @@ nonisolated enum Conductor {
         return matched.count == 1 ? matched.first : nil
     }
 
-    /// True when honouring `mentioned` would extend a two-speaker mutual-mention
-    /// ping-pong: the last speaker names `mentioned`, and `mentioned` — who spoke
-    /// just before — named the last speaker back. Only meaningful with 3+ cast:
-    /// with two speakers the A↔B alternation is structural and the only other
-    /// candidate IS the mentioned speaker, so suppressing the mention changes
-    /// nothing. When it fires, the caller defers to the mode/director so a starved
-    /// third voice can take the turn instead of the two locking each other in.
+    /// True when honouring `mentioned` would extend a two-speaker mutual-mention ping-pong: the last speaker names `mentioned`, and `mentioned` — who spoke just before — named the last speaker back. Only meaningful with 3+ cast:
+    /// with two speakers the A↔B alternation is structural and the only other candidate IS the mentioned speaker, so suppressing the mention changes nothing. When it fires, the caller defers to the mode/director so a starved third voice can take the turn instead of the two locking each other in.
     static func wouldExtendMentionPingPong(mentioned: UUID, cast: [Persona], turns: [EnsembleTurn]) -> Bool {
         guard cast.count >= 3, turns.count >= 2 else { return false }
         let last = turns[turns.count - 1]   // names `mentioned`
@@ -118,9 +96,7 @@ nonisolated enum Conductor {
             && detectMention(in: prev.content, cast: cast, excluding: prev.speakerID) == last.speakerID
     }
 
-    /// Weighted random pick. Weights are clamped to a tiny positive floor so a
-    /// zero-weight persona can still be chosen occasionally and the total is
-    /// never zero.
+    /// Weighted random pick. Weights are clamped to a tiny positive floor so a zero-weight persona can still be chosen occasionally and the total is never zero.
     static func weightedChoice(_ candidates: [Persona], using generator: inout some RandomNumberGenerator) -> Persona? {
         guard !candidates.isEmpty else { return nil }
         let floored = candidates.map { max(0.0001, $0.weight) }

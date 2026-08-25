@@ -10,8 +10,7 @@ extension ChatViewModel {
 
     // MARK: Polling lifecycle
 
-    /// Start one idempotent 1-second health/capability loop.
-    /// UI state is only written when connectivity or model actually changes.
+    /// Start one idempotent 1-second health/capability loop. UI state is only written when connectivity or model actually changes.
     func startHealthChecks() {
         guard healthCheckTask == nil else { return }
         // Ensemble Compact may open later in the same process; pre-warm once.
@@ -38,17 +37,21 @@ extension ChatViewModel {
         capabilityRequestID = UUID()
     }
 
-    /// Publish connectivity first, then probe richer capability metadata.
-    /// Polls every second; skips Observation writes and capability probes when
-    /// the serving model set is unchanged.
+    /// Publish connectivity first, then probe richer capability metadata. Polls every second; skips Observation writes and capability probes when the serving model set is unchanged.
     func checkConnection() async {
         let requestID = UUID()
         connectionRequestID = requestID
         let requestedEndpoint = appState.currentEndpointBaseURL
         let requestedModel = settings.model
+        // With no explicit model pick, fall back to the one we last resolved.
+        //
+        // This selection is compared below against the selection built from the *serving* model. Built from an empty `settings.model`, the two can never be equal, so the "did anything actually change?" guard reported a change on EVERY 1 s poll: it cleared `capabilityState` and called `applyReasoningConfiguration(nil, …)`, then the probe restored both. The capability badges and the whole Thinking control vanished and came back once a second, and since they live in the top-bar HStack, the controls after them (the Director's Chair toggle) were re-identified and blinked along with them. A fresh install has no model picked, so every new user saw this until they chose one.
+        let comparableModel = requestedModel.isEmpty
+            ? (capabilitySelection?.model ?? requestedModel)
+            : requestedModel
         let configuredSelection = ChatModelSelection(
             endpoint: requestedEndpoint,
-            model: requestedModel
+            model: comparableModel
         )
         if capabilitySelection != configuredSelection {
             if capabilityState.effective.contains(.vision),
@@ -67,9 +70,7 @@ extension ChatViewModel {
             showsVisionRecovery = false
             deferredVisionRecovery = false
         } else {
-            // Same model — still merge App Settings force-overrides. Done used
-            // to only persist; the 1s poll skipped re-probe when freshness was
-            // already .current, so the toolbar never saw the new forced bits.
+            // Same model — still merge App Settings force-overrides. Done used to only persist; the 1s poll skipped re-probe when freshness was already .current, so the toolbar never saw the new forced bits.
             syncForcedCapabilities(for: configuredSelection)
         }
         let client = LocalLLMClient(
@@ -97,10 +98,7 @@ extension ChatViewModel {
             let connectionChanged = connectionState != next
             setConnectionStateIfChanged(next)
 
-            // User picked a model that is not serving yet (auto-load in flight).
-            // Do NOT adopt the previous loaded model's probe results — that
-            // clobbered force-overrides and made the Thinking toggle flicker
-            // then vanish once the new model finished loading.
+            // User picked a model that is not serving yet (auto-load in flight). Do NOT adopt the previous loaded model's probe results — that clobbered force-overrides and made the Thinking toggle flicker then vanish once the new model finished loading.
             if !settings.model.isEmpty, !selectedIsServing {
                 return
             }
@@ -110,8 +108,7 @@ extension ChatViewModel {
                 model: effectiveModel
             )
             let forced = settings.forcedCapabilities(for: selection)
-            // Re-probe only when the serving model/endpoint changed, or we
-            // never got a successful capability read for this selection.
+            // Re-probe only when the serving model/endpoint changed, or we never got a successful capability read for this selection.
             let needsProbe = connectionChanged
                 || capabilitySelection != selection
                 || capabilityState.freshness == .unknown
@@ -131,8 +128,7 @@ extension ChatViewModel {
         }
     }
 
-    /// Avoid redundant `@Observable` publishes on a 1s poll.
-    /// Sanitize disconnect reasons at write time (toolbar + composer share this state).
+    /// Avoid redundant `@Observable` publishes on a 1s poll. Sanitize disconnect reasons at write time (toolbar + composer share this state).
     private func setConnectionStateIfChanged(_ next: ConnectionState) {
         let cleaned: ConnectionState
         if case let .disconnected(reason) = next {
@@ -207,8 +203,7 @@ extension ChatViewModel {
 
     // MARK: Reasoning selection
 
-    /// Merge persisted force-overrides into live `capabilityState` and refresh
-    /// the Thinking control. No-ops when the forced set is already current.
+    /// Merge persisted force-overrides into live `capabilityState` and refresh the Thinking control. No-ops when the forced set is already current.
     func syncForcedCapabilities(for selection: ChatModelSelection) {
         guard capabilitySelection == selection else { return }
         let forced = settings.forcedCapabilities(for: selection)
@@ -220,12 +215,9 @@ extension ChatViewModel {
         )
     }
 
-    /// Resolve one model's reasoning control without guessing from its name.
-    /// Ensemble keeps its own stored selection (defaults to Off) so Solo
-    /// effort levels are not inherited into multi-agent turns.
+    /// Resolve one model's reasoning control without guessing from its name. Ensemble keeps its own stored selection (defaults to Off) so Solo effort levels are not inherited into multi-agent turns.
     ///
-    /// Force-Reasoning override always keeps a binary On/Off control even when
-    /// LM Studio reports no reasoning metadata for the loaded model.
+    /// Force-Reasoning override always keeps a binary On/Off control even when LM Studio reports no reasoning metadata for the loaded model.
     func applyReasoningConfiguration(
         _ configuration: ModelReasoningConfiguration?,
         for selection: ChatModelSelection
@@ -259,8 +251,7 @@ extension ChatViewModel {
         reasoningSelections[key] = selected
     }
 
-    /// Re-resolve the active model's thinking control after Solo ↔ Ensemble
-    /// switch so the shared badge uses the mode-scoped default/store.
+    /// Re-resolve the active model's thinking control after Solo ↔ Ensemble switch so the shared badge uses the mode-scoped default/store.
     func refreshReasoningForChatSubMode() {
         guard let selection = capabilitySelection else { return }
         let config = lastKnownReasoningConfigurations[selection.storageKey]
@@ -268,9 +259,7 @@ extension ChatViewModel {
         applyReasoningConfiguration(config, for: selection)
     }
 
-    /// Change reasoning only while no request owns a captured payload.
-    /// Ensemble shows a one-shot toast when thinking is turned on (not when
-    /// only changing effort level among already-on values).
+    /// Change reasoning only while no request owns a captured payload. Ensemble shows a one-shot toast when thinking is turned on (not when only changing effort level among already-on values).
     func setReasoningSelection(_ option: ModelReasoningOption) {
         guard activeTurn == nil else {
             showToast("Please wait until the model finishes responding.")
@@ -303,8 +292,7 @@ extension ChatViewModel {
         return selection.storageKey
     }
 
-    /// Ensemble always offers Off (injecting it when LM Studio only lists
-    /// low/medium/high) so multi-agent runs can disable thinking by default.
+    /// Ensemble always offers Off (injecting it when LM Studio only lists low/medium/high) so multi-agent runs can disable thinking by default.
     private static func reasoningConfiguration(
         base: ModelReasoningConfiguration?,
         forEnsemble: Bool

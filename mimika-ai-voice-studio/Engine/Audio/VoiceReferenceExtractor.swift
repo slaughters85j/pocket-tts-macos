@@ -2,28 +2,18 @@
 //  VoiceReferenceExtractor.swift
 //  mimika-ai-voice-studio
 //
-//  WP-VMI-2. Turns an isolated speaker track (silence-padded, mono) into
-//  a compact voice-reference clip for the custom-voice import flow —
-//  the "behind the scenes processing" between picking a speaker in the
-//  voice-from-video step and landing on the Save Voice Preset view.
+//  WP-VMI-2. Turns an isolated speaker track (silence-padded, mono) into a compact voice-reference clip for the custom-voice import flow — the "behind the scenes processing" between picking a speaker in the voice-from-video step and landing on the Save Voice Preset view.
 //
 
 import Foundation
 
-/// Pure helpers that collapse an isolated speaker buffer into a
-/// back-to-back speech clip suitable as a cloning reference:
-///   * silence gaps (the exact-zero regions the isolator writes between
-///     a speaker's utterances) are removed
-///   * segments are joined with a short linear crossfade so the hard
-///     zero-boundary cuts don't click (clicks poison the KV bake)
-///   * output is capped (default 30 s) — `PocketTTSVoiceEncoder` uses at
-///     most the first 15 s anyway; the cap keeps saved WAVs small
+/// Pure helpers that collapse an isolated speaker buffer into a back-to-back speech clip suitable as a cloning reference:
+///   * silence gaps (the exact-zero regions the isolator writes between a speaker's utterances) are removed
+///   * segments are joined with a short linear crossfade so the hard zero-boundary cuts don't click (clicks poison the KV bake)
+///   * output is capped (default 30 s) — `PocketTTSVoiceEncoder` uses at most the first 15 s anyway; the cap keeps saved WAVs small
 nonisolated enum VoiceReferenceExtractor {
 
-    /// Zero-runs shorter than this are treated as speech, not gaps — a
-    /// lone exact-0.0 sample can occur inside real audio and must not
-    /// split a segment (and insert a crossfade) mid-word. Isolator gaps
-    /// are other speakers' turns, comfortably longer than this.
+    /// Zero-runs shorter than this are treated as speech, not gaps — a lone exact-0.0 sample can occur inside real audio and must not split a segment (and insert a crossfade) mid-word. Isolator gaps are other speakers' turns, comfortably longer than this.
     static let minGapSeconds = 0.05
 
     // MARK: - Reference extraction
@@ -46,9 +36,7 @@ nonisolated enum VoiceReferenceExtractor {
             let seg = samples[run]
             let xf = out.isEmpty ? 0 : min(xfSamples, out.count, seg.count)
             if xf > 0 {
-                // Linear overlap-add across the join: the tail of what
-                // we have fades out while the new segment's head fades
-                // in, so the splice has no step discontinuity.
+                // Linear overlap-add across the join: the tail of what we have fades out while the new segment's head fades in, so the splice has no step discontinuity.
                 let outStart = out.count - xf
                 for i in 0..<xf {
                     let t = Float(i + 1) / Float(xf + 1)
@@ -68,12 +56,7 @@ nonisolated enum VoiceReferenceExtractor {
 
     // MARK: - Speech-run detection
 
-    /// Ranges of `samples` that contain speech: everything except
-    /// zero-runs of at least `minGapSamples`. Gap detection is exact-zero
-    /// runs (the isolator writes exact digital zeros outside a speaker's
-    /// segments — same invariant `stripSilence` relies on), but
-    /// run-length-gated so isolated zero samples inside speech don't
-    /// fragment a segment.
+    /// Ranges of `samples` that contain speech: everything except zero-runs of at least `minGapSamples`. Gap detection is exact-zero runs (the isolator writes exact digital zeros outside a speaker's segments — same invariant `stripSilence` relies on), but run-length-gated so isolated zero samples inside speech don't fragment a segment.
     static func speechRuns(in samples: [Float], minGapSamples: Int) -> [Range<Int>] {
         var gaps: [Range<Int>] = []
         var zeroStart: Int?

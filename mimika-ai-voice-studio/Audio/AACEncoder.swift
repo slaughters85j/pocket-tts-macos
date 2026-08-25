@@ -8,33 +8,17 @@ import CoreMedia
 import Foundation
 
 // MARK: - AACEncoder
-// Writes mono Float32 PCM samples to a .m4a (AAC-LC) container via
-// AVAssetWriter.
+// Writes mono Float32 PCM samples to a .m4a (AAC-LC) container via AVAssetWriter.
 //
 // Quality presets:
-//   * `.speech` (default) — 24 kHz mono @ 64 kbps. Tuned for the
-//     v1 single-voice TTS output where the source IS speech and
-//     the codec's psychoacoustic model can lean on speech-biased
-//     band allocation. ~10:1 vs WAV.
-//   * `.music` — 48 kHz mono @ 128 kbps. The Phase 7 setting:
-//     once the Speaker Isolator's revoice flow sums in the
-//     HTDemucs music stem (`Background SpeakerTrack` with
-//     `.useOriginal`), the output is no longer speech-only, and
-//     64 kbps mono @ 24 kHz mauls music transients + tonal
-//     complexity. AAC psychoacoustic bands at 24 kHz also
-//     allocate noisily for music. 48 kHz unlocks the standard
-//     coding bands; 128 kbps mono is "transparent" for music
-//     within mono headroom.
+//   * `.speech` (default) — 24 kHz mono @ 64 kbps. Tuned for the v1 single-voice TTS output where the source IS speech and the codec's psychoacoustic model can lean on speech-biased band allocation. ~10:1 vs WAV.
+//   * `.music` — 48 kHz mono @ 128 kbps. The Phase 7 setting: once the Speaker Isolator's revoice flow sums in the HTDemucs music stem (`Background SpeakerTrack` with `.useOriginal`), the output is no longer speech-only, and 64 kbps mono @ 24 kHz mauls music transients + tonal complexity. AAC psychoacoustic bands at 24 kHz also allocate noisily for music. 48 kHz unlocks the standard coding bands; 128 kbps mono is "transparent" for music within mono headroom.
 //
-// The async surface is necessary: AVAssetWriter's finishWriting()
-// round-trips through CoreMedia's encoder pipeline.
+// The async surface is necessary: AVAssetWriter's finishWriting() round-trips through CoreMedia's encoder pipeline.
 
 nonisolated enum AACEncoder {
 
-    /// Quality preset for the encode. Production code picks
-    /// `.speech` for the single-voice WAV-or-AAC export path and
-    /// `.music` for the video re-encode path (which may carry the
-    /// HTDemucs background stem alongside revoiced speech).
+    /// Quality preset for the encode. Production code picks `.speech` for the single-voice WAV-or-AAC export path and `.music` for the video re-encode path (which may carry the HTDemucs background stem alongside revoiced speech).
     enum Quality: Sendable {
         case speech     // 64 kbps mono — speech-biased
         case music      // 128 kbps mono @ 48 kHz — handles music well
@@ -58,13 +42,7 @@ nonisolated enum AACEncoder {
                 AVEncoderBitRateKey: 64_000,
             ]
         case .music:
-            // Force-resample to 48 kHz at the AAC layer. The pipeline
-            // upstream produces 24 kHz mono; AAC's CoreAudio encoder
-            // handles the 24→48 upsample internally when we ask for
-            // 48 kHz output but pass 24 kHz input. Keeping the input
-            // sample rate at `sampleRate` (24 kHz) for the writer's
-            // CMFormatDescription input format, but `AVSampleRateKey`
-            // in the output settings tells AAC to encode at 48 kHz.
+            // Force-resample to 48 kHz at the AAC layer. The pipeline upstream produces 24 kHz mono; AAC's CoreAudio encoder handles the 24→48 upsample internally when we ask for 48 kHz output but pass 24 kHz input. Keeping the input sample rate at `sampleRate` (24 kHz) for the writer's CMFormatDescription input format, but `AVSampleRateKey` in the output settings tells AAC to encode at 48 kHz.
             encodeSampleRate = sampleRate
             settings = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -82,12 +60,7 @@ nonisolated enum AACEncoder {
         )
     }
 
-    /// AudioBuffer-aware dispatcher used by the Phase 7 stereo bed
-    /// path. Mono buffers → existing mono encoder; stereo buffers →
-    /// new stereo encoder with 2-channel settings + interleaved
-    /// CMSampleBuffer construction. Bitrate scales with channel count
-    /// (~1.5×) so per-channel quality stays in the same range as the
-    /// mono presets.
+    /// AudioBuffer-aware dispatcher used by the Phase 7 stereo bed path. Mono buffers → existing mono encoder; stereo buffers → new stereo encoder with 2-channel settings + interleaved CMSampleBuffer construction. Bitrate scales with channel count (~1.5×) so per-channel quality stays in the same range as the mono presets.
     static func write(
         audioBuffer: AudioBuffer,
         to url: URL,
@@ -142,9 +115,7 @@ nonisolated enum AACEncoder {
 }
 
 // MARK: - CompressedAudioWriter (shared internal helper)
-// Shared backend for AACEncoder and MP3Encoder. Builds one CMSampleBuffer
-// from the input Float array and runs it through an AVAssetWriter configured
-// for the requested format. Internal scope so MP3Encoder.swift can call in.
+// Shared backend for AACEncoder and MP3Encoder. Builds one CMSampleBuffer from the input Float array and runs it through an AVAssetWriter configured for the requested format. Internal scope so MP3Encoder.swift can call in.
 
 nonisolated enum CompressedAudioWriter {
 
@@ -196,9 +167,7 @@ nonisolated enum CompressedAudioWriter {
 
         let sampleBuffer = try makeFloatSampleBuffer(samples: samples, sampleRate: sampleRate)
 
-        // AVAssetWriterInput backpressure: spin briefly until ready. With a
-        // single-shot append for a finite sample array this is almost never
-        // hit on macOS, but the check costs nothing.
+        // AVAssetWriterInput backpressure: spin briefly until ready. With a single-shot append for a finite sample array this is almost never hit on macOS, but the check costs nothing.
         while !input.isReadyForMoreMediaData {
             try await Task.sleep(nanoseconds: 1_000_000)  // 1 ms
         }
@@ -214,11 +183,7 @@ nonisolated enum CompressedAudioWriter {
         }
     }
 
-    /// Stereo variant of `write(...)`. Builds an interleaved
-    /// L/R Float32 CMSampleBuffer and feeds it through the same
-    /// AVAssetWriter dance — with `AVNumberOfChannelsKey: 2` in
-    /// `outputSettings`. Used by the AAC `.music` stereo path for the
-    /// Phase 7 stereo bed final mix + video mux.
+    /// Stereo variant of `write(...)`. Builds an interleaved L/R Float32 CMSampleBuffer and feeds it through the same AVAssetWriter dance — with `AVNumberOfChannelsKey: 2` in `outputSettings`. Used by the AAC `.music` stereo path for the Phase 7 stereo bed final mix + video mux.
     static func writeStereo(
         left: [Float],
         right: [Float],
@@ -269,13 +234,7 @@ nonisolated enum CompressedAudioWriter {
 
     // MARK: - finishWriting (guarded)
 
-    /// Drive `AVAssetWriter.finishWriting` through an explicitly guarded
-    /// continuation. The compiler's async bridge of `finishWriting()` is
-    /// backed by an UNSAFE continuation, and `finishWriting`'s NSOperation/
-    /// KVO completion has been observed to fire the resume twice (or against
-    /// a torn-down task) — which corrupts memory and crashes in
-    /// `swift_continuation_resumeImpl` (EXC_BAD_ACCESS). A one-shot latch
-    /// makes a duplicate/late completion a no-op instead of a crash.
+    /// Drive `AVAssetWriter.finishWriting` through an explicitly guarded continuation. The compiler's async bridge of `finishWriting()` is backed by an UNSAFE continuation, and `finishWriting`'s NSOperation/ KVO completion has been observed to fire the resume twice (or against a torn-down task) — which corrupts memory and crashes in `swift_continuation_resumeImpl` (EXC_BAD_ACCESS). A one-shot latch makes a duplicate/late completion a no-op instead of a crash.
     private static func finishWritingGuarded(_ writer: AVAssetWriter) async {
         let once = ResumeOnce()
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -300,12 +259,7 @@ nonisolated enum CompressedAudioWriter {
 
     // MARK: - CMSampleBuffer construction
 
-    /// Build an interleaved L+R Float32 CMSampleBuffer for the AAC
-    /// stereo path. Same shape as `makeFloatSampleBuffer` but with
-    /// `mChannelsPerFrame=2` + `mBytesPerFrame=8` (4 bytes × 2 ch) +
-    /// an interleaved data buffer (LRLRLR... where L and R are
-    /// Float32). AAC encoder + AVAssetWriter expect interleaved
-    /// for multi-channel audio.
+    /// Build an interleaved L+R Float32 CMSampleBuffer for the AAC stereo path. Same shape as `makeFloatSampleBuffer` but with `mChannelsPerFrame=2` + `mBytesPerFrame=8` (4 bytes × 2 ch) + an interleaved data buffer (LRLRLR... where L and R are Float32). AAC encoder + AVAssetWriter expect interleaved for multi-channel audio.
     private static func makeFloatStereoSampleBuffer(
         left: [Float],
         right: [Float],
@@ -341,8 +295,7 @@ nonisolated enum CompressedAudioWriter {
             throw WriterError.cmFormatCreateFailed(fmtStatus)
         }
 
-        // Build the interleaved buffer in-memory before handing it to
-        // CoreMedia. 2 × frameCount samples (L0 R0 L1 R1 ...).
+        // Build the interleaved buffer in-memory before handing it to CoreMedia. 2 × frameCount samples (L0 R0 L1 R1 ...).
         var interleaved = [Float](repeating: 0, count: frameCount * 2)
         for i in 0..<frameCount {
             interleaved[2 * i] = left[i]

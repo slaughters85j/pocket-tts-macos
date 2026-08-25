@@ -16,19 +16,12 @@ struct ContentView: View {
     @State private var historyVM = HistoryViewModel()
     @State private var chatVM: ChatViewModel?
     @State private var ensembleVM: EnsembleViewModel?
+    /// Lives here, not in ChatView, so the selected thread and the sidebar's collapsed state survive a trip to another tab — ChatView is destroyed whenever the user leaves Chat.
+    @State private var threadBrowser = ChatThreadBrowser()
     @State private var voiceChangerVM: VoiceChangerViewModel?
     @State private var speakerIsolatorVM: SpeakerIsolatorViewModel?
 
-    /// Serial FIFO queue for voice import / enhance / encode work
-    /// (WP-VMI-1). Jobs for different voices run one at a time in import
-    /// order, so rapid back-to-back imports all complete — the previous
-    /// single-slot Task cancelled the prior voice's encode on every new
-    /// import. Per-voice cancellation covers the reject-enhancement path
-    /// (see `rejectEnhancement` in `VoiceManagerView`): without it, the
-    /// still-running Fish encode + Pocket-TTS KV bake would load the
-    /// (already-deleted) enhanced WAV into memory and persist
-    /// rejected-audio codes/KV. Created in `.onAppear` (the executor
-    /// needs `appState`, which property initializers can't reach).
+    /// Serial FIFO queue for voice import / enhance / encode work (WP-VMI-1). Jobs for different voices run one at a time in import order, so rapid back-to-back imports all complete — the previous single-slot Task cancelled the prior voice's encode on every new import. Per-voice cancellation covers the reject-enhancement path (see `rejectEnhancement` in `VoiceManagerView`): without it, the still-running Fish encode + Pocket-TTS KV bake would load the (already-deleted) enhanced WAV into memory and persist rejected-audio codes/KV. Created in `.onAppear` (the executor needs `appState`, which property initializers can't reach).
     @State private var voiceImportQueue: VoiceImportQueue?
 
     @State private var voices: [BundledVoice] = []
@@ -43,13 +36,7 @@ struct ContentView: View {
                 case .loading:
                     loadingView
                 case .needsModelDownload:
-                    // Phase 8 — fresh install with no bundled
-                    // mlpackages. Block the main UI until the user
-                    // taps Start in the first-launch sheet and the
-                    // download completes. After completion the view
-                    // calls `appState.bootstrapIfNeeded()` again,
-                    // which flips engineStatus to .ready and we
-                    // route to `readyView` on the next render.
+                    // Phase 8 — fresh install with no bundled mlpackages. Block the main UI until the user taps Start in the first-launch sheet and the download completes. After completion the view calls `appState.bootstrapIfNeeded()` again, which flips engineStatus to .ready and we route to `readyView` on the next render.
                     FirstLaunchSetupView(
                         manager: BundledMLModelManager.shared,
                         onSetupComplete: { await appState.bootstrapIfNeeded() }
@@ -70,30 +57,17 @@ struct ContentView: View {
             idealHeight: Theme.windowDefaultHeight
         )
         .onAppear {
-            // Hand the SwiftData context to AppState first — downstream
-            // consumers (ChatViewModel, ScriptGenerator) read endpoint
-            // baseURL via `appState.currentEndpointBaseURL`, which needs
-            // the context to fetch the row.
+            // Hand the SwiftData context to AppState first — downstream consumers (ChatViewModel, ScriptGenerator) read endpoint baseURL via `appState.currentEndpointBaseURL`, which needs the context to fetch the row.
             appState.modelContext = modelContext
-            // First-launch migration of LLM endpoint + system prompts
-            // off UserDefaults into SwiftData. Idempotent — `loadOrSeed*`
-            // is a no-op once rows exist.
+            // First-launch migration of LLM endpoint + system prompts off UserDefaults into SwiftData. Idempotent — `loadOrSeed*` is a no-op once rows exist.
             migrateChatSettingsIntoSwiftDataIfNeeded()
-            // Window re-creation guard: `appState` (and thus the engine +
-            // `.ready` status) survives a window close, but this view's
-            // `@State` view models do not. On a reopened window the status
-            // is already `.ready`, so `.onChange(of:engineStatus)` never
-            // fires and the VMs would stay nil — leaving `readyView` stuck
-            // on its `loadingView` fallback. Spin them up here too; the
-            // method is idempotent so this is safe on cold launch.
+            // Window re-creation guard: `appState` (and thus the engine + `.ready` status) survives a window close, but this view's `@State` view models do not. On a reopened window the status is already `.ready`, so `.onChange(of:engineStatus)` never fires and the VMs would stay nil — leaving `readyView` stuck on its `loadingView` fallback. Spin them up here too; the method is idempotent so this is safe on cold launch.
             if case .ready = appState.engineStatus { spinUpViewModels() }
             if voiceImportQueue == nil {
                 voiceImportQueue = VoiceImportQueue(
                     executor: { job in await runVoiceImportJob(job) },
                     onDrain: {
-                        // Unload Fish once per drained batch (loaded only
-                        // for codec encoding) — not once per voice like
-                        // the old per-pipeline unload.
+                        // Unload Fish once per drained batch (loaded only for codec encoding) — not once per voice like the old per-pipeline unload.
                         if appState.chatSettings.activeBackend != .fishSpeech {
                             await appState.fishEngine?.unload()
                             print("[ContentView] voice-import queue drained — Fish unloaded")
@@ -106,13 +80,7 @@ struct ContentView: View {
             if case .ready = newStatus { spinUpViewModels() }
         }
         .onChange(of: appState.chatSettings.fishParams) { _, _ in
-            // Fish sliders (Temperature / Top P / Top K) live in
-            // `BackendSelector` and mutate `fishParams` directly via
-            // @Binding; none of the existing save triggers (sheet
-            // dismissal, backend toggle) fire while the user drags,
-            // so without this the values reset to defaults on relaunch.
-            // `FishGenParams` is Equatable, so .onChange fires only
-            // when the struct actually changes.
+            // Fish sliders (Temperature / Top P / Top K) live in `BackendSelector` and mutate `fishParams` directly via @Binding; none of the existing save triggers (sheet dismissal, backend toggle) fire while the user drags, so without this the values reset to defaults on relaunch. `FishGenParams` is Equatable, so .onChange fires only when the struct actually changes.
             SettingsStore.save(appState.chatSettings)
         }
         .onChange(of: appState.chatSettings.activeBackend) { _, newBackend in
@@ -123,10 +91,7 @@ struct ContentView: View {
             } else if let firstVoice = voices.first {
                 singleVM?.selectedVoiceID = firstVoice.id
             }
-            // Multi-Talk: one VM call owns the whole reconciliation
-            // (tag-protection ordering, remap, display-mode sync, and
-            // the defer-while-synthesizing rule) — see syncToBackend in
-            // MultiTalkViewModel+BackendSync.swift.
+            // Multi-Talk: one VM call owns the whole reconciliation (tag-protection ordering, remap, display-mode sync, and the defer-while-synthesizing rule) — see syncToBackend in MultiTalkViewModel+BackendSync.swift.
             multiVM?.syncToBackend(newBackend)
             let engine = appState.activeEngine
             singleVM?.setEngine(engine)
@@ -147,8 +112,7 @@ struct ContentView: View {
                 }
             }
         }
-        // App-wide settings (Local LLM endpoint + Pocket-TTS Tuning). Reachable from
-        // the global header gear icon and from Cmd+,.
+        // App-wide settings (Local LLM endpoint + Pocket-TTS Tuning). Reachable from the global header gear icon and from Cmd+,.
         .sheet(isPresented: $appState.showsAppSettings) {
             AppSettingsView(
                 isPresented: $appState.showsAppSettings,
@@ -178,16 +142,14 @@ struct ContentView: View {
             ReadAloudOnboardingView(onClose: { appState.showsReadAloudOnboarding = false })
         }
         .onChange(of: appState.chatSettings.readAloudEnabled) { wasEnabled, isEnabled in
-            // Surface the setup guide when Read Aloud is turned ON. Delay so the
-            // App Settings sheet finishes dismissing before this one presents.
+            // Surface the setup guide when Read Aloud is turned ON. Delay so the App Settings sheet finishes dismissing before this one presents.
             guard isEnabled, !wasEnabled else { return }
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(450))
                 appState.showsReadAloudOnboarding = true
             }
         }
-        // Chat-scoped settings (TTS voice + chat system prompt). Reachable
-        // only from the Chat tab's own gear button.
+        // Chat-scoped settings (TTS voice + chat system prompt). Reachable only from the Chat tab's own gear button.
         .sheet(isPresented: $appState.showsChatSettings) {
             ChatSettingsView(
                 isPresented: $appState.showsChatSettings,
@@ -212,23 +174,15 @@ struct ContentView: View {
                     voiceImportQueue?.enqueueEncode(voiceID: voiceID)
                 },
                 onEnhanceVoice: { voiceID, enableDenoise in
-                    // Enqueueing supersedes any pending/active job for
-                    // the SAME voice (double-click Enhance, reject-then-
-                    // re-encode) while other voices keep their place.
+                    // Enqueueing supersedes any pending/active job for the SAME voice (double-click Enhance, reject-then-re-encode) while other voices keep their place.
                     voiceImportQueue?.enqueueEnhance(voiceID: voiceID, denoise: enableDenoise)
                 },
                 onCancelEncode: { voiceID in
-                    // Reject-enhancement path in VoiceManagerView calls
-                    // this so we can yank any background Fish/Pocket-TTS
-                    // encoding before it persists rejected-audio codes/KV.
-                    // Per-voice: other queued imports are unaffected.
+                    // Reject-enhancement path in VoiceManagerView calls this so we can yank any background Fish/Pocket-TTS encoding before it persists rejected-audio codes/KV. Per-voice: other queued imports are unaffected.
                     voiceImportQueue?.cancel(voiceID: voiceID)
                 },
                 makeIsolatorVM: {
-                    // Voice-from-video (WP-VMI-2): a dedicated isolator VM
-                    // per extraction. Same construction as the Speaker
-                    // Isolator sheet's; nil while the engine is loading
-                    // (activeEngine force-unwraps the pocket engine).
+                    // Voice-from-video (WP-VMI-2): a dedicated isolator VM per extraction. Same construction as the Speaker Isolator sheet's; nil while the engine is loading (activeEngine force-unwraps the pocket engine).
                     guard appState.engine != nil else { return nil }
                     let demucsPath = DemucsModelManager.shared
                         .expectedModelFolderURL(for: .htdemucs)
@@ -256,8 +210,7 @@ struct ContentView: View {
 
     private var header: some View {
         ZStack {
-            // Centered title — sits in the full header width so the trailing
-            // controls (the wider Voice Manager badge) don't shove it off-center.
+            // Centered title — sits in the full header width so the trailing controls (the wider Voice Manager badge) don't shove it off-center.
             VStack(spacing: 2) {
                 Text("Mimika")
                     .font(Theme.font2XL)
@@ -269,6 +222,9 @@ struct ContentView: View {
 
             // Trailing controls, floated to the right over the centered title.
             HStack(spacing: Theme.space3) {
+                // Renders nothing unless the App Store is ahead of this build. It still has to be in the hierarchy at all times — it owns the `.task` that runs the throttled check.
+                UpdateAvailableBadge()
+
                 Button(action: { appState.showsVoiceManager = true }) {
                     HStack(spacing: 5) {
                         Image(systemName: "waveform.circle.fill")
@@ -285,9 +241,7 @@ struct ContentView: View {
                 .help("Voice Manager")
                 .accessibilityIdentifier("header.voiceManagerButton")
 
-                // Global app-settings button. Reaches LLM endpoint + Pocket-TTS
-                // tuning from any tab. The Chat tab has its own (chat-only)
-                // gear button inside its header.
+                // Global app-settings button. Reaches LLM endpoint + Pocket-TTS tuning from any tab. The Chat tab has its own (chat-only) gear button inside its header.
                 Button(action: { appState.showsAppSettings = true }) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 16))
@@ -366,6 +320,7 @@ struct ContentView: View {
                 ChatView(
                     viewModel: chatVM,
                     ensembleViewModel: ensembleVM,
+                    threadBrowser: threadBrowser,
                     subMode: $appState.chatSubMode,
                     player: appState.player!,
                     voices: voices,
@@ -381,23 +336,16 @@ struct ContentView: View {
 
     // MARK: - First-launch migration
 
-    /// Seed `LocalLLMEndpoint` from the user's existing
-    /// `chatSettings.baseURL`, and seed one `SystemPrompt` per scope
-    /// from the matching `chatSettings.*SystemPrompt` value (falling
-    /// back to the hardcoded defaults if blank).
+    /// Seed `LocalLLMEndpoint` from the user's existing `chatSettings.baseURL`, and seed one `SystemPrompt` per scope from the matching `chatSettings.*SystemPrompt` value (falling back to the hardcoded defaults if blank).
     ///
-    /// Both halves are idempotent — once a row exists for the endpoint
-    /// or for a scope, subsequent calls leave existing data alone. Safe
-    /// to call on every `onAppear`.
+    /// Both halves are idempotent — once a row exists for the endpoint or for a scope, subsequent calls leave existing data alone. Safe to call on every `onAppear`.
     private func migrateChatSettingsIntoSwiftDataIfNeeded() {
         _ = AppDataStore.loadOrSeedEndpoint(
             modelContext,
             fallbackBaseURL: appState.chatSettings.baseURL
         )
 
-        // Per-scope seed content: prefer the user's current value;
-        // fall back to the hardcoded scope default when blank so the
-        // user has something to edit instead of an empty editor.
+        // Per-scope seed content: prefer the user's current value; fall back to the hardcoded scope default when blank so the user has something to edit instead of an empty editor.
         let chatBody = appState.chatSettings.systemPrompt
         let singleBody = appState.chatSettings.singleVoiceSystemPrompt.isEmpty
             ? ChatSettings.defaultSingleVoicePrompt
@@ -419,26 +367,11 @@ struct ContentView: View {
 
     // MARK: - Voice Changer sheet body
 
-    /// Builds the Voice Changer sheet against the currently-active
-    /// engine. The VM is rebuilt on each presentation so a backend
-    /// swap between opens (Pocket-TTS ↔ Fish) picks up the right
-    /// engine without a stale capture. Falls back to a tiny loading
-    /// placeholder if the engine hasn't bootstrapped yet — the
-    /// ⌥⌘V menu shortcut can fire before launch finishes since it's
-    /// not gated by the tabs' readyView guard.
+    /// Builds the Voice Changer sheet against the currently-active engine. The VM is rebuilt on each presentation so a backend swap between opens (Pocket-TTS ↔ Fish) picks up the right engine without a stale capture. Falls back to a tiny loading placeholder if the engine hasn't bootstrapped yet — the ⌥⌘V menu shortcut can fire before launch finishes since it's not gated by the tabs' readyView guard.
     @ViewBuilder
     private var voiceChangerSheetBody: some View {
         if appState.engine != nil {
-            // Lazily create the VM on first sheet open and cache for
-            // the lifetime of the sheet. The cache write to `@State`
-            // is deferred to the next runloop tick so SwiftUI's
-            // "modifying state during view update" diagnostic stays
-            // quiet — the inline `?? { …; voiceChangerVM = new; return new }()`
-            // form mutates @State while the body is still being
-            // evaluated, which is undefined behavior per SwiftUI.
-            // Kept as an IIFE-typed `let` so ViewBuilder accepts it
-            // as a single declaration; an open `if let / else { … }`
-            // would leak `Void` into the view-building chain.
+            // Lazily create the VM on first sheet open and cache for the lifetime of the sheet. The cache write to `@State` is deferred to the next runloop tick so SwiftUI's "modifying state during view update" diagnostic stays quiet — the inline `?? { …; voiceChangerVM = new; return new }()` form mutates @State while the body is still being evaluated, which is undefined behavior per SwiftUI. Kept as an IIFE-typed `let` so ViewBuilder accepts it as a single declaration; an open `if let / else { … }` would leak `Void` into the view-building chain.
             let vm: VoiceChangerViewModel = {
                 if let existing = voiceChangerVM { return existing }
                 let new = VoiceChangerViewModel(engine: appState.activeEngine)
@@ -468,30 +401,13 @@ struct ContentView: View {
 
     // MARK: - Speaker Isolator sheet body
 
-    /// Builds the Speaker Isolator sheet against the currently-active
-    /// engine. Rebuilt per presentation (same pattern as Voice Changer)
-    /// so a backend swap picks up the right engine. Falls back to a
-    /// loading placeholder if the engine hasn't bootstrapped yet (the
-    /// ⌥⌘I shortcut can fire from any tab before launch finishes).
+    /// Builds the Speaker Isolator sheet against the currently-active engine. Rebuilt per presentation (same pattern as Voice Changer) so a backend swap picks up the right engine. Falls back to a loading placeholder if the engine hasn't bootstrapped yet (the ⌥⌘I shortcut can fire from any tab before launch finishes).
     @ViewBuilder
     private var speakerIsolatorSheetBody: some View {
         if appState.engine != nil {
-            // Lazily create the VM on first sheet open and cache for
-            // the lifetime of the sheet. The cache write to `@State`
-            // is deferred to the next runloop tick so SwiftUI's
-            // "modifying state during view update" diagnostic stays
-            // quiet — see the matching block in voiceChangerSheetBody
-            // for the full rationale. Kept as an IIFE-typed `let` so
-            // ViewBuilder accepts it as a single declaration.
+            // Lazily create the VM on first sheet open and cache for the lifetime of the sheet. The cache write to `@State` is deferred to the next runloop tick so SwiftUI's "modifying state during view update" diagnostic stays quiet — see the matching block in voiceChangerSheetBody for the full rationale. Kept as an IIFE-typed `let` so ViewBuilder accepts it as a single declaration.
             //
-            // Phase 7: wire up the HTDemucs source separator at the
-            // EXPECTED install path (not the existence-checked
-            // `modelFolderURL`) so the VM always has
-            // `hasSourceSeparator == true` and the toggle is visible.
-            // The separator's own `isModelDownloaded()` probes the
-            // path at gate time, so an un-installed model still
-            // soft-falls back to v1 with the banner — no need to
-            // delay separator construction until after a download.
+            // Phase 7: wire up the HTDemucs source separator at the EXPECTED install path (not the existence-checked `modelFolderURL`) so the VM always has `hasSourceSeparator == true` and the toggle is visible. The separator's own `isModelDownloaded()` probes the path at gate time, so an un-installed model still soft-falls back to v1 with the banner — no need to delay separator construction until after a download.
             let vm: SpeakerIsolatorViewModel = {
                 if let existing = speakerIsolatorVM { return existing }
                 let demucsPath = DemucsModelManager.shared
@@ -539,10 +455,7 @@ struct ContentView: View {
         // If the persisted backend is Fish, bootstrap it and swap engines.
         if appState.chatSettings.activeBackend == .fishSpeech {
             singleVM?.selectedVoiceID = "fish-default"
-            // Cold start lands the default speaker cards on Pocket IDs;
-            // reconcile so the Fish pickers don't render blank. (The
-            // tag-protection fallback self-gates on the script actually
-            // containing tags, so an empty cold-start script is safe.)
+            // Cold start lands the default speaker cards on Pocket IDs; reconcile so the Fish pickers don't render blank. (The tag-protection fallback self-gates on the script actually containing tags, so an empty cold-start script is safe.)
             multiVM?.syncToBackend(.fishSpeech)
             Task {
                 await appState.bootstrapFishIfNeeded()
@@ -578,12 +491,7 @@ struct ContentView: View {
 
     // MARK: - Voice import pipeline (WP-VMI-1)
 
-    /// Runs ONE voice's import pipeline — the executor for
-    /// `voiceImportQueue`. Enhance jobs run LavaSR first; both kinds then
-    /// share the encode steps (Fish codec encode + Pocket-TTS KV bake).
-    /// Cancellation is cooperative: the queue cancels this Task and the
-    /// `Task.isCancelled` checks between steps stop us BEFORE writing
-    /// rejected-audio artifacts to disk.
+    /// Runs ONE voice's import pipeline — the executor for `voiceImportQueue`. Enhance jobs run LavaSR first; both kinds then share the encode steps (Fish codec encode + Pocket-TTS KV bake). Cancellation is cooperative: the queue cancels this Task and the `Task.isCancelled` checks between steps stop us BEFORE writing rejected-audio artifacts to disk.
     private func runVoiceImportJob(_ job: VoiceImportQueue.Job) async {
         let voiceID = job.voiceID
 
@@ -591,10 +499,7 @@ struct ContentView: View {
         if case .enhanceThenEncode(let denoise) = job.kind {
             if Task.isCancelled { return }
             let enhancer = VoiceEnhancer.shared
-            // Pass the ULUNAS denoiser .mlpackage URL if installed;
-            // soft-fallback to BWE+LR-merge only when nil. The pipeline
-            // gates `denoise:` on both the URL being present AND the
-            // user's toggle being on.
+            // Pass the ULUNAS denoiser .mlpackage URL if installed; soft-fallback to BWE+LR-merge only when nil. The pipeline gates `denoise:` on both the URL being present AND the user's toggle being on.
             let denoiserURL = ModelPaths.lavasrDenoiserMLPackage()
             await enhancer.bootstrapIfNeeded(denoiserMLPackageURL: denoiserURL)
             if Task.isCancelled { return }
@@ -625,8 +530,7 @@ struct ContentView: View {
             }
         }
 
-        // Step 3: Pocket-TTS KV bake. Prefers the enhanced WAV when the
-        // voice is flagged enhanced and the file exists.
+        // Step 3: Pocket-TTS KV bake. Prefers the enhanced WAV when the voice is flagged enhanced and the file exists.
         if Task.isCancelled { return }
         let pttsEncoder = PocketTTSVoiceEncoder.shared
         await pttsEncoder.bootstrap()
@@ -652,12 +556,7 @@ struct ContentView: View {
         }
 
         if Task.isCancelled { return }
-        // Toast only for encode jobs. An enhanceThenEncode job completes
-        // while the user is still auditioning in the comparison view (its
-        // encode must finish before Accept/Play enable), so toasting there
-        // announced a voice that hadn't been accepted yet. Every FINAL
-        // path — plain import, Accept & Save, skip, reject-re-encode,
-        // orphan adoption — enqueues an .encode job, which toasts.
+        // Toast only for encode jobs. An enhanceThenEncode job completes while the user is still auditioning in the comparison view (its encode must finish before Accept/Play enable), so toasting there announced a voice that hadn't been accepted yet. Every FINAL path — plain import, Accept & Save, skip, reject-re-encode, orphan adoption — enqueues an .encode job, which toasts.
         if job.kind == .encode {
             let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
             showVoiceReadyToast(voiceName)

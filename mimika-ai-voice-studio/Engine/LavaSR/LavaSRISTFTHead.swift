@@ -2,20 +2,15 @@
 //  LavaSRISTFTHead.swift
 //  mimika-ai-voice-studio
 //
-//  Custom ISTFT head used by the LavaSR v2 BWE model. Matches the Python
-//  Vocos `ISTFTHead` plus the monkey-patched `custom_forward` from
-//  `LavaSR/enhancer/enhancer.py` exactly:
+//  Custom ISTFT head used by the LavaSR v2 BWE model. Matches the Python Vocos `ISTFTHead` plus the monkey-patched `custom_forward` from `LavaSR/enhancer/enhancer.py` exactly:
 //
-//    * `out` linear projects to (nFft + 2) channels: first half is the
-//      log-magnitude prediction, second half is the phase.
-//    * `mag = exp(h)` then `clip(max=1e3)` (the LavaSR repo uses 1e3 in
-//      its monkey-patch; we kept the upstream value).
+//    * `out` linear projects to (nFft + 2) channels: first half is the log-magnitude prediction, second half is the phase.
+//    * `mag = exp(h)` then `clip(max=1e3)` (the LavaSR repo uses 1e3 in its monkey-patch; we kept the upstream value).
 //    * Periodic Hann window (`torch.hann_window(N)` uses divisor N).
 //    * Window-squared normalization for overlap-add.
 //    * "same" padding trim: (winLength - hopLength) / 2 from each side.
 //
-//  Lifted from the original `VoiceEnhancer.swift` as part of Phase 10 /
-//  Commit 1 — no behavior change.
+//  Lifted from the original `VoiceEnhancer.swift` as part of Phase 10 / Commit 1 — no behavior change.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -118,8 +113,7 @@ final class LavaSRISTFTHead: Module {
 
     // MARK: - Helpers
 
-    /// Periodic Hann window: w[n] = 0.5 - 0.5 * cos(2πn / N)
-    /// Matches torch.hann_window(N, periodic=True)
+    /// Periodic Hann window: w[n] = 0.5 - 0.5 * cos(2πn / N) Matches torch.hann_window(N, periodic=True)
     private func periodicHannWindow(length: Int) -> MLXArray {
         guard length > 1 else { return MLXArray([Float(1.0)]) }
         let factor = Float.pi / Float(length)   // 2π / (2*length) = π / length

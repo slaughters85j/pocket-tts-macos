@@ -2,10 +2,7 @@
 //  PersonaProviderTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  The pluggable persona-writer backends: the Anthropic structured-output path
-//  (request → response → tolerant decode) and the reads_on_others map/array
-//  tolerance that lets one DTO decode both the local (map) and Claude (array)
-//  shapes. The LLM transport is stubbed via LLMStubURLProtocol.
+//  The pluggable persona-writer backends: the Anthropic structured-output path (request → response → tolerant decode) and the reads_on_others map/array tolerance that lets one DTO decode both the local (map) and Claude (array) shapes. The LLM transport is stubbed via LLMStubURLProtocol.
 //
 
 import XCTest

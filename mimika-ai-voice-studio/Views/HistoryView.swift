@@ -13,9 +13,7 @@ struct HistoryView: View {
     let onReuse: (PendingReuse) -> Void
 
     @Environment(\.modelContext) private var modelContext
-    // SwiftData's @Query SortDescriptor doesn't accept Bool key paths directly;
-    // we sort by timestamp DESC at the query layer and float pinned items to the
-    // top in `filteredItems`.
+    // SwiftData's @Query SortDescriptor doesn't accept Bool key paths directly; we sort by timestamp DESC at the query layer and float pinned items to the top in `filteredItems`.
     @Query(sort: \TTSHistoryItem.timestamp, order: .reverse)
     private var allItems: [TTSHistoryItem]
 
@@ -36,7 +34,7 @@ struct HistoryView: View {
                         ForEach(filtered) { item in
                             HistoryCard(
                                 item: item,
-                                voiceLookup: voiceByID,
+                                voiceName: voiceName,
                                 onPin: { viewModel.togglePin(item) },
                                 onDelete: { viewModel.delete(item) },
                                 onReuse: {
@@ -104,7 +102,18 @@ struct HistoryView: View {
         return base.sorted { ($0.pinned ? 1 : 0) > ($1.pinned ? 1 : 0) }
     }
 
-    private func voiceByID(_ id: String) -> BundledVoice? {
-        voices.first(where: { $0.id == id })
+    /// Display name for a stored voice id, resolved the same way the voice pickers do — stock catalog first, then imported voices, whose ids are stored as `imported:<uuid>`.
+    ///
+    /// A raw id is never shown: an unresolved voice reads as "Deleted voice", because a UUID tells the user nothing.
+    ///
+    /// Stock ids are checked against `BundledVoice.stockIDs` as well as the live catalog. `voices` comes from the engine and is EMPTY until it finishes loading, so without that second check every card would claim its voice was deleted whenever History is opened during launch.
+    private func voiceName(_ id: String) -> String {
+        if let stock = voices.first(where: { $0.id == id }) { return stock.name }
+        if BundledVoice.stockIDs.contains(id) { return BundledVoice(predefined: id).name }
+        let bare = id.hasPrefix("imported:") ? String(id.dropFirst("imported:".count)) : id
+        if let imported = VoiceManager.shared.voices.first(where: { $0.id == bare }) {
+            return imported.isEnhanced ? "✨ \(imported.name)" : imported.name
+        }
+        return "Deleted voice"
     }
 }

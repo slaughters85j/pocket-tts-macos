@@ -2,25 +2,14 @@
 //  SpeakerIsolatorViewModel+Convert.swift
 //  mimika-ai-voice-studio
 //
-//  Orchestration for the `convertAndIsolate()` entry point — the
-//  full diarize → isolate → (optionally separate + re-isolate)
-//  pipeline. Extracted from the main VM file to keep that file
-//  focused on state + DI surface.
+//  Orchestration for the `convertAndIsolate()` entry point — the full diarize → isolate → (optionally separate + re-isolate) pipeline. Extracted from the main VM file to keep that file focused on state + DI surface.
 //
-//  Diarize-first sequencing (per Codex F4): we run diarization FIRST
-//  on the original mix (~30 s for a 5-minute clip), populate the
-//  speakers table IMMEDIATELY so the user sees something while the
-//  rest of the pipeline runs, THEN — if Audio Preservation is enabled
-//  + the separator is wired up — we run HTDemucs in the background +
-//  re-isolate from the cleaner vocals stem.
+//  Diarize-first sequencing (per Codex F4): we run diarization FIRST on the original mix (~30 s for a 5-minute clip), populate the speakers table IMMEDIATELY so the user sees something while the rest of the pipeline runs, THEN — if Audio Preservation is enabled + the separator is wired up — we run HTDemucs in the background + re-isolate from the cleaner vocals stem.
 //
 //  This shape gives:
 //    * Fast first-meaningful-paint: speakers populate ~30 s in.
-//    * Optional quality improvement: cleaner stems + a Background
-//      row holding the music stem so it survives re-voicing.
-//    * Graceful skip: with no separator wired or feature toggled
-//      off, the v1 behavior (mix-only) runs unchanged — regression
-//      test 3 locks this.
+//    * Optional quality improvement: cleaner stems + a Background row holding the music stem so it survives re-voicing.
+//    * Graceful skip: with no separator wired or feature toggled off, the v1 behavior (mix-only) runs unchanged — regression test 3 locks this.
 
 import AVFoundation
 import Foundation
@@ -30,11 +19,7 @@ extension SpeakerIsolatorViewModel {
     // MARK: - convertAndIsolate
 
     func convertAndIsolate() {
-        // Belt-and-suspenders re-entry guard. The UI hides the
-        // button while `status.isWorking`, but defending in the VM
-        // means a future keyboard shortcut, programmatic trigger,
-        // or test path can't orphan `inflightTask` by silently
-        // overwriting it mid-run.
+        // Belt-and-suspenders re-entry guard. The UI hides the button while `status.isWorking`, but defending in the VM means a future keyboard shortcut, programmatic trigger, or test path can't orphan `inflightTask` by silently overwriting it mid-run.
         guard !status.isWorking else { return }
         guard canConvertAndIsolate, let inputURL = inputAudioURL else { return }
         let settings = self.diarizationSettings
@@ -46,29 +31,15 @@ extension SpeakerIsolatorViewModel {
 
         inflightTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // Hold the Powerbox grant for the full pipeline — loader
-            // (24 kHz mono + 44.1 kHz stereo), diarizer, and HTDemucs
-            // separator all read `inputURL` from background executors.
-            // Without this a sandboxed build hits NSCocoaErrorDomain
-            // 257 at the first AVFoundation read.
+            // Hold the Powerbox grant for the full pipeline — loader (24 kHz mono + 44.1 kHz stereo), diarizer, and HTDemucs separator all read `inputURL` from background executors. Without this a sandboxed build hits NSCocoaErrorDomain 257 at the first AVFoundation read.
             let didStart = inputURL.startAccessingSecurityScopedResource()
             defer { if didStart { inputURL.stopAccessingSecurityScopedResource() } }
             do {
-                // 1. Ensure diarization model. Done in `convertAndIsolate`
-                //    (vs. the Manage Models sheet) because diarization
-                //    is mandatory + cheap (~50 MB); separator model
-                //    fetch lives only in the explicit Manage Models
-                //    sheet.
+                // 1. Ensure diarization model. Done in `convertAndIsolate` (vs. the Manage Models sheet) because diarization is mandatory + cheap (~50 MB); separator model fetch lives only in the explicit Manage Models sheet.
                 try await self.runDiarizationModelGate(pipeline: pipeline)
                 try Task.checkCancellation()
 
-                // 2. Decide whether separation will actually run
-                //    this pass. If the user asked for it but the
-                //    model isn't installed, fall back to v1 mode
-                //    + set the banner flag — auto-downloading the
-                //    287 MB separator zip would surprise the user.
-                //    Explicit install lives in the Manage Models
-                //    sheet (Commit 8).
+                // 2. Decide whether separation will actually run this pass. If the user asked for it but the model isn't installed, fall back to v1 mode + set the banner flag — auto-downloading the 287 MB separator zip would surprise the user. Explicit install lives in the Manage Models sheet (Commit 8).
                 let separationWillRun: Bool
                 if separationRequested {
                     separationWillRun = await pipeline.isSourceSeparationModelReady()
@@ -77,9 +48,7 @@ extension SpeakerIsolatorViewModel {
                     separationWillRun = false
                 }
 
-                // 3. Load audio at 24 kHz mono (used by the initial
-                //    isolation pass + the revoice pipeline). Pulls
-                //    the videoAsset for later re-mux on video input.
+                // 3. Load audio at 24 kHz mono (used by the initial isolation pass + the revoice pipeline). Pulls the videoAsset for later re-mux on video input.
                 self.setStatus(.loadingAudio)
                 let mono = try await pipeline.loadInput(
                     url: inputURL,
@@ -103,8 +72,7 @@ extension SpeakerIsolatorViewModel {
                     return
                 }
 
-                // 5. Initial isolation from the mono mix. Pure
-                //    stateless math — runs in microseconds.
+                // 5. Initial isolation from the mono mix. Pure stateless math — runs in microseconds.
                 self.setStatus(.isolating)
                 let monoBuffer = AudioBuffer.mono(mono.samples, sampleRate: 24_000)
                 let isolated = pipeline.runIsolationPhase(
@@ -113,13 +81,7 @@ extension SpeakerIsolatorViewModel {
                     preserveSilence: true  // always padded; export honors toggle separately
                 )
 
-                // 6. Publish speakers IMMEDIATELY (diarize-first
-                //    sequencing) so the UI table populates while
-                //    the optional separation phase runs below.
-                //    Background row (mix-derived complement) only
-                //    when we're NOT going to run separation — if
-                //    we are, the music stem replaces it after
-                //    separation completes.
+                // 6. Publish speakers IMMEDIATELY (diarize-first sequencing) so the UI table populates while the optional separation phase runs below. Background row (mix-derived complement) only when we're NOT going to run separation — if we are, the music stem replaces it after separation completes.
                 self.speakers = Self.buildSpeakerRows(
                     isolated: isolated,
                     segments: segments,
@@ -131,24 +93,17 @@ extension SpeakerIsolatorViewModel {
                 )
 
                 // 6b. Bed state: AP-off path stores vocalsBed = the
-                //     mono mix, musicBed = nil. This makes the
-                //     bed-based revoicer behave identically to v1
-                //     for the AP-off case (modify-the-mix per
-                //     speaker action, no separate music to add).
+                //     mono mix, musicBed = nil. This makes the bed-based revoicer behave identically to v1 for the AP-off case (modify-the-mix per speaker action, no separate music to add).
                 self.vocalsBed = monoBuffer
                 self.musicBed = nil
 
                 if !separationWillRun {
-                    // v1 behavior — either the user opted out, no
-                    // separator wired up, or the model isn't
-                    // installed (banner flag was set above).
+                    // v1 behavior — either the user opted out, no separator wired up, or the model isn't installed (banner flag was set above).
                     self.setStatus(.done)
                     return
                 }
 
-                // 7. Load 44.1 kHz stereo for the separator. Two
-                //    loads (mono 24k + stereo 44.1k) is wasteful
-                //    in bytes but cheap in wall-clock.
+                // 7. Load 44.1 kHz stereo for the separator. Two loads (mono 24k + stereo 44.1k) is wasteful in bytes but cheap in wall-clock.
                 let stereo = try await pipeline.loadInput(
                     url: inputURL,
                     targetSampleRate: 44_100,
@@ -156,14 +111,7 @@ extension SpeakerIsolatorViewModel {
                 )
                 try Task.checkCancellation()
 
-                // 8. Run HTDemucs. The separator's chunk-by-chunk
-                //    inference checks `Task.checkCancellation()`
-                //    between chunks; cancellation here is prompt
-                //    (within ~5-8 s = one chunk wall time). The
-                //    progress callback fires per chunk with a
-                //    rolling ETA estimate; we hop back to
-                //    MainActor on each tick to update
-                //    `.separatingSources`.
+                // 8. Run HTDemucs. The separator's chunk-by-chunk inference checks `Task.checkCancellation()` between chunks; cancellation here is prompt (within ~5-8 s = one chunk wall time). The progress callback fires per chunk with a rolling ETA estimate; we hop back to MainActor on each tick to update `.separatingSources`.
                 self.setStatus(.separatingSources(chunk: 0, total: 0, etaSec: nil))
                 let stems = try await pipeline.runSourceSeparationPhase(
                     input: stereo.audioBuffer,
@@ -177,16 +125,7 @@ extension SpeakerIsolatorViewModel {
                 )
                 try Task.checkCancellation()
 
-                // 9. Re-isolate the speaker preview rows from a
-                //    mono downmix of the stereo vocals stem. The
-                //    preview UI (SpeakerTrack.isolatedSamples) is
-                //    still mono [Float] 24 kHz; the stereo vocals
-                //    bed lives separately on the VM (vocalsBed)
-                //    for the final mix. This split keeps the per-
-                //    row preview narrow (downmix is cheap +
-                //    matches the v1 SpeakerTrack contract) while
-                //    the bed-based final mix path uses the full
-                //    stereo stems for 99 % loudness/spectral match.
+                // 9. Re-isolate the speaker preview rows from a mono downmix of the stereo vocals stem. The preview UI (SpeakerTrack.isolatedSamples) is still mono [Float] 24 kHz; the stereo vocals bed lives separately on the VM (vocalsBed) for the final mix. This split keeps the per-row preview narrow (downmix is cheap + matches the v1 SpeakerTrack contract) while the bed-based final mix path uses the full stereo stems for 99 % loudness/spectral match.
                 self.setStatus(.isolating)
                 let vocalsMono24k = try Self.downmixAndResampleForPreview(
                     stems.vocals,
@@ -198,11 +137,7 @@ extension SpeakerIsolatorViewModel {
                     preserveSilence: true
                 )
 
-                // 10. Rebuild speakers from the cleaner vocals
-                //     preview + append the Background row pointing
-                //     at a mono preview of the music stem. The
-                //     stereo beds for the final mix are stored
-                //     separately below.
+                // 10. Rebuild speakers from the cleaner vocals preview + append the Background row pointing at a mono preview of the music stem. The stereo beds for the final mix are stored separately below.
                 let musicMono24k = try Self.downmixAndResampleForPreview(
                     stems.music,
                     targetRate: 24_000
@@ -225,17 +160,7 @@ extension SpeakerIsolatorViewModel {
                     segmentRanges: [],
                     action: .useOriginal
                 ))
-                // Conversion-agent diagnostic: confirm step 7-10
-                // actually ran end-to-end. If this print is missing
-                // from the run log, step 7-10 threw silently somewhere
-                // and the user is staring at the step-6 mix-derived
-                // build (which contains full music underneath every
-                // speaker). RMS values: vocals-stem-derived rows
-                // typically read ~0.005-0.05; mix-derived rows read
-                // higher because they include music. The Background
-                // row's `displayName` is "Background (separated music
-                // + ambient)" here vs "Background (music, SFX,
-                // ambient)" in the step-6 path — a second tell.
+                // Conversion-agent diagnostic: confirm step 7-10 actually ran end-to-end. If this print is missing from the run log, step 7-10 threw silently somewhere and the user is staring at the step-6 mix-derived build (which contains full music underneath every speaker). RMS values: vocals-stem-derived rows typically read ~0.005-0.05; mix-derived rows read higher because they include music. The Background row's `displayName` is "Background (separated music + ambient)" here vs "Background (music, SFX, ambient)" in the step-6 path — a second tell.
                 let firstSpeakerRMS = rebuilt.first.map { row -> Float in
                     let s = row.isolatedSamples
                     guard !s.isEmpty else { return -1 }
@@ -247,12 +172,7 @@ extension SpeakerIsolatorViewModel {
                 self.speakers = rebuilt
 
                 // 10b. Stereo beds for the final mix. The bed-based
-                //      revoicer in MultiSpeakerRevoicer consumes
-                //      these directly — `.useOriginal` keeps the
-                //      bed unchanged (so the all-Original case
-                //      reconstructs to within ~0.66 LU of source),
-                //      `.discard` zeros segmentRanges on vocalsBed,
-                //      `.revoice` zeros + overlays TTS.
+                //      revoicer in MultiSpeakerRevoicer consumes these directly — `.useOriginal` keeps the bed unchanged (so the all-Original case reconstructs to within ~0.66 LU of source), `.discard` zeros segmentRanges on vocalsBed, `.revoice` zeros + overlays TTS.
                 self.vocalsBed = stems.vocals
                 self.musicBed = stems.music
 
@@ -260,21 +180,9 @@ extension SpeakerIsolatorViewModel {
             } catch is CancellationError {
                 self.setStatus(.idle)
             } catch {
-                // Preserve the diarize-first speakers on a mid-pipeline
-                // failure (e.g. the OPTIONAL source-separation step
-                // throwing) instead of wiping them. Losing all the
-                // diarization + isolation work because the optional
-                // separation phase failed is harsh UX — the user keeps the
-                // v1-quality speaker rows (graceful degradation, matching
-                // the Phase 7 soft-fallback spirit). Status is `.error` to
-                // surface the failure.
+                // Preserve the diarize-first speakers on a mid-pipeline failure (e.g. the OPTIONAL source-separation step throwing) instead of wiping them. Losing all the diarization + isolation work because the optional separation phase failed is harsh UX — the user keeps the v1-quality speaker rows (graceful degradation, matching the Phase 7 soft-fallback spirit). Status is `.error` to surface the failure.
                 //
-                // The previous behavior set `speakers = []` + nil beds here
-                // specifically so the user couldn't export mix-derived
-                // (music-under-vocals) rows from a half-finished separation.
-                // With preserve, that concern is handled by gating the
-                // footer's Export / Change Voices actions on `.error`
-                // (SpeakerIsolatorSheet) rather than by discarding the rows.
+                // The previous behavior set `speakers = []` + nil beds here specifically so the user couldn't export mix-derived (music-under-vocals) rows from a half-finished separation. With preserve, that concern is handled by gating the footer's Export / Change Voices actions on `.error` (SpeakerIsolatorSheet) rather than by discarding the rows.
                 self.setStatus(.error(String(describing: error)))
             }
         }
@@ -282,41 +190,22 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - reDiarize
 
-    /// Re-run ONLY speaker detection on the already-processed input, using
-    /// the current `diarizationSettings`, and rebuild the speaker rows —
-    /// without re-running the expensive HTDemucs separation. (The
-    /// diarization phase itself re-reads + re-decodes the source file at
-    /// 16 kHz; what's reused from the last run is the cached isolation
-    /// bed, not the decoded audio.) Backs the panel's "Re-detect
-    /// speakers" action so the user can dial the Speaker Sensitivity
-    /// slider against a live speaker count instead of discarding results
-    /// and re-running the whole pipeline blind.
+    /// Re-run ONLY speaker detection on the already-processed input, using the current `diarizationSettings`, and rebuild the speaker rows — without re-running the expensive HTDemucs separation. (The diarization phase itself re-reads + re-decodes the source file at 16 kHz; what's reused from the last run is the cached isolation bed, not the decoded audio.) Backs the panel's "Re-detect speakers" action so the user can dial the Speaker Sensitivity slider against a live speaker count instead of discarding results and re-running the whole pipeline blind.
     ///
-    /// Only available from `.done`: a run that ended in `.error` after a
-    /// mid-pipeline separation failure deliberately keeps that status to
-    /// gate the footer's Export / Change Voices actions on mix-derived
-    /// (music-under-vocals) rows — re-detecting from that state would
-    /// flip it to `.done` and silently un-gate them.
+    /// Only available from `.done`: a run that ended in `.error` after a mid-pipeline separation failure deliberately keeps that status to gate the footer's Export / Change Voices actions on mix-derived (music-under-vocals) rows — re-detecting from that state would flip it to `.done` and silently un-gate them.
     ///
     /// Reuses the beds cached by the last `convertAndIsolate`:
-    ///   * AP-off — `vocalsBed` is the mono mix; re-isolate from it and
-    ///     rebuild the mix-derived Background row (its complement shifts
-    ///     with the new segment boundaries).
-    ///   * AP-on  — `vocalsBed` is the stereo vocals stem; re-isolate from
-    ///     a mono downmix and keep the (unchanged) separated-music
-    ///     Background row verbatim.
+    ///   * AP-off — `vocalsBed` is the mono mix; re-isolate from it and rebuild the mix-derived Background row (its complement shifts with the new segment boundaries).
+    ///   * AP-on  — `vocalsBed` is the stereo vocals stem; re-isolate from a mono downmix and keep the (unchanged) separated-music Background row verbatim.
     ///
-    /// Per-row actions reset to `.useOriginal`: the diarizer's speaker IDs
-    /// are not stable across runs, so a fresh SPEAKER_NN labelling can't
-    /// carry the old per-speaker voice choices.
+    /// Per-row actions reset to `.useOriginal`: the diarizer's speaker IDs are not stable across runs, so a fresh SPEAKER_NN labelling can't carry the old per-speaker voice choices.
     func reDiarize() {
         guard status.isDone, !speakers.isEmpty else { return }
         guard let url = inputAudioURL, let vocalsBed = self.vocalsBed else { return }
         let settings = self.diarizationSettings
         let pipeline = self.pipeline
         let musicBedPresent = self.musicBed != nil
-        // The unchanged separated-music Background row (AP-on only), kept
-        // verbatim so re-detection doesn't recompute the music preview.
+        // The unchanged separated-music Background row (AP-on only), kept verbatim so re-detection doesn't recompute the music preview.
         let existingBackground = self.speakers.first { $0.isBackground }
         let totalDuration = self.inputDurationSec
 
@@ -334,8 +223,7 @@ extension SpeakerIsolatorViewModel {
                 }
 
                 self.setStatus(.isolating)
-                // Mono 24 kHz preview source: identity for the AP-off mono
-                // mix, (L+R)/2 + resample for the AP-on stereo vocals stem.
+                // Mono 24 kHz preview source: identity for the AP-off mono mix, (L+R)/2 + resample for the AP-on stereo vocals stem.
                 let mono24k = try Self.downmixAndResampleForPreview(vocalsBed, targetRate: 24_000)
                 let monoBuffer = AudioBuffer.mono(mono24k, sampleRate: 24_000)
                 let isolated = pipeline.runIsolationPhase(
@@ -350,18 +238,12 @@ extension SpeakerIsolatorViewModel {
                     pipeline: pipeline,
                     includeMixDerivedBackground: !musicBedPresent
                 )
-                // AP-on: re-append the unchanged music-stem Background row,
-                // resetting its action to match the fresh detection.
+                // AP-on: re-append the unchanged music-stem Background row, resetting its action to match the fresh detection.
                 if musicBedPresent, var bg = existingBackground {
                     bg.action = .useOriginal
                     rebuilt.append(bg)
                 }
-                // Fresh detection recycles the same SPEAKER_NN ids for
-                // different audio (the SDK's speaker DB resets per run),
-                // so stale playback/expansion state would re-attach to
-                // the new rows — a row the user was previewing would
-                // auto-play a DIFFERENT speaker's audio. Clear both,
-                // exactly like clearResults().
+                // Fresh detection recycles the same SPEAKER_NN ids for different audio (the SDK's speaker DB resets per run), so stale playback/expansion state would re-attach to the new rows — a row the user was previewing would auto-play a DIFFERENT speaker's audio. Clear both, exactly like clearResults().
                 self.playingSpeakerID = nil
                 self.expandedSpeakerID = nil
                 self.speakers = rebuilt
@@ -376,8 +258,7 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - Model gates
 
-    /// Ensure the diarization model is on disk; surfaces download
-    /// progress through `.downloadingModels(progress:)`.
+    /// Ensure the diarization model is on disk; surfaces download progress through `.downloadingModels(progress:)`.
     private func runDiarizationModelGate(
         pipeline: SpeakerIsolatorPipeline
     ) async throws {
@@ -395,20 +276,9 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - Speaker-row construction
 
-    /// Build the `SpeakerTrack` array from one isolation pass + the
-    /// segment metadata. Optionally appends a mix-derived Background
-    /// row (the complement-of-all-speaker-ranges buffer); when
-    /// source separation is going to run, the caller passes
-    /// `includeMixDerivedBackground: false` because the music stem
-    /// will become the Background row after separation completes.
+    /// Build the `SpeakerTrack` array from one isolation pass + the segment metadata. Optionally appends a mix-derived Background row (the complement-of-all-speaker-ranges buffer); when source separation is going to run, the caller passes `includeMixDerivedBackground: false` because the music stem will become the Background row after separation completes.
     ///
-    /// The `isolated` tuples carry `AudioBuffer`s (per the new
-    /// AudioBuffer-aware `runIsolationPhase`); each one is unwrapped
-    /// to mono samples here for the preview UI's `[Float]`-typed
-    /// `SpeakerTrack.isolatedSamples` contract. Stereo-input isolation
-    /// gets downmixed via `downmixedToMono()` before being stored as
-    /// the preview row — the stereo beds for the final mix live on
-    /// the VM separately (`vocalsBed` / `musicBed`).
+    /// The `isolated` tuples carry `AudioBuffer`s (per the new AudioBuffer-aware `runIsolationPhase`); each one is unwrapped to mono samples here for the preview UI's `[Float]`-typed `SpeakerTrack.isolatedSamples` contract. Stereo-input isolation gets downmixed via `downmixedToMono()` before being stored as the preview row — the stereo beds for the final mix live on the VM separately (`vocalsBed` / `musicBed`).
     nonisolated static func buildSpeakerRows(
         isolated: [(speakerID: String, samples: AudioBuffer)],
         segments: [DiarizedSegment],
@@ -423,9 +293,7 @@ extension SpeakerIsolatorViewModel {
             let mySegs = segments.filter { $0.speakerID == item.speakerID }
             let dur = mySegs.reduce(0.0) { $0 + $1.durationSec }
             let ranges = mySegs.map { $0.startSec...$0.endSec }
-            // Preview row format: mono [Float]. Downmix the isolated
-            // AudioBuffer to mono (no-op for mono input, (L+R)/2 for
-            // stereo). Sample rate flows through from the input.
+            // Preview row format: mono [Float]. Downmix the isolated AudioBuffer to mono (no-op for mono input, (L+R)/2 for stereo). Sample rate flows through from the input.
             let monoBuffer = item.samples.downmixedToMono()
             let previewSamples: [Float]
             if case let .mono(s) = monoBuffer.channels {
@@ -451,8 +319,7 @@ extension SpeakerIsolatorViewModel {
             totalDurationSec: totalDurationSec
            ) {
             let bgDur = bg.ranges.reduce(0.0) { $0 + ($1.upperBound - $1.lowerBound) }
-            // bg.samples is now an AudioBuffer (mono since the input
-            // was mono); unwrap to [Float] for the preview row.
+            // bg.samples is now an AudioBuffer (mono since the input was mono); unwrap to [Float] for the preview row.
             let bgMono: [Float]
             if case let .mono(s) = bg.samples.channels {
                 bgMono = s
@@ -474,17 +341,9 @@ extension SpeakerIsolatorViewModel {
 
     // MARK: - Preview downmix helper
 
-    /// Downmix a stereo AudioBuffer to mono + resample to
-    /// `targetRate` for use in the preview UI's mono-only
-    /// `SpeakerTrack.isolatedSamples` field. Used by step 9-10 of
-    /// `convertAndIsolate` to turn the stereo HTDemucs stems into
-    /// preview-friendly mono buffers WITHOUT touching the stereo
-    /// beds stored on the VM (those are still used for the final
-    /// mix; this helper only feeds the UI's per-row mini-player).
+    /// Downmix a stereo AudioBuffer to mono + resample to `targetRate` for use in the preview UI's mono-only `SpeakerTrack.isolatedSamples` field. Used by step 9-10 of `convertAndIsolate` to turn the stereo HTDemucs stems into preview-friendly mono buffers WITHOUT touching the stereo beds stored on the VM (those are still used for the final mix; this helper only feeds the UI's per-row mini-player).
     ///
-    /// Accepts mono OR stereo input — production stems are stereo
-    /// 44.1 kHz; mock separators in tests may produce mono. Mono
-    /// inputs skip the downmix; stereo inputs do `(L+R)/2`.
+    /// Accepts mono OR stereo input — production stems are stereo 44.1 kHz; mock separators in tests may produce mono. Mono inputs skip the downmix; stereo inputs do `(L+R)/2`.
     nonisolated static func downmixAndResampleForPreview(
         _ stem: AudioBuffer,
         targetRate: Int
@@ -494,13 +353,7 @@ extension SpeakerIsolatorViewModel {
         case let .mono(samples):
             mono = samples
         case let .stereo(left, right):
-            // (L+R)/2 mono downmix. Cheap and matches AudioBuffer's
-            // `downmixedToMono`. Mono of vocals stem barely loses level
-            // (vocals are mostly center-panned); mono of music stem
-            // loses ~3 dB on uncorrelated stereo content but that's
-            // fine for the preview row — the final mix uses the
-            // stereo bed directly via
-            // `MultiSpeakerRevoicer.revoice(vocalsBed:...)`.
+            // (L+R)/2 mono downmix. Cheap and matches AudioBuffer's `downmixedToMono`. Mono of vocals stem barely loses level (vocals are mostly center-panned); mono of music stem loses ~3 dB on uncorrelated stereo content but that's fine for the preview row — the final mix uses the stereo bed directly via `MultiSpeakerRevoicer.revoice(vocalsBed:...)`.
             var buf = [Float](repeating: 0, count: left.count)
             for i in 0..<left.count {
                 buf[i] = (left[i] + right[i]) * 0.5

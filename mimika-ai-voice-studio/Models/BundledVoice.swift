@@ -6,9 +6,7 @@
 import Foundation
 
 // MARK: - VoiceType
-// Two flavors: predefined (the 7 stock Kyutai voices) and custom (the 27 user-cloned
-// voices already encoded via scripts/encode_custom_voices.py in the conversion project).
-// Voices are surfaced uniformly to UI code — the type is only used for badge / sort.
+// Two flavors: predefined (the 7 stock Kyutai voices) and custom (the 27 user-cloned voices already encoded via scripts/encode_custom_voices.py in the conversion project). Voices are surfaced uniformly to UI code — the type is only used for badge / sort.
 
 enum VoiceType: String, Codable, Hashable {
     case predefined
@@ -16,10 +14,7 @@ enum VoiceType: String, Codable, Hashable {
 }
 
 // MARK: - BundledVoice
-// Lightweight catalog entry. Source of truth for v1 is the set of `<id>.safetensors`
-// files in Resources/voice_kv_states/ — VoiceLoader.loadAll() builds this catalog
-// dynamically from the bundled files, classifying each id as predefined/custom by
-// membership in `BundledVoice.stockIDs`.
+// Lightweight catalog entry. Source of truth for v1 is the set of `<id>.safetensors` files in Resources/voice_kv_states/ — VoiceLoader.loadAll() builds this catalog dynamically from the bundled files, classifying each id as predefined/custom by membership in `BundledVoice.stockIDs`.
 
 nonisolated struct BundledVoice: Identifiable, Codable, Hashable, Sendable {
     let id: String
@@ -52,8 +47,7 @@ nonisolated struct BundledVoice: Identifiable, Codable, Hashable, Sendable {
     }
 
     // MARK: - Stock catalog
-    // The seven voices Kyutai ships with the open `pocket-tts-without-voice-cloning`
-    // weights. Anything else found in Resources/voice_kv_states/ is treated as custom.
+    // The seven voices Kyutai ships with the open `pocket-tts-without-voice-cloning` weights. Anything else found in Resources/voice_kv_states/ is treated as custom.
 
     static let stockIDs: Set<String> = [
         "alba", "azelma", "cosette", "fantine", "javert", "jean", "marius"
@@ -63,8 +57,7 @@ nonisolated struct BundledVoice: Identifiable, Codable, Hashable, Sendable {
         stockIDs.contains(id) ? .predefined : .custom
     }
 
-    // Turn "lt_cmdr_data" → "Lt Cmdr Data" for display. Custom voices that came
-    // from the Electron app's voice-cloning UI tend to have snake_case ids.
+    // Turn "lt_cmdr_data" → "Lt Cmdr Data" for display. Custom voices that came from the Electron app's voice-cloning UI tend to have snake_case ids.
     private static func displayName(forID id: String) -> String {
         id.split(separator: "_")
             .map { $0.prefix(1).uppercased() + $0.dropFirst() }
@@ -74,8 +67,6 @@ nonisolated struct BundledVoice: Identifiable, Codable, Hashable, Sendable {
 
 // MARK: - Default
 extension BundledVoice {
-    /// The default voice for Phase 0c / first launch. `cosette` is the voice the
-    /// PoC end-to-end audio was validated with; downstream phases will persist
-    /// the user's last selection.
+    /// The default voice for Phase 0c / first launch. `cosette` is the voice the PoC end-to-end audio was validated with; downstream phases will persist the user's last selection.
     static let `default` = BundledVoice(predefined: "cosette")
 }

@@ -6,14 +6,9 @@
 import Foundation
 
 // MARK: - LoadedVoice
-// A voice's precomputed CaLM KV cache plus its valid-position count. Both K
-// and V are stored per layer as flat fp16 arrays sized to `maxSeq * nHeads * dHead`.
-// Slots beyond `tVoice` are zero (either by construction in the padded-export
-// format, or zero-filled here for the v1.5 trimmed format).
+// A voice's precomputed CaLM KV cache plus its valid-position count. Both K and V are stored per layer as flat fp16 arrays sized to `maxSeq * nHeads * dHead`. Slots beyond `tVoice` are zero (either by construction in the padded-export format, or zero-filled here for the v1.5 trimmed format).
 //
-// Memory: 12 layers × MAX_SEQ * 16 * 64 × Float16 = 12 × 1 MB = 12 MB per voice.
-// With 34 voices loaded eagerly that's ~408 MB resident — fine; matches the
-// padded on-disk size and avoids any IO during synthesize().
+// Memory: 12 layers × MAX_SEQ * 16 * 64 × Float16 = 12 × 1 MB = 12 MB per voice. With 34 voices loaded eagerly that's ~408 MB resident — fine; matches the padded on-disk size and avoids any IO during synthesize().
 
 struct LoadedVoice: Sendable {
     let id: String
@@ -23,10 +18,7 @@ struct LoadedVoice: Sendable {
 }
 
 // MARK: - VoiceLoader
-// Pure-Swift safetensors parser specialized for the voice KV files produced by
-// `05_export_voice_kv_states.py`. We don't pull in a general-purpose safetensors
-// crate because (a) there's no first-party Swift one and (b) the layout we need
-// to read is rigid and tiny — 12 named tensors plus one JSON metadata blob.
+// Pure-Swift safetensors parser specialized for the voice KV files produced by `05_export_voice_kv_states.py`. We don't pull in a general-purpose safetensors crate because (a) there's no first-party Swift one and (b) the layout we need to read is rigid and tiny — 12 named tensors plus one JSON metadata blob.
 //
 // safetensors layout (https://github.com/huggingface/safetensors):
 //   bytes 0..7   : uint64 little-endian header length N
@@ -73,10 +65,7 @@ nonisolated enum VoiceLoader {
     static let nHeads = 16
     static let dHead = 64
     static let maxSeq = 512
-    /// Model's hard text-prompt token limit (T_TEXT_MAX). Mirrors
-    /// `K.tTextMax` in TTSEngine.swift (file-private there); used only
-    /// to bound `T_voice` so prompt_phase can never be asked to write
-    /// `tVoice + textLen` past the `maxSeq`-slot state.
+    /// Model's hard text-prompt token limit (T_TEXT_MAX). Mirrors `K.tTextMax` in TTSEngine.swift (file-private there); used only to bound `T_voice` so prompt_phase can never be asked to write `tVoice + textLen` past the `maxSeq`-slot state.
     static let tTextMax = 128
 
     /// Slot count per (K or V) buffer when laid out flat.
@@ -84,11 +73,7 @@ nonisolated enum VoiceLoader {
 
     // MARK: - API
 
-    /// Load one voice file from disk. Accepts both the padded shape
-    /// `[1, maxSeq, 16, 64]` (current export) and the trimmed shape
-    /// `[1, T_voice, 16, 64]` (v1.5 export). In the trimmed case, the
-    /// returned buffer is zero-filled beyond `T_voice` so downstream code
-    /// always sees a full-length buffer.
+    /// Load one voice file from disk. Accepts both the padded shape `[1, maxSeq, 16, 64]` (current export) and the trimmed shape `[1, T_voice, 16, 64]` (v1.5 export). In the trimmed case, the returned buffer is zero-filled beyond `T_voice` so downstream code always sees a full-length buffer.
     static func loadVoice(from url: URL) throws -> LoadedVoice {
         let data: Data
         do {
@@ -125,13 +110,7 @@ nonisolated enum VoiceLoader {
             throw VoiceLoaderError.badMetadata(url, "T_voice missing or not an integer")
         }
 
-        // Defensive bound: the voice prefix shares the maxSeq-slot K/V
-        // window with the text prompt (up to tTextMax tokens) and the
-        // generated frames. A corrupt / hand-edited header claiming a
-        // larger prefix would make prompt_phase write outside the state
-        // buffer — undefined on every compute unit, hard abort on the
-        // ANE. Legit exports are ≤200 (PocketTTSVoiceEncoder.tVoiceMax);
-        // the bound here is the structural ceiling, not the product cap.
+        // Defensive bound: the voice prefix shares the maxSeq-slot K/V window with the text prompt (up to tTextMax tokens) and the generated frames. A corrupt / hand-edited header claiming a larger prefix would make prompt_phase write outside the state buffer — undefined on every compute unit, hard abort on the ANE. Legit exports are ≤200 (PocketTTSVoiceEncoder.tVoiceMax); the bound here is the structural ceiling, not the product cap.
         let tVoiceLimit = maxSeq - tTextMax
         guard tVoice > 0, tVoice <= tVoiceLimit else {
             throw VoiceLoaderError.badMetadata(url, "T_voice \(tVoice) outside valid range 1...\(tVoiceLimit)")
@@ -148,12 +127,7 @@ nonisolated enum VoiceLoader {
             vCaches.append(try readBuffer(name: "kv_v_\(i)", header: json, source: data, dataStart: dataStart, url: url))
         }
 
-        // Reject a dead (all-zero) KV — the on-disk signature of the
-        // macOS 27 GPU bake failure (see PocketTTSVoiceEncoder's
-        // read-back validation). Conditioning on an empty prefix
-        // synthesizes identity-less garble with no EOS; a clear error
-        // beats that, and tells the user the voice needs re-importing.
-        // Healthy voices short-circuit on their first non-zero value.
+        // Reject a dead (all-zero) KV — the on-disk signature of the macOS 27 GPU bake failure (see PocketTTSVoiceEncoder's read-back validation). Conditioning on an empty prefix synthesizes identity-less garble with no EOS; a clear error beats that, and tells the user the voice needs re-importing. Healthy voices short-circuit on their first non-zero value.
         let allZero = kCaches.allSatisfy { buf in !buf.contains { $0 != 0 } }
             && vCaches.allSatisfy { buf in !buf.contains { $0 != 0 } }
         if allZero {
@@ -166,9 +140,7 @@ nonisolated enum VoiceLoader {
         return LoadedVoice(id: id, tVoice: tVoice, kCaches: kCaches, vCaches: vCaches)
     }
 
-    /// Load every `<id>.safetensors` discovered in `Resources/voice_kv_states/`.
-    /// Returns a `[VoiceID: LoadedVoice]` map ready to be held by the engine
-    /// for the lifetime of the app.
+    /// Load every `<id>.safetensors` discovered in `Resources/voice_kv_states/`. Returns a `[VoiceID: LoadedVoice]` map ready to be held by the engine for the lifetime of the app.
     static func loadAll() throws -> [String: LoadedVoice] {
         let urls = try ModelPaths.allVoiceKVStateFiles()
         var out: [String: LoadedVoice] = [:]
@@ -182,9 +154,7 @@ nonisolated enum VoiceLoader {
 
     // MARK: - Helpers
 
-    /// Read one fp16 tensor named `name` and return a flat `[Float16]` of length
-    /// `bufferLength` (= maxSeq * nHeads * dHead), zero-filling beyond `tVoice` if
-    /// the on-disk tensor was stored in the trimmed shape.
+    /// Read one fp16 tensor named `name` and return a flat `[Float16]` of length `bufferLength` (= maxSeq * nHeads * dHead), zero-filling beyond `tVoice` if the on-disk tensor was stored in the trimmed shape.
     private static func readBuffer(
         name: String,
         header: [String: Any],

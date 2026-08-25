@@ -2,15 +2,9 @@
 //  EnsembleViewModel+Export.swift
 //  mimika-ai-voice-studio
 //
-//  Phase 6 — export + history. Render the finished episode as a {Name}-tagged
-//  Multi-Talk script, then either open it in the Multi-Talk tab (reuses that
-//  tab's render/export — no new audio code) or save it to History. Export tags
-//  are disambiguated per speaker so duplicate/blank names don't collapse into
-//  one voice, and an episode that's empty after stage-direction stripping can't
-//  be saved.
+//  Phase 6 — export + history. Render the finished episode as a {Name}-tagged Multi-Talk script, then either open it in the Multi-Talk tab (reuses that tab's render/export — no new audio code) or save it to History. Export tags are disambiguated per speaker so duplicate/blank names don't collapse into one voice, and an episode that's empty after stage-direction stripping can't be saved.
 //
-//  WP-CAST-1 also lives here: portable cast JSON export/import (NSSavePanel /
-//  NSOpenPanel), since the file-panel plumbing matches transcript save.
+//  WP-CAST-1 also lives here: portable cast JSON export/import (NSSavePanel / NSOpenPanel), since the file-panel plumbing matches transcript save.
 //
 
 import AppKit
@@ -19,8 +13,7 @@ import UniformTypeIdentifiers
 
 extension EnsembleViewModel {
 
-    /// True when at least one turn survives stage-direction stripping — i.e. the
-    /// rendered Multi-Talk transcript won't be empty.
+    /// True when at least one turn survives stage-direction stripping — i.e. the rendered Multi-Talk transcript won't be empty.
     var canExport: Bool {
         let strip = appState.chatSettings.activeBackend == .pocketTTS
         return turns.contains {
@@ -40,10 +33,7 @@ extension EnsembleViewModel {
         )
     }
 
-    /// Pure renderer (static for testing). `label` maps each turn to its unique
-    /// Multi-Talk tag (cast by UUID, user by the name stored on the turn so
-    /// multi-character aliases stay distinct). Emoji are stripped — Multi-Talk
-    /// revoice uses the same TTS path that chokes on them.
+    /// Pure renderer (static for testing). `label` maps each turn to its unique Multi-Talk tag (cast by UUID, user by the name stored on the turn so multi-character aliases stay distinct). Emoji are stripped — Multi-Talk revoice uses the same TTS path that chokes on them.
     static func formatMultiTalkScript(
         turns: [EnsembleTurn],
         label: (EnsembleTurn) -> String,
@@ -51,8 +41,7 @@ extension EnsembleViewModel {
     ) -> String {
         var lines: [String] = []
         for turn in turns {
-            // Scene beats (boot deaths, etc.) stay in the Ensemble transcript
-            // for the models; Multi-Talk only wants spoken cast/user lines.
+            // Scene beats (boot deaths, etc.) stay in the Ensemble transcript for the models; Multi-Talk only wants spoken cast/user lines.
             if turn.isSceneBeat { continue }
             let cleaned = TextNormalizer.stripEmojis(
                 TextNormalizer.stripStageDirections(turn.content, stripBracketedTags: stripBrackets)
@@ -64,8 +53,7 @@ extension EnsembleViewModel {
         return lines.joined(separator: "\n")
     }
 
-    /// Display names the human spoke as in this episode (order of first
-    /// appearance). Drives the Multi-Talk voice-map sheet.
+    /// Display names the human spoke as in this episode (order of first appearance). Drives the Multi-Talk voice-map sheet.
     func distinctUserSpeakerNamesInTranscript() -> [String] {
         var names: [String] = []
         var seen = Set<String>()
@@ -79,9 +67,7 @@ extension EnsembleViewModel {
         return names
     }
 
-    /// Seed `multiTalkUserVoiceDraft` for every user character in the transcript.
-    /// Returns `true` when the map sheet should open (there is at least one
-    /// human line to assign a voice to).
+    /// Seed `multiTalkUserVoiceDraft` for every user character in the transcript. Returns `true` when the map sheet should open (there is at least one human line to assign a voice to).
     @discardableResult
     func prepareMultiTalkVoiceMap() -> Bool {
         let names = distinctUserSpeakerNamesInTranscript()
@@ -104,16 +90,9 @@ extension EnsembleViewModel {
         return true
     }
 
-    /// Unique export tag per DISTINCT speaker (live cast + **booted** archive +
-    /// each human character name that appears on a user turn), disambiguating
-    /// duplicate/blank names so two "Alex"s — or a user sharing a cast name —
-    /// each map to their own Multi-Talk voice.
+    /// Unique export tag per DISTINCT speaker (live cast + **booted** archive + each human character name that appears on a user turn), disambiguating duplicate/blank names so two "Alex"s — or a user sharing a cast name — each map to their own Multi-Talk voice.
     ///
-    /// `userVoiceMap` is keyed by the human's display name on the turn (e.g.
-    /// "John", "Data"); missing keys fall back to name-matched saved voices,
-    /// then unused stock. Boot removes speakers from the live cast for the run
-    /// loop, but their past turns still carry their UUID — without the archive
-    /// those IDs fell through to the user label (or Multi-Talk's default stock).
+    /// `userVoiceMap` is keyed by the human's display name on the turn (e.g. "John", "Data"); missing keys fall back to name-matched saved voices, then unused stock. Boot removes speakers from the live cast for the run loop, but their past turns still carry their UUID — without the archive those IDs fell through to the user label (or Multi-Talk's default stock).
     func exportLabels(userVoiceMap: [String: String] = [:]) -> (
         label: (EnsembleTurn) -> String,
         speakers: [SpeakerRef]
@@ -147,8 +126,7 @@ extension EnsembleViewModel {
             refs.append(SpeakerRef(name: tag, voiceID: persona.voiceID))
         }
 
-        // Orphan turn speakers (shouldn't happen if boot archives correctly —
-        // recover by name from the turn so we still never collapse to "You"/alba).
+        // Orphan turn speakers (shouldn't happen if boot archives correctly — recover by name from the turn so we still never collapse to "You"/alba).
         for turn in turns {
             guard let id = turn.speakerID, !turn.isSceneBeat, idToLabel[id] == nil else { continue }
             let tag = unique(turn.speakerName)
@@ -156,8 +134,7 @@ extension EnsembleViewModel {
             refs.append(SpeakerRef(name: tag, voiceID: CastPackageBuilder.defaultVoiceID))
         }
 
-        // One Multi-Talk speaker per human alias that actually spoke (not just
-        // the current userPeer name — multi-character lines keep their tags).
+        // One Multi-Talk speaker per human alias that actually spoke (not just the current userPeer name — multi-character lines keep their tags).
         var userKeyToLabel: [String: String] = [:]
         var excludingVoices = Set(refs.map(\.voiceID))
         for display in distinctUserSpeakerNamesInTranscript() {
@@ -187,9 +164,7 @@ extension EnsembleViewModel {
         return (label, refs)
     }
 
-    /// Default voice for a human character: name-matched saved voice if free,
-    /// else first unused stock, else package default. Never share a cast member's
-    /// voiceID (shared IDs collapse Multi-Talk card identity).
+    /// Default voice for a human character: name-matched saved voice if free, else first unused stock, else package default. Never share a cast member's voiceID (shared IDs collapse Multi-Talk card identity).
     func defaultUserExportVoiceID(for displayName: String, excluding: Set<String>) -> String {
         let requirePocketKV = appState.chatSettings.activeBackend == .pocketTTS
         if let match = VoiceManager.shared.voices.first(where: {
@@ -210,9 +185,7 @@ extension EnsembleViewModel {
         return trimmed.isEmpty ? "You" : trimmed
     }
 
-    /// Open this episode in the Multi-Talk tab (reuses its render/export path).
-    /// Pass `userVoiceMap` from the map sheet so each human character lands on
-    /// a real stock/custom voice instead of an unused-stock fallback (often alba).
+    /// Open this episode in the Multi-Talk tab (reuses its render/export path). Pass `userVoiceMap` from the map sheet so each human character lands on a real stock/custom voice instead of an unused-stock fallback (often alba).
     func openInMultiTalk(userVoiceMap: [String: String] = [:]) {
         let map = userVoiceMap.isEmpty ? multiTalkUserVoiceDraft : userVoiceMap
         let labels = exportLabels(userVoiceMap: map)
@@ -221,14 +194,11 @@ extension EnsembleViewModel {
             stripBrackets: appState.chatSettings.activeBackend == .pocketTTS
         )
         guard !script.isEmpty else { return }
-        // Keep character names as Multi-Talk card labels (John / Data / …),
-        // not generic "Speaker N" — the map sheet is the user-authored roster.
+        // Keep character names as Multi-Talk card labels (John / Data / …), not generic "Speaker N" — the map sheet is the user-authored roster.
         appState.queueReuse(.multi(script: script, speakers: labels.speakers, normalizeSpeakers: false))
     }
 
-    /// Save the episode so it appears in History (+ the Ensemble session store).
-    /// Uses the session voice draft when present so a prior Multi-Talk map is
-    /// honored; otherwise auto-defaults per character name.
+    /// Save the episode so it appears in History (+ the Ensemble session store). Uses the session voice draft when present so a prior Multi-Talk map is honored; otherwise auto-defaults per character name.
     func saveEpisodeToHistory() {
         guard let ctx = appState.modelContext else { return }
         let labels = exportLabels(userVoiceMap: multiTalkUserVoiceDraft)
@@ -245,9 +215,7 @@ extension EnsembleViewModel {
 
     // MARK: - Markdown transcript (parity with Solo's "Save transcript")
 
-    /// Save the transcript as a Markdown file — real speaker names, FULL content
-    /// (stage directions preserved, for the user's records), matching Solo's
-    /// `ChatViewModel.saveTranscript`.
+    /// Save the transcript as a Markdown file — real speaker names, FULL content (stage directions preserved, for the user's records), matching Solo's `ChatViewModel.saveTranscript`.
     func saveTranscript() {
         let panel = NSSavePanel()
         panel.title = "Save Ensemble Transcript"
@@ -262,11 +230,7 @@ extension EnsembleViewModel {
         }
     }
 
-    /// `**Name**:` blocks separated by `---`, with an optional scene/mood header.
-    /// Stage directions are kept for the record; emoji are stripped (same as
-    /// Multi-Talk — they only add noise in a saved transcript and blow up
-    /// re-synthesis if the file is reused). Names come from exportLabels so
-    /// duplicates stay distinct.
+    /// `**Name**:` blocks separated by `---`, with an optional scene/mood header. Stage directions are kept for the record; emoji are stripped (same as Multi-Talk — they only add noise in a saved transcript and blow up re-synthesis if the file is reused). Names come from exportLabels so duplicates stay distinct.
     func formatTranscriptMarkdown() -> String {
         let label = exportLabels(userVoiceMap: multiTalkUserVoiceDraft).label
         var out = ""
@@ -356,8 +320,7 @@ extension EnsembleViewModel {
         )
     }
 
-    /// Replace the live cast from a decoded package. Throws if personas empty
-    /// or `formatVersion` is newer than this app understands.
+    /// Replace the live cast from a decoded package. Throws if personas empty or `formatVersion` is newer than this app understands.
     func applyImportedPackage(_ package: CastPackage) throws {
         guard package.formatVersion <= CastPackage.currentFormatVersion else {
             showNotice("Cast file is from a newer app version (format \(package.formatVersion))")
@@ -368,6 +331,7 @@ extension EnsembleViewModel {
             throw CastImportError.emptyPersonas
         }
         stop()
+        detachAfterFlushingCurrentThread()
         let available = availableVoiceIDs()
         var remapped = 0
         let sorted = package.personas.sorted { $0.sortOrder < $1.sortOrder }

@@ -2,10 +2,7 @@
 //  ConductorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Pure turn-taking logic: mention override, word-boundary detection,
-//  weighted-random selection, last-speaker exclusion, and round-robin cycling.
-//  Conductor is nonisolated so these run without the main actor; randomness is
-//  pinned with a seeded generator for determinism.
+//  Pure turn-taking logic: mention override, word-boundary detection, weighted-random selection, last-speaker exclusion, and round-robin cycling. Conductor is nonisolated so these run without the main actor; randomness is pinned with a seeded generator for determinism.
 //
 
 import XCTest
@@ -159,8 +156,7 @@ final class ConductorTests: XCTestCase {
             EnsembleTurn(speakerID: b.id, speakerName: "Bertrand", content: "And you, Ada?"),
             EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "Back to you, Bertrand."),
         ]
-        // Without the carve-out the mention to Bertrand wins every time; with it,
-        // pickNext falls to weighted-random (excluding Ada) → Cosette is reachable.
+        // Without the carve-out the mention to Bertrand wins every time; with it, pickNext falls to weighted-random (excluding Ada) → Cosette is reachable.
         var sawCosette = false
         for seed in UInt64(0)..<64 {
             var gen = SeededGenerator(seed: seed)

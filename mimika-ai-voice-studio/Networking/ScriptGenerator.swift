@@ -2,9 +2,7 @@
 //  ScriptGenerator.swift
 //  mimika-ai-voice-studio
 //
-//  Ephemeral helper that drives an LLM call to generate a script for
-//  Single Voice or Multi-Talk. Owned by ScriptGeneratorModal via @State;
-//  dies when the modal closes.
+//  Ephemeral helper that drives an LLM call to generate a script for Single Voice or Multi-Talk. Owned by ScriptGeneratorModal via @State; dies when the modal closes.
 
 import Foundation
 import Observation
@@ -66,10 +64,7 @@ final class ScriptGenerator {
         status = .generating
         preview = ""
 
-        // The active SystemPrompt's content (from SwiftData) is now the
-        // source of truth. For multi-talk we still rewrite the
-        // `{Speaker N}` / "speaker count" placeholders against the
-        // current speaker-count picker.
+        // The active SystemPrompt's content (from SwiftData) is now the source of truth. For multi-talk we still rewrite the `{Speaker N}` / "speaker count" placeholders against the current speaker-count picker.
         let systemPrompt = mode == .multiTalk
             ? systemPromptContent
                 .replacingOccurrences(of: "{Speaker N}", with: "{Speaker \(speakerCount)}")

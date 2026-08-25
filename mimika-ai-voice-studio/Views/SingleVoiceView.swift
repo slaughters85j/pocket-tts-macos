@@ -2,9 +2,7 @@
 //  SingleVoiceView.swift
 //  mimika-ai-voice-studio
 //
-//  Ports Electron's Single Voice tab. Two-column layout: 380pt sidebar
-//  (voice picker, synthesize button, status, audio player) + flex-1
-//  text editor.
+//  Ports Electron's Single Voice tab. Two-column layout: 380pt sidebar (voice picker, synthesize button, status, audio player) + flex-1 text editor.
 
 import SwiftUI
 import SwiftData
@@ -14,10 +12,7 @@ struct SingleVoiceView: View {
     let voices: [BundledVoice]
     @Binding var pendingReuse: PendingReuse?
     @Binding var chatSettings: ChatSettings
-    /// Set true to open the Voice Changer sheet (audio-in → re-voice
-    /// with one of the available voices). Bound to
-    /// `AppState.showsVoiceChanger` so the same flag is toggled by the
-    /// File menu shortcut (⌥⌘V).
+    /// Set true to open the Voice Changer sheet (audio-in → re-voice with one of the available voices). Bound to `AppState.showsVoiceChanger` so the same flag is toggled by the File menu shortcut (⌥⌘V).
     @Binding var showsVoiceChanger: Bool
     @Environment(\.modelContext) private var modelContext
 
@@ -26,12 +21,7 @@ struct SingleVoiceView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack(alignment: .top, spacing: Theme.space6) {
-                // Left sidebar — config panels scroll, primary action is
-                // pinned. Synthesize + status + result player live in a fixed
-                // footer so they stay on screen no matter how tall the
-                // scrolling content grows on a short window; the secondary
-                // "Change Voice" action scrolls with the config. The editor on
-                // the right scrolls internally via its own NSScrollView.
+                // Left sidebar — config panels scroll, primary action is pinned. Synthesize + status + result player live in a fixed footer so they stay on screen no matter how tall the scrolling content grows on a short window; the secondary "Change Voice" action scrolls with the config. The editor on the right scrolls internally via its own NSScrollView.
                 VStack(spacing: Theme.space4) {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: Theme.space4) {
@@ -48,8 +38,7 @@ struct SingleVoiceView: View {
                                 disabled: viewModel.status.isWorking
                             )
 
-                            // Seed affordance for the selected voice. Self-hides
-                            // for stock voices (imported voices only).
+                            // Seed affordance for the selected voice. Self-hides for stock voices (imported voices only).
                             if viewModel.selectedVoiceID.hasPrefix("imported:") {
                                 HStack(spacing: Theme.space2) {
                                     Text("Seed")
@@ -60,12 +49,7 @@ struct SingleVoiceView: View {
                                 }
                             }
 
-                            // Voice Changer entry-point. Sits in the sidebar
-                            // VStack next to the voice picker because it's an
-                            // audio-in / audio-out concern, not a text-editor
-                            // toolbar action. The matching File-menu shortcut
-                            // (⌥⌘V) lives in mimika_ai_voice_studioApp.swift and
-                            // toggles the same AppState flag.
+                            // Voice Changer entry-point. Sits in the sidebar VStack next to the voice picker because it's an audio-in / audio-out concern, not a text-editor toolbar action. The matching File-menu shortcut (⌥⌘V) lives in mimika_ai_voice_studioApp.swift and toggles the same AppState flag.
                             Button(action: { showsVoiceChanger = true }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "waveform.and.mic")
@@ -90,8 +74,7 @@ struct SingleVoiceView: View {
                     .frame(width: Theme.sidebarWidth)
                     .scrollBounceBehavior(.basedOnSize)
 
-                    // Pinned footer — primary action + status + result player
-                    // stay visible regardless of scroll position.
+                    // Pinned footer — primary action + status + result player stay visible regardless of scroll position.
                     SynthesizeButton(
                         status: viewModel.status,
                         canSynthesize: viewModel.status.canSynthesize && !viewModel.text.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -128,14 +111,7 @@ struct SingleVoiceView: View {
                     mode: .singleVoice,
                     chatSettings: $chatSettings,
                     onAccept: { script, _ in
-                        // Strip LLM-emitted stage directions before
-                        // populating the editor. Parens + asterisks
-                        // always go (neither backend uses them);
-                        // brackets ONLY strip for Pocket-TTS — Fish
-                        // Speech treats `[whispering]` as an
-                        // emotional-tag control signal and needs them
-                        // intact. Pause markers `[1.5s]` survive
-                        // either way via negative-lookahead.
+                        // Strip LLM-emitted stage directions before populating the editor. Parens + asterisks always go (neither backend uses them); brackets ONLY strip for Pocket-TTS — Fish Speech treats `[whispering]` as an emotional-tag control signal and needs them intact. Pause markers `[1.5s]` survive either way via negative-lookahead.
                         viewModel.text = TextNormalizer.stripStageDirections(
                             script,
                             stripBracketedTags: chatSettings.activeBackend == .pocketTTS

@@ -2,8 +2,7 @@
 //  VoiceChangerPipeline.swift
 //  mimika-ai-voice-studio
 //
-//  Orchestrator that turns input audio into a re-voiced WAV with
-//  original silences preserved.
+//  Orchestrator that turns input audio into a re-voiced WAV with original silences preserved.
 //
 //  Pipeline:
 //
@@ -21,11 +20,7 @@
 //                                            ▼
 //                                     WAV at outputURL
 //
-//  The Voice Changer adds no new TTS code paths — the existing
-//  TTSEngine already parses `[Xs]` markers (via
-//  `TextNormalizer.parsePauseMarkers`) and emits silence frames (via
-//  `TTSEngine.yieldSilence`). The port lives entirely in the
-//  script-builder + this orchestrator.
+//  The Voice Changer adds no new TTS code paths — the existing TTSEngine already parses `[Xs]` markers (via `TextNormalizer.parsePauseMarkers`) and emits silence frames (via `TTSEngine.yieldSilence`). The port lives entirely in the script-builder + this orchestrator.
 
 @preconcurrency import AVFoundation
 import Foundation
@@ -52,25 +47,17 @@ actor VoiceChangerPipeline {
     struct Options: Sendable {
         /// Pause-marker gap floor. Below this, gaps are dropped.
         var minSilenceSec: Double = SilencePreservingScriptBuilder.defaultMinSilenceSec
-        /// When true, pad the script with a trailing `[Xs]` so the
-        /// output audio length matches the input audio length (within
-        /// TTS prosody variability). When false, no trailing pause —
-        /// the output ends with the last synthesized segment.
+        /// When true, pad the script with a trailing `[Xs]` so the output audio length matches the input audio length (within TTS prosody variability). When false, no trailing pause — the output ends with the last synthesized segment.
         var includeTrailingSilence: Bool = true
         /// Forwarded to `TTSEngine.synthesize` per chunk.
         var synthesis: SynthesisOptions = SynthesisOptions()
-        /// When non-nil, the assembled script is written to this URL
-        /// before synthesis — useful for debugging marker placement.
+        /// When non-nil, the assembled script is written to this URL before synthesis — useful for debugging marker placement.
         var debugScriptDumpURL: URL? = nil
 
         init() {}
     }
 
-    /// TTSEngine emits 24 kHz mono Float32 frames; we write the
-    /// collected stream out at the same rate. Centralized constant
-    /// here so we don't accidentally ship a 16 kHz "voice changer"
-    /// output that the rest of the app's playback / preview path
-    /// can't decode.
+    /// TTSEngine emits 24 kHz mono Float32 frames; we write the collected stream out at the same rate. Centralized constant here so we don't accidentally ship a 16 kHz "voice changer" output that the rest of the app's playback / preview path can't decode.
     private static let outputSampleRate: Int = 24_000
 
     private let stt: STTProvider
@@ -81,9 +68,7 @@ actor VoiceChangerPipeline {
         self.tts = tts
     }
 
-    /// Run the full pipeline. Returns the resulting (script, output URL).
-    /// The script is returned for UI display / debugging — callers may
-    /// ignore it.
+    /// Run the full pipeline. Returns the resulting (script, output URL). The script is returned for UI display / debugging — callers may ignore it.
     @discardableResult
     func convert(
         inputAudio: URL,
@@ -107,9 +92,7 @@ actor VoiceChangerPipeline {
             try? Data(script.utf8).write(to: dumpURL)
         }
 
-        // TTSEngine emits 80 ms PCM frames @ 24 kHz mono Float32.
-        // Accumulate into one buffer; the final frame is allowed to be
-        // shorter than 1920 samples.
+        // TTSEngine emits 80 ms PCM frames @ 24 kHz mono Float32. Accumulate into one buffer; the final frame is allowed to be shorter than 1920 samples.
         var samples: [Float] = []
         samples.reserveCapacity(Int(totalDuration * Double(Self.outputSampleRate) * 1.25))
 
@@ -120,11 +103,7 @@ actor VoiceChangerPipeline {
         }
 
         do {
-            // Reuse the project's existing WAVEncoder (Audio/
-            // WAVEncoder.swift) — single source of truth for WAV
-            // writing. The Windows-side port shipped with its own
-            // inline WAVWriter as a "no-external-deps" fallback; we
-            // delete it in favor of the canonical encoder.
+            // Reuse the project's existing WAVEncoder (Audio/ WAVEncoder.swift) — single source of truth for WAV writing. The Windows-side port shipped with its own inline WAVWriter as a "no-external-deps" fallback; we delete it in favor of the canonical encoder.
             try WAVEncoder.write(
                 samples: samples,
                 to: outputURL,

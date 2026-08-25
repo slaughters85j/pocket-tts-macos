@@ -2,9 +2,7 @@
 //  SingleVoiceViewModel.swift
 //  mimika-ai-voice-studio
 //
-//  Wraps TTSEngine + StreamingPlayer for the Single Voice tab. Manages
-//  the synthesis lifecycle, accumulates PCM for the AudioPlayer preview,
-//  and records each synthesis to SwiftData history.
+//  Wraps TTSEngine + StreamingPlayer for the Single Voice tab. Manages the synthesis lifecycle, accumulates PCM for the AudioPlayer preview, and records each synthesis to SwiftData history.
 
 import Foundation
 import Observation
@@ -20,8 +18,7 @@ final class SingleVoiceViewModel {
 
     // MARK: - Outputs
     var status: SynthesisStatus = .idle
-    /// Full PCM for the just-finished synthesis. Drives the AudioPlayer
-    /// preview; nil while idle / generating.
+    /// Full PCM for the just-finished synthesis. Drives the AudioPlayer preview; nil while idle / generating.
     var lastResultSamples: [Float]? = nil
 
     // MARK: - Deps
@@ -37,9 +34,7 @@ final class SingleVoiceViewModel {
         self.appState = appState
     }
 
-    /// Build the per-call options, pulling user-tunable values (chunk
-    /// budget) live from AppState so every synthesize call sees the
-    /// latest setting without us caching it.
+    /// Build the per-call options, pulling user-tunable values (chunk budget) live from AppState so every synthesize call sees the latest setting without us caching it.
     private func currentSynthesisOptions(for voiceID: String) -> SynthesisOptions {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
@@ -80,19 +75,14 @@ final class SingleVoiceViewModel {
             let (relay, relayCont) = AsyncStream<PCMFrame>.makeStream(of: PCMFrame.self)
             let player = self.player
 
-            // Start the player consuming the relay concurrently with the
-            // tee loop below. The player blocks until the final buffer drains.
+            // Start the player consuming the relay concurrently with the tee loop below. The player blocks until the final buffer drains.
             async let playerResult: Void = {
                 do { try await player.play(stream: relay) }
                 catch { FileHandle.standardError.write(Data("player error: \(error)\n".utf8)) }
             }()
 
             var collected: [Float] = []
-            // P1-N1: per-voice RMS target. The gain is a constant scaling
-            // factor relative to the engine's -16 dB conditioning baseline,
-            // so we resolve it once at the top of synthesis and apply it
-            // frame-by-frame. Built-in voices and saved voices without an
-            // override land at gain == 1.0 (early-return inside applyGain).
+            // P1-N1: per-voice RMS target. The gain is a constant scaling factor relative to the engine's -16 dB conditioning baseline, so we resolve it once at the top of synthesis and apply it frame-by-frame. Built-in voices and saved voices without an override land at gain == 1.0 (early-return inside applyGain).
             let voiceGain = VoiceLevel.gainFactor(forVoice: snapshotVoice)
             let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice, options: self.currentSynthesisOptions(for: snapshotVoice))
             for await frame in engineStream {

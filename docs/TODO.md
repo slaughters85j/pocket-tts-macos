@@ -5,17 +5,38 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
-**WP-CAST-1 — Cast Import/Export + roster edit + grenade + Run Settings help**
-**Status:** Needs user validation (`feature/export-import-cast`).
+**WP-THREADS-1 — Solo & Ensemble cast threads + UI performance**
+**Status:** In Progress (`feature/solo-and-ensemble-cast-threads`).
 
-Cast & Settings: export/import cast as JSON; add/remove members after
-personas are written; stronger grenade prompt; info.circle help on every
-run setting (Turn order / Randomness context-aware).
+User-validated on the branch: app-wide SwiftUI layout stall, 1 Hz toolbar blink
+and idle 30 fps redraw, test-suite data-integrity interlocks, sentence splitting
+(`Lt.`), Markdown tables, thread rename, Ensemble transcript hover actions, skip
+an invited Ensemble turn.
 
-WP-VMI-1/2/3 are COMPLETE (user-validated) on
-`improved-custom-voice-import` — PR open for merge to main. v1.5.5
-shipped (released + App Store Connect build cut). Remaining open WPs:
-WP-VIT-3 (in-app editor) and WP-VIT-4 (cleanup).
+Awaiting validation: lazy Ensemble thread creation (an abandoned cast no longer
+leaves an empty thread), async-only `ChatThreadStore` surface, tolerant decoding
+for thread files, `EnsembleViewModel` task cancellation on deinit, context
+metadata probed once per serving model instead of every second,
+`SentencePieceTokenizerTests` moved from Swift Testing to XCTest,
+`ChatViewChrome.swift` split out of `ChatView.swift`, `chatSettings` legacy-key
+migration.
+
+v1.5.11 shipped 2026-08-17 to the App Store. Earlier WPs unchanged: WP-CAST-1
+needs user validation on `feature/export-import-cast`; WP-VMI-1/2/3 are COMPLETE
+(user-validated) on `improved-custom-voice-import`; WP-VIT-3 (in-app editor) and
+WP-VIT-4 (cleanup) remain open.
+
+**Known debt, not scheduled:**
+
+- TTS start latency — roughly half of turns begin speaking only when the streamed
+  text is ~75% complete. Unresolved and unmeasured; needs timing instrumentation
+  around `SentenceDetector` and `SpokenTurnRunner` before any further guessing.
+- 400-line rule still broken: `EnsembleViewModel.swift` (1,464),
+  `EnsembleSurfaceView.swift` (661), `ChatModels.swift` (436),
+  `DirectorsChairPanel.swift` (429), `ChatView.swift` (422). Each needs an
+  extension split, which is a larger refactor than this pass took on.
+- Unexplained: Ensemble threads titled "New ensemble" with the hardcoded
+  Ada / Bertrand `demoCast` appeared on app open. Creating path never found.
 
 ---
 

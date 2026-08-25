@@ -2,19 +2,11 @@
 //  LocalLLMClient.swift
 //  mimika-ai-voice-studio
 //
-//  Talks to any OpenAI-compatible HTTP API. Originally LM Studio-only;
-//  the wire format is identical for Ollama (via its `/v1` facade),
-//  llama.cpp's `server`, vLLM, LocalAI, TabbyAPI, and OpenAI proper —
-//  so we renamed for honesty and to make it obvious from the UI that
-//  any of those providers work.
+//  Talks to any OpenAI-compatible HTTP API. Originally LM Studio-only; the wire format is identical for Ollama (via its `/v1` facade), llama.cpp's `server`, vLLM, LocalAI, TabbyAPI, and OpenAI proper — so we renamed for honesty and to make it obvious from the UI that any of those providers work.
 //
 //  Two endpoints:
-//    GET  /v1/models                — list available models (used for the picker
-//                                     + connection health check)
-//    POST /v1/chat/completions      — chat with `stream: true`; the response is
-//                                     SSE: each `data: {…}` line is a JSON
-//                                     delta whose `choices[0].delta.content`
-//                                     is the next token chunk.
+//    GET  /v1/models           — list available models (used for the picker + connection health check)
+//    POST /v1/chat/completions — chat with `stream: true`; the response is SSE, each `data: {…}` line a JSON delta whose `choices[0].delta.content` is the next token chunk.
 
 import Foundation
 
@@ -43,11 +35,7 @@ actor LocalLLMClient {
         }
     }
 
-    /// Structured-output mode for `completeChat`. `.jsonObject` asks the
-    /// server for OpenAI's `{"type":"json_object"}` response_format; servers
-    /// that don't support it simply ignore the field, which is why callers
-    /// (the persona-writer) ALSO run the output through a tolerant JSON
-    /// extractor and retry once with `.text` on failure.
+    /// Structured-output mode for `completeChat`. `.jsonObject` asks the server for OpenAI's `{"type":"json_object"}` response_format; servers that don't support it simply ignore the field, which is why callers (the persona-writer) ALSO run the output through a tolerant JSON extractor and retry once with `.text` on failure.
     enum ResponseFormat: Sendable {
         case text
         case jsonObject
@@ -63,9 +51,7 @@ actor LocalLLMClient {
 
     // MARK: - Models
 
-    /// GET /v1/models — catalog of model IDs known to the endpoint.
-    /// On LM Studio this includes *downloaded* models, not only loaded ones.
-    /// Prefer `listServingModels()` for connection health.
+    /// GET /v1/models — catalog of model IDs known to the endpoint. On LM Studio this includes *downloaded* models, not only loaded ones. Prefer `listServingModels()` for connection health.
     func listModels() async throws -> [String] {
         let url = baseURL.appendingPathComponent("v1/models")
         var req = URLRequest(url: url)
@@ -87,10 +73,7 @@ actor LocalLLMClient {
 
     /// Models that can actually serve chat right now.
     ///
-    /// LM Studio: **only** non-empty `loaded_instances` from `/api/v1/models`.
-    /// An empty list means the server is up but nothing is loaded — we deliberately
-    /// do **not** fall back to OpenAI `/v1/models` (that endpoint lists every
-    /// downloaded model and caused false “✓ connected” results).
+    /// LM Studio: **only** non-empty `loaded_instances` from `/api/v1/models`. An empty list means the server is up but nothing is loaded — we deliberately do **not** fall back to OpenAI `/v1/models` (that endpoint lists every downloaded model and caused false “✓ connected” results).
     ///
     /// Other OpenAI-compatible servers (no native LM Studio API): `/v1/models`.
     func listServingModels() async throws -> [String] {
@@ -106,15 +89,13 @@ actor LocalLLMClient {
             case .decodeFailed:
                 return try await listModels()
             default:
-                // Network / 5xx / auth: surface the failure — never invent “serving”
-                // models from the catalog.
+                // Network / 5xx / auth: surface the failure — never invent “serving” models from the catalog.
                 throw error
             }
         }
     }
 
-    /// Downloaded / known models for the picker (may include unloaded ones).
-    /// LM Studio: catalog keys from `/api/v1/models`. Else OpenAI `/v1/models`.
+    /// Downloaded / known models for the picker (may include unloaded ones). LM Studio: catalog keys from `/api/v1/models`. Else OpenAI `/v1/models`.
     func listCatalogModels() async throws -> [String] {
         do {
             let response = try await fetchLMStudioModels()
@@ -141,8 +122,24 @@ actor LocalLLMClient {
             || l.contains("text-embedding")
     }
 
-    /// POST `/api/v1/models/load` — load a catalog model into memory (LM Studio).
-    /// Long timeout: large models can take minutes.
+    /// Timeout for `/v1/chat/completions` (both streaming and one-shot).
+    ///
+    /// Not the URLRequest default of 60 s: requesting a model LM Studio has not loaded makes the completion call itself trigger the load, so it waits out the same multi-minute cold start `loadModel` below is given 600 s for. At 60 s the first request against a large model times out and only succeeds on retry — a real stall on the first New Cast after starting LM Studio.
+    ///
+    /// This is an *inactivity* timeout, not a total one: once tokens start streaming each packet resets it, so a long generation is unaffected. It only bounds how long we wait for the server to say anything at all.
+    private static let completionTimeout: TimeInterval = 300
+
+    /// `reasoning_effort` for the app's own calls — director, rolling summary, sidebar theme. Sent unconditionally: they want a name, a sentence and a blurb, and thinking eats their tight budgets (the director gets 16 tokens) and returns empty, silently, because each has a fallback.
+    nonisolated static let utilityReasoningEffort = "none"
+
+    /// Retry once with `max_tokens` REMOVED when a turn produced only reasoning.
+    ///
+    /// `max_tokens` caps reasoning tokens too, so a 250-token reply budget stops a thinking model mid-thought and the speaker renders blank. Measured on qwen3.5-35b-a3b: 2,947 reasoning deltas before the first content delta, then a 32-delta answer — but uncapped it stopped itself at ~2,980, so no fixed headroom number is right. The cap stays on the first attempt to keep ordinary replies short.
+    ///
+    /// `enable_thinking: false` and `/no_think` were both tested against this model and both ignored. Neither is a route to fixing this.
+    nonisolated static let retriesUncappedOnStarvedReasoning = true
+
+    /// POST `/api/v1/models/load` — load a catalog model into memory (LM Studio). Long timeout: large models can take minutes.
     @discardableResult
     func loadModel(_ model: String, contextLength: Int? = nil) async throws -> String {
         let url = baseURL.appendingPathComponent("api/v1/models/load")
@@ -193,9 +190,7 @@ actor LocalLLMClient {
         }
     }
 
-    /// Ensure `model` is loaded for chat. On LM Studio: unload other instances,
-    /// then load the target. On other servers: no-op if the id is in the catalog.
-    /// Returns the effective serving id when known.
+    /// Ensure `model` is loaded for chat. On LM Studio: unload other instances, then load the target. On other servers: no-op if the id is in the catalog. Returns the effective serving id when known.
     @discardableResult
     func switchToModel(_ model: String, contextLength: Int? = nil) async throws -> String {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -267,8 +262,7 @@ actor LocalLLMClient {
         if metadata.reasoning?.indicatesSupport == true {
             result.insert(.reasoning)
         }
-        // Loaded instance n_ctx is the true server ceiling for this session.
-        // Architecture max is the model’s published ceiling (often much higher).
+        // Loaded instance n_ctx is the true server ceiling for this session. Architecture max is the model’s published ceiling (often much higher).
         let architectureMax = entry.maxContextLength.flatMap { $0 > 0 ? $0 : nil }
         let loaded = entry.loadedContextLength(for: model)
         let contextLimit = loaded ?? entry.resolvedContextLength
@@ -282,8 +276,7 @@ actor LocalLLMClient {
 
     /// Compact, user-facing connection failure — no raw JSON, NSError dumps, or URL dumps.
     ///
-    /// URLSession often surfaces `NSError` (NSURLErrorDomain) that does not always
-    /// bridge cleanly to `URLError` via `as?`; always check the NSError domain too.
+    /// URLSession often surfaces `NSError` (NSURLErrorDomain) that does not always bridge cleanly to `URLError` via `as?`; always check the NSError domain too.
     nonisolated static func friendlyConnectionError(_ error: Error) -> String {
         if let client = error as? ClientError {
             switch client {
@@ -355,8 +348,7 @@ actor LocalLLMClient {
         "image too large",
     ]
 
-    /// Collapse raw NSError / JSON dumps into a short reason for display.
-    /// Anything that looks like a system dump becomes a plain phrase.
+    /// Collapse raw NSError / JSON dumps into a short reason for display. Anything that looks like a system dump becomes a plain phrase.
     nonisolated static func sanitizedConnectionReason(_ reason: String) -> String {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "no connection" }
@@ -397,10 +389,7 @@ actor LocalLLMClient {
 
     // MARK: - Chat streaming
 
-    /// POST /v1/chat/completions with `stream: true`. Returns an async stream
-    /// of token-delta strings (the `choices[0].delta.content` values).
-    /// On `[DONE]` or stream end, the AsyncThrowingStream finishes normally.
-    /// On HTTP / decode / network error, the stream throws.
+    /// POST /v1/chat/completions with `stream: true`. Returns an async stream of token-delta strings (the `choices[0].delta.content` values). On `[DONE]` or stream end, the AsyncThrowingStream finishes normally. On HTTP / decode / network error, the stream throws.
     nonisolated func streamChat(
         messages: [ChatMessage],
         model: String,
@@ -412,7 +401,8 @@ actor LocalLLMClient {
         topK: Int? = nil,
         repeatPenalty: Double? = nil,
         reasoningEffort: String? = nil,
-        includeReasoning: Bool = false
+        includeReasoning: Bool = false,
+        retryUncapped: Bool = LocalLLMClient.retriesUncappedOnStarvedReasoning
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
@@ -428,7 +418,8 @@ actor LocalLLMClient {
                         topK: topK,
                         repeatPenalty: repeatPenalty,
                         reasoningEffort: reasoningEffort,
-                        includeReasoning: includeReasoning
+                        includeReasoning: includeReasoning,
+                        retryUncapped: retryUncapped
                     )
                     for try await event in events {
                         if case let .delta(text) = event {
@@ -458,7 +449,8 @@ actor LocalLLMClient {
         topK: Int? = nil,
         repeatPenalty: Double? = nil,
         reasoningEffort: String? = nil,
-        includeReasoning: Bool = false
+        includeReasoning: Bool = false,
+        retryUncapped: Bool = LocalLLMClient.retriesUncappedOnStarvedReasoning
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream<ChatStreamEvent, Error> { continuation in
             let task = Task {
@@ -475,6 +467,7 @@ actor LocalLLMClient {
                         repeatPenalty: repeatPenalty,
                         reasoningEffort: reasoningEffort,
                         includeReasoning: includeReasoning,
+                        retryUncapped: retryUncapped,
                         continuation: continuation
                     )
                     continuation.finish()
@@ -500,10 +493,54 @@ actor LocalLLMClient {
         repeatPenalty: Double?,
         reasoningEffort: String?,
         includeReasoning: Bool,
+        retryUncapped: Bool,
         continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
     ) async throws {
+        // One retry, only when the first attempt yielded nothing — so it cannot duplicate transcript text or audio.
+        let canRetry = retryUncapped && maxTokens != nil
+        let outcome = try await streamAttempt(
+            messages: messages, model: model, systemPrompt: systemPrompt, temperature: temperature,
+            stop: stop, maxTokens: maxTokens, topP: topP, topK: topK, repeatPenalty: repeatPenalty,
+            reasoningEffort: reasoningEffort, includeReasoning: includeReasoning,
+            announceAcceptance: true, isFinalAttempt: !canRetry, continuation: continuation
+        )
+        guard case .starvedByReasoning = outcome else { return }
+        // `maxTokens: nil` — the cap is what starved it, so the retry sends no cap at all.
+        _ = try await streamAttempt(
+            messages: messages, model: model, systemPrompt: systemPrompt, temperature: temperature,
+            stop: stop, maxTokens: nil, topP: topP, topK: topK,
+            repeatPenalty: repeatPenalty, reasoningEffort: reasoningEffort,
+            includeReasoning: includeReasoning, announceAcceptance: false, isFinalAttempt: true,
+            continuation: continuation
+        )
+    }
+
+    /// Result of one streaming attempt.
+    private enum StreamAttemptOutcome {
+        case completed
+        /// The server stopped at `max_tokens` having produced reasoning but no content — the thinking consumed the whole budget. Nothing was yielded, so the caller may repeat with a bigger one.
+        case starvedByReasoning
+    }
+
+    /// One POST plus SSE read. Content deltas are yielded with inline `<think>` spans removed.
+    private func streamAttempt(
+        messages: [ChatMessage],
+        model: String,
+        systemPrompt: String,
+        temperature: Double?,
+        stop: [String]?,
+        maxTokens: Int?,
+        topP: Double?,
+        topK: Int?,
+        repeatPenalty: Double?,
+        reasoningEffort: String?,
+        includeReasoning: Bool,
+        announceAcceptance: Bool,
+        isFinalAttempt: Bool,
+        continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation
+    ) async throws -> StreamAttemptOutcome {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: Self.completionTimeout)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -535,6 +572,18 @@ actor LocalLLMClient {
         )
         req.httpBody = try JSONEncoder().encode(body)
 
+        #if DEBUG
+        // Every sampling field actually put on the wire. `nil` means the field is OMITTED from the JSON, so the server falls back to its own per-model default — which is how a UI toggle can read "off" while the model still thinks.
+        let effort: String = reasoningEffort ?? "OMITTED"
+        let cap: String = maxTokens == nil ? "OMITTED" : "\(maxTokens!)"
+        let temp: String = temperature == nil ? "OMITTED" : "\(temperature!)"
+        let p: String = topP == nil ? "OMITTED" : "\(topP!)"
+        let k: String = topK == nil ? "OMITTED" : "\(topK!)"
+        let penalty: String = repeatPenalty == nil ? "OMITTED" : "\(repeatPenalty!)"
+        let stopCount: Int = stop?.count ?? 0
+        print("[Inference] model=\(model) reasoning_effort=\(effort) max_tokens=\(cap) temperature=\(temp) top_p=\(p) top_k=\(k) repeat_penalty=\(penalty) stopSequences=\(stopCount)")
+        #endif
+
         let (bytes, response) = try await session.bytes(for: req)
         guard let http = response as? HTTPURLResponse else {
             throw ClientError.httpError(status: -1, body: nil)
@@ -545,22 +594,22 @@ actor LocalLLMClient {
             for try await b in bytes { collected.append(b) }
             throw ClientError.httpError(status: http.statusCode, body: String(data: collected, encoding: .utf8))
         }
-        continuation.yield(.accepted(statusCode: http.statusCode))
+        if announceAcceptance {
+            continuation.yield(.accepted(statusCode: http.statusCode))
+        }
 
-        // Reasoning models (gpt-oss via LM Studio, DeepSeek-R1, …) stream their
-        // chain-of-thought in a SEPARATE channel and may leave `content` empty
-        // entirely. We never merge that into the live content stream (callers
-        // would speak it). When `includeReasoning` is set we buffer it and, only
-        // if NO content ever arrives, surface it once at the end as a fallback —
-        // the LM Studio "content empty, reasoning populated" case the persona-
-        // writer needs so its JSONExtractor can still recover the object.
+        // Reasoning models (gpt-oss via LM Studio, DeepSeek-R1, …) stream their chain-of-thought in a SEPARATE channel and may leave `content` empty entirely. We never merge that into the live content stream (callers would speak it). When `includeReasoning` is set we buffer it and, only if NO content ever arrives, surface it once at the end as a fallback — the LM Studio "content empty, reasoning populated" case the persona-writer needs so its JSONExtractor can still recover the object.
         var reasoningFallback = ""
         var yieldedContent = false
+        // Some models inline thoughts in `content` as `<think>` spans; unstripped, a cast member reads them aloud.
+        var thinkFilter = ThinkTagFilter()
+        var sawReasoning = false
+        var finishReason: String?
+
         for try await line in bytes.lines {
             try Task.checkCancellation()
 
-            // SSE format: each event is "data: <payload>\n\n". We get one line
-            // at a time via `.lines`; blank lines are separators we can skip.
+            // SSE format: each event is "data: <payload>\n\n". We get one line at a time via `.lines`; blank lines are separators we can skip.
             guard line.hasPrefix("data: ") else { continue }
             let payload = String(line.dropFirst("data: ".count))
             if payload == "[DONE]" { break }
@@ -568,45 +617,59 @@ actor LocalLLMClient {
 
             do {
                 let delta = try JSONDecoder().decode(ChatStreamChunk.self, from: payloadData)
-                let chunk = delta.choices.first?.delta
+                let choice = delta.choices.first
+                let chunk = choice?.delta
+                if let reason = choice?.finish_reason, !reason.isEmpty {
+                    finishReason = reason
+                }
                 if let content = chunk?.content, !content.isEmpty {
-                    yieldedContent = true
-                    continuation.yield(.delta(content))
-                } else if includeReasoning, let r = chunk?.reasoning ?? chunk?.reasoning_content, !r.isEmpty {
-                    reasoningFallback += r
+                    // Count filtered output, not raw: an all-`<think>` chunk must not pass as a real answer.
+                    let visible = thinkFilter.filter(content)
+                    if !visible.isEmpty {
+                        yieldedContent = true
+                        continuation.yield(.delta(visible))
+                    }
+                } else if let r = chunk?.reasoning ?? chunk?.reasoning_content, !r.isEmpty {
+                    sawReasoning = true
+                    if includeReasoning { reasoningFallback += r }
                 }
             } catch {
-                // Some servers (e.g. LM Studio) occasionally send partial JSON or non-content
-                // events (e.g. role-only deltas). Silently ignore — those
-                // aren't tokens we care about.
+                // Some servers (e.g. LM Studio) occasionally send partial JSON or non-content events (e.g. role-only deltas). Silently ignore — those aren't tokens we care about.
                 continue
             }
         }
-        // Only when the model produced NO content do we surface the buffered
-        // reasoning — so a model that answered normally never leaks its thoughts.
+        // A held partial tag that never completed was ordinary text — release it.
+        let tail = thinkFilter.flush()
+        if !tail.isEmpty {
+            yieldedContent = true
+            continuation.yield(.delta(tail))
+        }
+
+        // Hit the cap while still thinking, so no content was ever written. Report it rather than render a blank turn.
+        if !isFinalAttempt, !yieldedContent, sawReasoning, finishReason == "length" {
+            return .starvedByReasoning
+        }
+
+        // Only when the model produced NO content do we surface the buffered reasoning — so a model that answered normally never leaks its thoughts.
         if includeReasoning, !yieldedContent, !reasoningFallback.isEmpty {
             continuation.yield(.delta(reasoningFallback))
         }
+        return .completed
     }
 
     // MARK: - Chat completion (non-streaming)
 
-    /// POST /v1/chat/completions with `stream: false`. Returns the whole
-    /// `choices[0].message.content` in one shot. Used by the persona-writer:
-    /// JSON output is atomic (there's nothing to do with a partial JSON token
-    /// feed) and the streaming path silently swallows per-line decode errors,
-    /// which would mask malformed JSON. `responseFormat: .jsonObject` sends
-    /// OpenAI's structured-output hint when the server supports it; callers
-    /// still defend with a tolerant extractor + a `.text` retry.
+    /// POST /v1/chat/completions with `stream: false`. Returns the whole `choices[0].message.content` in one shot. Used by the persona-writer: JSON output is atomic (there's nothing to do with a partial JSON token feed) and the streaming path silently swallows per-line decode errors, which would mask malformed JSON. `responseFormat: .jsonObject` sends OpenAI's structured-output hint when the server supports it; callers still defend with a tolerant extractor + a `.text` retry.
     func completeChat(
         messages: [ChatMessage],
         model: String,
         systemPrompt: String = "",
         temperature: Double? = nil,
-        responseFormat: ResponseFormat = .text
+        responseFormat: ResponseFormat = .text,
+        reasoningEffort: String? = nil
     ) async throws -> String {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: Self.completionTimeout)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -624,7 +687,8 @@ actor LocalLLMClient {
             messages: apiMessages,
             stream: false,
             temperature: temperature,
-            response_format: rf
+            response_format: rf,
+            reasoning_effort: reasoningEffort
         )
         req.httpBody = try JSONEncoder().encode(body)
 

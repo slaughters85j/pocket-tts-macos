@@ -2,11 +2,7 @@
 //  EnsembleViewModel+Interruption.swift
 //  mimika-ai-voice-studio
 //
-//  Phase 4 — barge-in. One mic button drives the same 3-state dictation cycle
-//  as single-chat (idle → listening → ready → submit), but the START also cuts
-//  the cast off: it stops the loop + the in-flight turn + the player and drops
-//  the half-spoken sentence, then the cast reacts to the user's turn. A denied
-//  mic still cuts the cast off — the user just types the turn instead.
+//  Phase 4 — barge-in. One mic button drives the same 3-state dictation cycle as single-chat (idle → listening → ready → submit), but the START also cuts the cast off: it stops the loop + the in-flight turn + the player and drops the half-spoken sentence, then the cast reacts to the user's turn. A denied mic still cuts the cast off — the user just types the turn instead.
 //
 
 import Foundation
@@ -32,9 +28,7 @@ extension EnsembleViewModel {
 
     // MARK: - Barge-in
 
-    /// Cut the cast off NOW: stop the loop + in-flight turn + player, drop the
-    /// in-flight sentence, hand the floor to the user, and start listening.
-    /// Audio stops synchronously; auth/dictation is async.
+    /// Cut the cast off NOW: stop the loop + in-flight turn + player, drop the in-flight sentence, hand the floor to the user, and start listening. Audio stops synchronously; auth/dictation is async.
     func bargeIn() {
         // Already parked for an invited turn — just open the mic; don't cut the wait.
         if awaitingInvitedUserTurn {
@@ -50,9 +44,7 @@ extension EnsembleViewModel {
 
     /// Prefer the next Boot / Direct without tearing down the whole loop.
     ///
-    /// Mid-line: soft-cancel only the current speaker's runner (keep `loopTask`
-    /// alive). Hard-cancelling the loop raced `isLooping` and could stall the
-    /// cast entirely. Parked / idle: `kickIfParked` starts a turn as before.
+    /// Mid-line: soft-cancel only the current speaker's runner (keep `loopTask` alive). Hard-cancelling the loop raced `isLooping` and could stall the cast entirely. Parked / idle: `kickIfParked` starts a turn as before.
     func forceImmediateDirectorAction() {
         switch runState {
         case .generating, .speaking:
@@ -64,19 +56,14 @@ extension EnsembleViewModel {
         }
     }
 
-    /// Drop-in-flight-sentence rule (#6): keep the fully-spoken sentences of the
-    /// interrupted turn, drop the one mid-drain, mark it cut off — or remove the
-    /// turn entirely if nothing landed cleanly.
+    /// Drop-in-flight-sentence rule (#6): keep the fully-spoken sentences of the interrupted turn, drop the one mid-drain, mark it cut off — or remove the turn entirely if nothing landed cleanly.
     func truncateInFlightTurn() {
-        // Only truncate the turn that's actively in flight — identified by the
-        // current speaker. Between turns `turns.last` is already complete and
-        // must not be cut.
+        // Only truncate the turn that's actively in flight — identified by the current speaker. Between turns `turns.last` is already complete and must not be cut.
         guard let sid = currentSpeakerID,
               let last = turns.last, last.speakerID == sid,
               let idx = turns.firstIndex(where: { $0.id == last.id }) else { return }
         if voicedPlayback {
-            // Voiced: keep the sentences fully HEARD (`spokenSentences` is the
-            // count drained through the player); the one mid-drain is dropped.
+            // Voiced: keep the sentences fully HEARD (`spokenSentences` is the count drained through the player); the one mid-drain is dropped.
             if let kept = Self.truncatedSpokenText(content: last.content, playedSentences: last.spokenSentences) {
                 turns[idx].content = kept
                 turns[idx].wasCutOff = true
@@ -93,10 +80,7 @@ extension EnsembleViewModel {
         }
     }
 
-    /// Pure: keep the `playedSentences` fully-heard sentences of an interrupted
-    /// turn's text (re-segmented with the same detector the runner used); the
-    /// sentence that was mid-drain is excluded. Returns nil when nothing was
-    /// heard. Static for testing.
+    /// Pure: keep the `playedSentences` fully-heard sentences of an interrupted turn's text (re-segmented with the same detector the runner used); the sentence that was mid-drain is excluded. Returns nil when nothing was heard. Static for testing.
     static func truncatedSpokenText(content: String, playedSentences: Int) -> String? {
         guard playedSentences > 0 else { return nil }
         let detector = SentenceDetector()
@@ -140,8 +124,7 @@ extension EnsembleViewModel {
         }
         dictationController.onError = { [weak self] err in
             guard let self else { return }
-            // Soft-fail: show the message but bounce mic back to idle so a
-            // transient Speech error doesn't brick the button for the session.
+            // Soft-fail: show the message but bounce mic back to idle so a transient Speech error doesn't brick the button for the session.
             #if DEBUG
             print("[Ensemble] dictation error: \(err)")
             #endif
@@ -199,8 +182,7 @@ extension EnsembleViewModel {
 
     // MARK: - Submit
 
-    /// Append the captured/typed turn (if any) and resume the cast so someone
-    /// reacts. The conductor honors a name mentioned in the user's turn.
+    /// Append the captured/typed turn (if any) and resume the cast so someone reacts. The conductor honors a name mentioned in the user's turn.
     func finishBargeIn() {
         // Invited turn: complete the parked wait instead of starting a new loop.
         if awaitingInvitedUserTurn {

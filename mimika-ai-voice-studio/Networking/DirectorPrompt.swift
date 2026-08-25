@@ -2,10 +2,7 @@
 //  DirectorPrompt.swift
 //  mimika-ai-voice-studio
 //
-//  Phase 6 — director turn mode. Builds the prompt that asks an LLM "who should
-//  speak next?" and resolves the reply back to a cast member. Pure + nonisolated
-//  so it's unit-testable; the LLM call + weighted-random fallback live in the
-//  view model (EnsembleViewModel+Director).
+//  Phase 6 — director turn mode. Builds the prompt that asks an LLM "who should speak next?" and resolves the reply back to a cast member. Pure + nonisolated so it's unit-testable; the LLM call + weighted-random fallback live in the view model (EnsembleViewModel+Director).
 //
 
 import Foundation
@@ -28,9 +25,7 @@ nonisolated enum DirectorPrompt {
         return Prompt(system: system, user: user)
     }
 
-    /// Map the model's free-text reply to a cast id — case-insensitive,
-    /// longest-name-first (so "Jean-Luc" beats "Luc"), excluding the immediate
-    /// last speaker so nobody is told to answer themselves. nil if no match.
+    /// Map the model's free-text reply to a cast id — case-insensitive, longest-name-first (so "Jean-Luc" beats "Luc"), excluding the immediate last speaker so nobody is told to answer themselves. nil if no match.
     static func resolve(_ reply: String, cast: [Persona], excluding lastSpeaker: UUID?) -> UUID? {
         let text = reply.lowercased()
         let candidates = cast
@@ -41,8 +36,7 @@ nonisolated enum DirectorPrompt {
             let needle = persona.name.lowercased()
             if !needle.isEmpty, text.contains(needle) { return persona.id }
         }
-        // 2) Fallback: a single first/last name word (handles "Scully" / "Fox").
-        //    Only accept when it points unambiguously to one persona.
+        // 2) Fallback: a single first/last name word (handles "Scully" / "Fox"). Only accept when it points unambiguously to one persona.
         let replyWords = Set(text.split { !$0.isLetter }.map(String.init))
         var matchedIDs = Set<UUID>()
         for persona in candidates {

@@ -2,41 +2,20 @@
 //  DemucsResampler.swift
 //  mimika-ai-voice-studio
 //
-//  Audio-rate conversion helpers split out of `DemucsSourceSeparator`
-//  so the actor stays focused on Core ML coordination + the chunked
-//  inference loop, while the AVFoundation juggling (build src/dst
-//  AVAudioFormat → drive AVAudioConverter → unpack channel data)
-//  lives here as a nonisolated enum of static functions.
+//  Audio-rate conversion helpers split out of `DemucsSourceSeparator` so the actor stays focused on Core ML coordination + the chunked inference loop, while the AVFoundation juggling (build src/dst AVAudioFormat → drive AVAudioConverter → unpack channel data) lives here as a nonisolated enum of static functions.
 //
 //  Two variants:
-//    * `resampleMono`   — single-channel rate conversion with a
-//      pinned output length. Used per-chunk by the separator's
-//      mono stem downmix → 24 kHz step.
-//    * `resampleStereo` — two-channel rate conversion. Used once,
-//      up front, when an input clip isn't already at the model's
-//      native 44.1 kHz.
+//    * `resampleMono`   — single-channel rate conversion with a pinned output length. Used per-chunk by the separator's mono stem downmix → 24 kHz step.
+//    * `resampleStereo` — two-channel rate conversion. Used once, up front, when an input clip isn't already at the model's native 44.1 kHz.
 //
-//  Both use AVAudioConverter under the hood. The pinned-length
-//  variant exists because AVAudioConverter can over/undershoot the
-//  output by 1-2 frames at chunk boundaries depending on filter
-//  state, and the separator's chunked overlap-add stitch requires
-//  every chunk to land on the same target length to stay aligned.
+//  Both use AVAudioConverter under the hood. The pinned-length variant exists because AVAudioConverter can over/undershoot the output by 1-2 frames at chunk boundaries depending on filter state, and the separator's chunked overlap-add stitch requires every chunk to land on the same target length to stay aligned.
 
 @preconcurrency import AVFoundation
 import Foundation
 
 // MARK: - DemucsResampler
 
-/// One-shot flag for the AVAudioConverter input block. The closure
-/// signature is `@Sendable` under strict concurrency, which forbids
-/// capturing a mutable `var consumed: Bool` directly. A reference-
-/// type wrapper marked `@unchecked Sendable` + `nonisolated(unsafe)`
-/// on the mutable property works because AVAudioConverter invokes
-/// the block synchronously from the calling thread — there's no
-/// real cross-thread mutation despite the Sendable annotation.
-/// `nonisolated(unsafe)` is required because the project's
-/// `-default-isolation MainActor` flag otherwise makes `value`
-/// MainActor-isolated, which the @Sendable closure can't access.
+/// One-shot flag for the AVAudioConverter input block. The closure signature is `@Sendable` under strict concurrency, which forbids capturing a mutable `var consumed: Bool` directly. A reference-type wrapper marked `@unchecked Sendable` + `nonisolated(unsafe)` on the mutable property works because AVAudioConverter invokes the block synchronously from the calling thread — there's no real cross-thread mutation despite the Sendable annotation. `nonisolated(unsafe)` is required because the project's `-default-isolation MainActor` flag otherwise makes `value` MainActor-isolated, which the @Sendable closure can't access.
 private final class _ConverterConsumedFlag: @unchecked Sendable {
     nonisolated(unsafe) var value: Bool = false
 }
@@ -67,19 +46,14 @@ nonisolated enum DemucsResampler {
 
     // MARK: - Mono resample
 
-    /// Resample a mono Float32 buffer between sample rates. The
-    /// `targetLength` parameter pins the output to exactly that
-    /// many frames (truncating or zero-padding the AVAudioConverter
-    /// output) — required for the separator's overlap-add stitch
-    /// to stay aligned across chunks.
+    /// Resample a mono Float32 buffer between sample rates. The `targetLength` parameter pins the output to exactly that many frames (truncating or zero-padding the AVAudioConverter output) — required for the separator's overlap-add stitch to stay aligned across chunks.
     static func resampleMono(
         _ samples: [Float],
         from sourceRate: Int,
         to targetRate: Int,
         targetLength: Int
     ) throws -> [Float] {
-        // Same-rate fast path: just clamp / pad to target length
-        // without spinning up AVFoundation.
+        // Same-rate fast path: just clamp / pad to target length without spinning up AVFoundation.
         if sourceRate == targetRate {
             if samples.count >= targetLength {
                 return Array(samples.prefix(targetLength))
@@ -139,11 +113,7 @@ nonisolated enum DemucsResampler {
 
     // MARK: - Stereo resample
 
-    /// Resample stereo Float32 (separate L / R `[Float]`s) between
-    /// sample rates. No `targetLength` pin — the caller (the
-    /// separator's `normalizeToStereo44k`) uses this once up-front
-    /// before chunking, where the exact frame count is whatever
-    /// AVAudioConverter naturally produces.
+    /// Resample stereo Float32 (separate L / R `[Float]`s) between sample rates. No `targetLength` pin — the caller (the separator's `normalizeToStereo44k`) uses this once up-front before chunking, where the exact frame count is whatever AVAudioConverter naturally produces.
     static func resampleStereo(
         left: [Float],
         right: [Float],

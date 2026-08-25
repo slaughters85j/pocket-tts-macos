@@ -2,13 +2,7 @@
 //  TTSEngineFrameBudgetTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Regression tests for the K/V state-capacity clamp
-//  (TTSEngine.kvFrameBudget) and the VoiceLoader T_voice bound. The AR
-//  loop writes K/V at position `tPrompt + step` into a 512-slot state;
-//  before the clamp, a long voice prefix (recorded voices bake up to
-//  200 positions) plus a long chunk could push writes past the last
-//  slot — a hard SIGABRT on the ANE (MLE5BindEmptyMemoryObjectToPort),
-//  silent attention corruption on GPU/CPU.
+//  Regression tests for the K/V state-capacity clamp (TTSEngine.kvFrameBudget) and the VoiceLoader T_voice bound. The AR loop writes K/V at position `tPrompt + step` into a 512-slot state; before the clamp, a long voice prefix (recorded voices bake up to 200 positions) plus a long chunk could push writes past the last slot — a hard SIGABRT on the ANE (MLE5BindEmptyMemoryObjectToPort), silent attention corruption on GPU/CPU.
 //
 
 import XCTest
@@ -29,27 +23,21 @@ final class TTSEngineFrameBudgetTests: XCTestCase {
     }
 
     func testStockWorstCaseIsClampedBelowOverflow() {
-        // Longest stock prefix (azelma, 161) + max subdivided chunk (120
-        // tokens): tPrompt=281. Unclamped the loop would reach offset
-        // 281+255=536 > 512; the budget must stop it at 231.
+        // Longest stock prefix (azelma, 161) + max subdivided chunk (120 tokens): tPrompt=281. Unclamped the loop would reach offset 281+255=536 > 512; the budget must stop it at 231.
         let budget = TTSEngine.kvFrameBudget(maxFrames: defaultMaxFrames, tPrompt: 281)
         XCTAssertEqual(budget, 231)
         XCTAssertLessThanOrEqual(281 + budget, maxSeq)
     }
 
     func testRecordedVoiceWorstCaseIsClampedBelowOverflow() {
-        // Recorded/imported voice at the tVoiceMax=200 cap + the model's
-        // full 128-token text limit: tPrompt=328 — the field-crash
-        // configuration. Budget must be 184 so the last write lands at
-        // position 511.
+        // Recorded/imported voice at the tVoiceMax=200 cap + the model's full 128-token text limit: tPrompt=328 — the field-crash configuration. Budget must be 184 so the last write lands at position 511.
         let budget = TTSEngine.kvFrameBudget(maxFrames: defaultMaxFrames, tPrompt: 328)
         XCTAssertEqual(budget, 184)
         XCTAssertEqual(328 + budget, maxSeq)
     }
 
     func testCorruptOversizedPromptYieldsZeroNotNegative() {
-        // A corrupt voice header claiming a prefix at/past capacity must
-        // produce 0 (loop doesn't run), never a negative Range bound.
+        // A corrupt voice header claiming a prefix at/past capacity must produce 0 (loop doesn't run), never a negative Range bound.
         XCTAssertEqual(TTSEngine.kvFrameBudget(maxFrames: defaultMaxFrames, tPrompt: maxSeq), 0)
         XCTAssertEqual(TTSEngine.kvFrameBudget(maxFrames: defaultMaxFrames, tPrompt: 600), 0)
     }
@@ -60,8 +48,7 @@ final class TTSEngineFrameBudgetTests: XCTestCase {
     }
 
     func testBudgetNeverAllowsWritePastLastSlot() {
-        // Invariant sweep: for every reachable tPrompt, the final write
-        // position tPrompt + (budget - 1) stays inside [0, maxSeq).
+        // Invariant sweep: for every reachable tPrompt, the final write position tPrompt + (budget - 1) stays inside [0, maxSeq).
         for tPrompt in stride(from: 0, through: 700, by: 7) {
             let budget = TTSEngine.kvFrameBudget(maxFrames: defaultMaxFrames, tPrompt: tPrompt)
             XCTAssertGreaterThanOrEqual(budget, 0)
@@ -73,11 +60,7 @@ final class TTSEngineFrameBudgetTests: XCTestCase {
 
     // MARK: - VoiceLoader T_voice bound
 
-    /// Build a minimal safetensors blob whose header metadata claims the
-    /// given T_voice. Tensor data is absent — the T_voice guard runs
-    /// before any tensor read, so an in-range value fails later with
-    /// `missingTensor` (proving the guard passed) while an out-of-range
-    /// value must fail with `badMetadata`.
+    /// Build a minimal safetensors blob whose header metadata claims the given T_voice. Tensor data is absent — the T_voice guard runs before any tensor read, so an in-range value fails later with `missingTensor` (proving the guard passed) while an out-of-range value must fail with `badMetadata`.
     private func writeStubSafetensors(tVoice: Int) throws -> URL {
         let info = "{\"voice\": \"stub\", \"T_voice\": \(tVoice), \"n_layers\": 6, \"n_heads\": 16, \"d_head\": 64, \"max_seq\": 512, \"dtype\": \"float16\"}"
         let headerObj: [String: Any] = ["__metadata__": ["info": info]]
@@ -112,9 +95,7 @@ final class TTSEngineFrameBudgetTests: XCTestCase {
     }
 
     func testLoaderAcceptsMaxLegitimateTVoice() throws {
-        // 200 (= PocketTTSVoiceEncoder.tVoiceMax) must pass the metadata
-        // guard; the stub has no tensor data so the next failure is
-        // missingTensor — which is the proof the T_voice bound accepted it.
+        // 200 (= PocketTTSVoiceEncoder.tVoiceMax) must pass the metadata guard; the stub has no tensor data so the next failure is missingTensor — which is the proof the T_voice bound accepted it.
         let url = try writeStubSafetensors(tVoice: 200)
         XCTAssertThrowsError(try VoiceLoader.loadVoice(from: url)) { error in
             guard case VoiceLoaderError.missingTensor = error else {
@@ -125,10 +106,7 @@ final class TTSEngineFrameBudgetTests: XCTestCase {
 
     // MARK: - Dead (all-zero) KV rejection
 
-    /// Full stub with real tensor payloads in the trimmed `[1, T, 16, 64]`
-    /// shape. `allZero: true` reproduces the on-disk signature of the
-    /// macOS 27 GPU bake failure (voice_prompt_phase state reads back
-    /// entirely zero under .cpuAndGPU).
+    /// Full stub with real tensor payloads in the trimmed `[1, T, 16, 64]` shape. `allZero: true` reproduces the on-disk signature of the macOS 27 GPU bake failure (voice_prompt_phase state reads back entirely zero under .cpuAndGPU).
     private func writeFullStubSafetensors(tVoice: Int, allZero: Bool) throws -> URL {
         let elems = 1 * tVoice * 16 * 64
         let bytesPerTensor = elems * 2

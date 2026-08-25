@@ -2,14 +2,7 @@
 //  PersonaWriter.swift
 //  mimika-ai-voice-studio
 //
-//  The Ensemble persona-writer: a repurposed AI-script-generator whose job is
-//  "write character personas in this exact JSON shape." Skeleton-first — one
-//  call returns the cast skeleton + relationship graph, then each persona is
-//  expanded in its own call (cast names render immediately; personas fill in
-//  progressively). JSON is streamed (no response_format), decoded tolerantly
-//  via JSONExtractor, and retried with escalating temperature on unparseable
-//  output. Reasoning models (gpt-oss) answer in a separate channel, so the
-//  client is asked to surface that as a fallback (see requestJSON).
+//  The Ensemble persona-writer: a repurposed AI-script-generator whose job is "write character personas in this exact JSON shape." Skeleton-first — one call returns the cast skeleton + relationship graph, then each persona is expanded in its own call (cast names render immediately; personas fill in progressively). JSON is streamed (no response_format), decoded tolerantly via JSONExtractor, and retried with escalating temperature on unparseable output. Reasoning models (gpt-oss) answer in a separate channel, so the client is asked to surface that as a fallback (see requestJSON).
 //
 
 import Foundation
@@ -31,11 +24,7 @@ final class PersonaWriter {
     /// Filled progressively as each expansion call returns.
     var personas: [PersonaFull] = []
     var connectionState: ConnectionState = .checking
-    /// Models the endpoint reports (from /v1/models). The user picks one so we
-    /// request EXACTLY the model they have loaded — requesting a different id
-    /// makes LM Studio JIT-load (or swap to) another model, adding latency and
-    /// possible eviction churn. (The earlier cast-JSON truncation was the
-    /// reasoning-channel issue, not the model id — see `requestJSON`.)
+    /// Models the endpoint reports (from /v1/models). The user picks one so we request EXACTLY the model they have loaded — requesting a different id makes LM Studio JIT-load (or swap to) another model, adding latency and possible eviction churn. (The earlier cast-JSON truncation was the reasoning-channel issue, not the model id — see `requestJSON`.)
     var availableModels: [String] = []
     var selectedModel: String = ""
 
@@ -86,8 +75,7 @@ final class PersonaWriter {
                 connectionState = .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
             }
         case .anthropic:
-            // The cloud path has no local model picker — the model is chosen in
-            // App Settings; "connected" means the API key validates.
+            // The cloud path has no local model picker — the model is chosen in App Settings; "connected" means the API key validates.
             availableModels = []
             let provider = AnthropicPersonaWriterProvider(
                 client: AnthropicMessagesClient(apiKey: PersonaProviderStore.anthropicAPIKey(), session: session),
@@ -128,10 +116,7 @@ final class PersonaWriter {
                 schema: PersonaWriterSchemas.skeleton, temperature: 0.5, attempts: 3
             )
             if Task.isCancelled { return }
-            // Pin the cast names back to what the user typed — local models
-            // routinely "canonicalize" or duplicate names (e.g. "Data" comes
-            // back as a second "William Riker") — and dedup whatever remains.
-            // The user's names always win.
+            // Pin the cast names back to what the user typed — local models routinely "canonicalize" or duplicate names (e.g. "Data" comes back as a second "William Riker") — and dedup whatever remains. The user's names always win.
             let reconciled = Self.reconcileNames(skel, provided: names)
             skeleton = reconciled
 
@@ -156,11 +141,7 @@ final class PersonaWriter {
 
     // MARK: - JSON request with retry
 
-    /// Request one JSON object via the STREAMING endpoint (same request shape as
-    /// Solo Chat, so LM Studio doesn't unload/reload the model). Retries up to
-    /// `attempts` times with escalating temperature, then decodes the
-    /// accumulated text with the tolerant extractor. Internal + static so it's
-    /// unit-testable with an injected client.
+    /// Request one JSON object via the STREAMING endpoint (same request shape as Solo Chat, so LM Studio doesn't unload/reload the model). Retries up to `attempts` times with escalating temperature, then decodes the accumulated text with the tolerant extractor. Internal + static so it's unit-testable with an injected client.
     static func requestJSON<T: Decodable & Sendable>(
         _ type: T.Type,
         client: LocalLLMClient,
@@ -173,16 +154,9 @@ final class PersonaWriter {
         var lastError: Error?
         for attempt in 0..<max(1, attempts) {
             do {
-                // Stream with the same request shape as Solo Chat and DON'T send
-                // `response_format`: on reasoning models (gpt-oss via LM Studio)
-                // the structured-output grammar makes the model emit its whole
-                // answer into the reasoning channel and leave `content` empty.
-                // `includeReasoning: true` lets the client surface that reasoning
-                // text as a fallback when no content arrives, so the JSON the
-                // model "thought out loud" is still recovered by JSONExtractor.
+                // Stream with the same request shape as Solo Chat and DON'T send `response_format`: on reasoning models (gpt-oss via LM Studio) the structured-output grammar makes the model emit its whole answer into the reasoning channel and leave `content` empty. `includeReasoning: true` lets the client surface that reasoning text as a fallback when no content arrives, so the JSON the model "thought out loud" is still recovered by JSONExtractor.
                 //
-                // Escalate temperature on retries so a deterministic empty/short
-                // sample isn't reproduced identically every attempt.
+                // Escalate temperature on retries so a deterministic empty/short sample isn't reproduced identically every attempt.
                 let temp = min(1.0, temperature + Double(attempt) * 0.35)
                 var raw = ""
                 let stream = client.streamChat(
@@ -203,19 +177,12 @@ final class PersonaWriter {
 
     // MARK: - Name reconciliation
 
-    /// Pin the writer's skeleton names back to the names the user typed and
-    /// guarantee uniqueness. Local models routinely rewrite or duplicate names
-    /// (e.g. "Data" comes back as a second "William Riker"); the names the user
-    /// provided always win, and any remaining collisions (two blanks that
-    /// invented the same name, or a genuinely repeated entry) are suffixed
-    /// " 2", " 3", … `reads_on_others` keys are remapped so the relationship
-    /// graph still points at the final names. Pure + nonisolated for testing.
+    /// Pin the writer's skeleton names back to the names the user typed and guarantee uniqueness. Local models routinely rewrite or duplicate names (e.g. "Data" comes back as a second "William Riker"); the names the user provided always win, and any remaining collisions (two blanks that invented the same name, or a genuinely repeated entry) are suffixed " 2", " 3", … `reads_on_others` keys are remapped so the relationship graph still points at the final names. Pure + nonisolated for testing.
     nonisolated static func reconcileNames(_ skeleton: CastSkeleton, provided: [String]) -> CastSkeleton {
         var stubs = skeleton.cast
         let originalNames = stubs.map { $0.name }
 
-        // Final name per slot: the user's typed name where present, else the
-        // model's invented one; deduped generically (no name list anywhere).
+        // Final name per slot: the user's typed name where present, else the model's invented one; deduped generically (no name list anywhere).
         var finalNames: [String] = []
         var used = Set<String>()
         for i in stubs.indices {
@@ -253,8 +220,7 @@ final class PersonaWriter {
         LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session)
     }
 
-    /// Build the configured persona-writer backend. Local (OpenAI-compatible) is
-    /// the default; the Anthropic path is opt-in via App Settings.
+    /// Build the configured persona-writer backend. Local (OpenAI-compatible) is the default; the Anthropic path is opt-in via App Settings.
     private func makeProvider() -> any PersonaWriterProvider {
         let config = PersonaProviderStore.load()
         switch config.kind {
@@ -273,8 +239,7 @@ final class PersonaWriter {
         return ""
     }
 
-    /// The active editable expansion prompt (PromptScope .ensemble), falling
-    /// back to the hardcoded default when unset/blank.
+    /// The active editable expansion prompt (PromptScope .ensemble), falling back to the hardcoded default when unset/blank.
     private func activeExpansionPrompt() -> String {
         if let ctx = appState.modelContext,
            let content = AppDataStore.activePrompt(ctx, scope: .ensemble)?.content,

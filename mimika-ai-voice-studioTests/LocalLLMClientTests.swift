@@ -2,11 +2,7 @@
 //  LocalLLMClientTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  URLProtocol-backed tests for the Ensemble-Mode extensions to
-//  LocalLLMClient: per-request `temperature` (omitted when nil, present when
-//  set), the non-streaming `completeChat`, `response_format` wiring, and
-//  HTTP-error surfacing. The client already accepts an injected URLSession,
-//  so a stub protocol drops straight in.
+//  URLProtocol-backed tests for the Ensemble-Mode extensions to LocalLLMClient: per-request `temperature` (omitted when nil, present when set), the non-streaming `completeChat`, `response_format` wiring, and HTTP-error surfacing. The client already accepts an injected URLSession, so a stub protocol drops straight in.
 //
 
 import XCTest
@@ -36,9 +32,7 @@ final class LocalLLMClientTests: XCTestCase {
         return Data((chunk + "data: [DONE]\n\n").utf8)
     }
 
-    /// SSE with a reasoning delta, optionally followed by a content delta.
-    /// Models gpt-oss/LM Studio, which streams chain-of-thought via
-    /// `delta.reasoning` and may leave `content` empty.
+    /// SSE with a reasoning delta, optionally followed by a content delta. Models gpt-oss/LM Studio, which streams chain-of-thought via `delta.reasoning` and may leave `content` empty.
     private func sseReasoning(_ reasoning: String, content: String = "") -> Data {
         let r = reasoning.replacingOccurrences(of: "\"", with: "\\\"")
         var chunks = "data: {\"choices\":[{\"delta\":{\"reasoning\":\"\(r)\"}}]}\n\n"
@@ -159,10 +153,7 @@ final class LocalLLMClientTests: XCTestCase {
 
 // MARK: - Stub URLProtocol
 
-/// Captures the outgoing request body (URLSession hands it to a protocol as a
-/// stream) and serves a single canned response. Static state is fine because
-/// URLProtocol is instantiated by URLSession, not the test; `reset()` runs in
-/// setUp and the suite is serial.
+/// Captures the outgoing request body (URLSession hands it to a protocol as a stream) and serves a single canned response. Static state is fine because URLProtocol is instantiated by URLSession, not the test; `reset()` runs in setUp and the suite is serial.
 final class LLMStubURLProtocol: URLProtocol {
 
     private struct Canned: Sendable { let data: Data; let statusCode: Int }
@@ -170,6 +161,8 @@ final class LLMStubURLProtocol: URLProtocol {
     nonisolated(unsafe) private static var canned: Canned?
     nonisolated(unsafe) private static var queue: [Canned] = []
     nonisolated(unsafe) private static var lastBody: Data?
+    /// Every captured body, in order. `lastBody` alone is a race whenever the app fires more than one request per user action — e.g. finishing a turn clears `activeTurn` and immediately kicks the thread auto-title call.
+    nonisolated(unsafe) private static var allBodies: [Data] = []
     nonisolated(unsafe) private static var lastHeaders: [String: String]?
     nonisolated(unsafe) private static var lastURL: URL?
     nonisolated(unsafe) private static var usesStagedResponse = false
@@ -185,6 +178,7 @@ final class LLMStubURLProtocol: URLProtocol {
         canned = nil
         queue.removeAll()
         lastBody = nil
+        allBodies.removeAll()
         lastHeaders = nil
         lastURL = nil
         usesStagedResponse = false
@@ -200,8 +194,7 @@ final class LLMStubURLProtocol: URLProtocol {
         canned = Canned(data: data, statusCode: statusCode)
     }
 
-    /// Enqueue a one-shot response (FIFO), consumed before `canned`. Use for
-    /// sequences like "first call fails, retry succeeds."
+    /// Enqueue a one-shot response (FIFO), consumed before `canned`. Use for sequences like "first call fails, retry succeeds."
     static func enqueue(_ data: Data, statusCode: Int = 200) {
         lock.lock(); defer { lock.unlock() }
         queue.append(Canned(data: data, statusCode: statusCode))
@@ -210,6 +203,12 @@ final class LLMStubURLProtocol: URLProtocol {
     static func capturedBody() -> Data? {
         lock.lock(); defer { lock.unlock() }
         return lastBody
+    }
+
+    /// All captured bodies in order — use when a single user action can produce more than one request and you need a specific one.
+    static func capturedBodies() -> [Data] {
+        lock.lock(); defer { lock.unlock() }
+        return allBodies
     }
 
     static func capturedHeaders() -> [String: String]? {
@@ -359,6 +358,6 @@ final class LLMStubURLProtocol: URLProtocol {
             data = body
         }
         guard let data else { return }
-        Self.lock.lock(); Self.lastBody = data; Self.lock.unlock()
+        Self.lock.lock(); Self.lastBody = data; Self.allBodies.append(data); Self.lock.unlock()
     }
 }

@@ -2,8 +2,7 @@
 //  HistoryViewModel.swift
 //  mimika-ai-voice-studio
 //
-//  Manages the History tab's filter, pin/delete actions, and reuse-payload
-//  construction.
+//  Manages the History tab's filter, pin/delete actions, and reuse-payload construction.
 
 import Foundation
 import Observation
@@ -56,8 +55,7 @@ final class HistoryViewModel {
         try? ctx.save()
     }
 
-    /// Build a `PendingReuse` payload from a history item so the destination
-    /// view can populate itself.
+    /// Build a `PendingReuse` payload from a history item so the destination view can populate itself.
     func reusePayload(for item: TTSHistoryItem) -> PendingReuse? {
         switch item.type {
         case .single:

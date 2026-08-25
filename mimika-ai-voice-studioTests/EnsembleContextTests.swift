@@ -2,12 +2,7 @@
 //  EnsembleContextTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  POV transcript rendering: a persona sees its own lines as the assistant and
-//  everyone else (other personas + the user) as name-prefixed people, with the
-//  rolling summary prepended, the window applied, cut-off marked, and a
-//  "(continue)" nudge when the persona's own line is most recent. Consecutive
-//  non-me lines coalesce into one `user` message so the sequence stays strictly
-//  user/assistant-alternating (required by Gemma/Mistral chat templates).
+//  POV transcript rendering: a persona sees its own lines as the assistant and everyone else (other personas + the user) as name-prefixed people, with the rolling summary prepended, the window applied, cut-off marked, and a "(continue)" nudge when the persona's own line is most recent. Consecutive non-me lines coalesce into one `user` message so the sequence stays strictly user/assistant-alternating (required by Gemma/Mistral chat templates).
 //
 
 import XCTest
@@ -20,8 +15,7 @@ final class EnsembleContextTests: XCTestCase {
         Persona(name: name, voiceID: "v", systemPrompt: "")
     }
 
-    /// No two consecutive messages share a role — the invariant strict chat
-    /// templates (Gemma/Mistral) enforce.
+    /// No two consecutive messages share a role — the invariant strict chat templates (Gemma/Mistral) enforce.
     private func assertStrictAlternation(_ msgs: [ChatMessage], file: StaticString = #filePath, line: UInt = #line) {
         guard msgs.count > 1 else { return }
         for i in 1..<msgs.count {
@@ -50,9 +44,7 @@ final class EnsembleContextTests: XCTestCase {
     }
 
     func test_renderPOV_userInterjectionAfterPersona_doesNotProduceConsecutiveUser() {
-        // The reported crash: Fox finishes, the user interjects, Data is up next.
-        // In Data's POV both Fox and the user are `user` role — they MUST coalesce,
-        // or a strict chat template rejects back-to-back user turns.
+        // The reported crash: Fox finishes, the user interjects, Data is up next. In Data's POV both Fox and the user are `user` role — they MUST coalesce, or a strict chat template rejects back-to-back user turns.
         let data = persona("Data"), fox = persona("Fox Mulder")
         let turns = [
             EnsembleTurn(speakerID: data.id, speakerName: "Data", content: "Curious."),
@@ -67,8 +59,7 @@ final class EnsembleContextTests: XCTestCase {
     }
 
     func test_renderPOV_leadingOwnLineGetsUserPrimer_soFirstMessageIsUser() {
-        // Gemma/Mistral also require the FIRST message to be `user`. If the window
-        // starts on the persona's own line, lead with a primer, not an assistant.
+        // Gemma/Mistral also require the FIRST message to be `user`. If the window starts on the persona's own line, lead with a primer, not an assistant.
         let ada = persona("Ada"), bert = persona("Bertrand")
         let turns = [
             EnsembleTurn(speakerID: ada.id, speakerName: "Ada", content: "I'll start."),

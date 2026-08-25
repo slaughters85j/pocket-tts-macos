@@ -8,32 +8,18 @@ import SwiftData
 import SwiftUI
 
 // MARK: - App entry
-// Phase 2+3: tab-driven SwiftUI shell faithful to the Electron app's
-// layout + design tokens. The SwiftData container backs the History tab;
-// AppState holds the shared TTSEngine + StreamingPlayer pair so the three
-// tabs reuse one instance instead of paying the engine load cost three times.
+// Phase 2+3: tab-driven SwiftUI shell faithful to the Electron app's layout + design tokens. The SwiftData container backs the History tab; AppState holds the shared TTSEngine + StreamingPlayer pair so the three tabs reuse one instance instead of paying the engine load cost three times.
 
 // MARK: - App delegate
-// Single-window utility: closing the last window should fully terminate
-// the process, not leave it running window-less in the dock (the macOS
-// default for `WindowGroup`). Opting in here means the red close button
-// behaves the same as ⌘Q for this app.
+// Single-window utility: closing the last window should fully terminate the process, not leave it running window-less in the dock (the macOS default for `WindowGroup`). Opting in here means the red close button behaves the same as ⌘Q for this app.
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Stay resident in the menu bar when Read Aloud is on; otherwise the red
-        // close button quits the app (the original single-window behavior).
+        // Stay resident in the menu bar when Read Aloud is on; otherwise the red close button quits the app (the original single-window behavior).
         !SettingsStore.load().readAloudEnabled
     }
 
-    /// Quit-while-speaking crash gate. `terminate:` ends in `exit()`, which
-    /// runs MPSGraph's C++ static destructors on the main thread; if a Core ML
-    /// prediction is still mid-frame on the cooperative pool at that instant,
-    /// it dereferences the destroyed globals and the process SIGSEGVs (the
-    /// "quit unexpectedly" dialog users saw in 1.5.4). Cancel every in-flight
-    /// synthesis and wait for its current frame to finish before letting
-    /// AppKit proceed. The 2 s drain cap keeps a wedged prediction from
-    /// blocking quit forever — worst case is today's behavior, but rare.
+    /// Quit-while-speaking crash gate. `terminate:` ends in `exit()`, which runs MPSGraph's C++ static destructors on the main thread; if a Core ML prediction is still mid-frame on the cooperative pool at that instant, it dereferences the destroyed globals and the process SIGSEGVs (the "quit unexpectedly" dialog users saw in 1.5.4). Cancel every in-flight synthesis and wait for its current frame to finish before letting AppKit proceed. The 2 s drain cap keeps a wedged prediction from blocking quit forever — worst case is today's behavior, but rare.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard SynthesisQuiescence.shared.beginShutdown() else { return .terminateNow }
         Task { @MainActor in
@@ -49,18 +35,14 @@ struct mimika_ai_voice_studioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
-    /// SwiftData container for History — built ONCE and reused. It used to be a
-    /// computed property, which rebuilt a fresh ModelContainer on every scene
-    /// re-evaluation; a second ModelContainer on the same on-disk store DEADLOCKS
-    /// on the first's SQLite lock (the launch hang the menu-bar scene exposed).
+    /// SwiftData container for History — built ONCE and reused. It used to be a computed property, which rebuilt a fresh ModelContainer on every scene re-evaluation; a second ModelContainer on the same on-disk store DEADLOCKS on the first's SQLite lock (the launch hang the menu-bar scene exposed).
     private let historyContainer: ModelContainer
 
     init() {
         do {
             historyContainer = try HistoryStore.makeContainer()
         } catch {
-            // Schema couldn't be set up at all — fall back to an in-memory
-            // container so the app at least launches.
+            // Schema couldn't be set up at all — fall back to an in-memory container so the app at least launches.
             FileHandle.standardError.write(Data("history container failed: \(error); falling back to in-memory\n".utf8))
             historyContainer = try! HistoryStore.makeInMemoryContainer()
         }
@@ -75,13 +57,8 @@ struct mimika_ai_voice_studioApp: App {
                     await appState.bootstrapIfNeeded()
                 }
                 .task {
-                    // Read-Aloud wiring, deliberately OFF the engine-load path.
-                    // The Service is declared statically in Info.plist, so macOS
-                    // registers it — do NOT call NSUpdateDynamicServices() here:
-                    // it kicks a full Services rescan (pbs) on the main thread and
-                    // can stall launch. Touch the login item only when the user
-                    // opted in, since SMAppService status does a (possibly slow)
-                    // XPC round-trip.
+                    // Read-Aloud wiring, deliberately OFF the engine-load path. The Service is declared statically in Info.plist, so macOS registers it — do NOT call NSUpdateDynamicServices() here:
+                    // it kicks a full Services rescan (pbs) on the main thread and can stall launch. Touch the login item only when the user opted in, since SMAppService status does a (possibly slow) XPC round-trip.
                     NSApp.servicesProvider = appState.readAloudService
                     if appState.chatSettings.launchAtLogin {
                         LoginItem.setEnabled(true)
@@ -99,11 +76,7 @@ struct mimika_ai_voice_studioApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
-            // File-menu entry for Voice Changer. Bound to the same
-            // AppState flag the Single Voice sidebar button toggles so
-            // the keyboard shortcut works from any tab (Chat,
-            // Multi-Talk, History) without requiring the user to
-            // switch to Single Voice first.
+            // File-menu entry for Voice Changer. Bound to the same AppState flag the Single Voice sidebar button toggles so the keyboard shortcut works from any tab (Chat, Multi-Talk, History) without requiring the user to switch to Single Voice first.
             CommandGroup(before: .appSettings) {
                 Button("Convert Recording…") {
                     appState.showsVoiceChanger = true
@@ -115,11 +88,7 @@ struct mimika_ai_voice_studioApp: App {
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
             }
-            // Edit > Find submenu — Cmd+F opens the find bar inside the
-            // currently-focused NSTextView (Single Voice + Multi-Talk
-            // script editors via `MacTextEditor`). Each item sends the
-            // standard `performFindPanelAction(_:)` selector with the
-            // matching NSFindPanelAction tag through the responder chain.
+            // Edit > Find submenu — Cmd+F opens the find bar inside the currently-focused NSTextView (Single Voice + Multi-Talk script editors via `MacTextEditor`). Each item sends the standard `performFindPanelAction(_:)` selector with the matching NSFindPanelAction tag through the responder chain.
             CommandGroup(after: .textEditing) {
                 Section {
                     Button("Find…") { Self.performFindAction(.showFindInterface) }
@@ -138,12 +107,7 @@ struct mimika_ai_voice_studioApp: App {
                         .keyboardShortcut("e", modifiers: .command)
                 }
             }
-            // Help-menu entry: user-initiated path to the App Store
-            // listing's Ratings & Reviews section (HIG asks for a
-            // manual affordance alongside the automatic post-synthesis
-            // prompt). Links to the plain product page on purpose —
-            // see ReviewPromptGate.productPageURL for why
-            // action=write-review must NOT be used on macOS.
+            // Help-menu entry: user-initiated path to the App Store listing's Ratings & Reviews section (HIG asks for a manual affordance alongside the automatic post-synthesis prompt). Links to the plain product page on purpose — see ReviewPromptGate.productPageURL for why action=write-review must NOT be used on macOS.
             CommandGroup(after: .help) {
                 Button("Rate Mimika on the App Store…") {
                     NSWorkspace.shared.open(ReviewPromptGate.productPageURL)
@@ -151,25 +115,16 @@ struct mimika_ai_voice_studioApp: App {
             }
         }
 
-        // Menu-bar item — shown only while Read Aloud is enabled. Voice picker +
-        // Stop + reopen, all driven by the same in-process engine.
+        // Menu-bar item — shown only while Read Aloud is enabled. Voice picker + Stop + reopen, all driven by the same in-process engine.
         MenuBarExtra("mimika", systemImage: "mic.fill", isInserted: menuBarVisible) {
             MenuBarContent(appState: appState)
         }
         .menuBarExtraStyle(.menu)
     }
 
-    /// READ-ONLY reflection of the persisted Read-Aloud setting, driving the
-    /// menu-bar item's `isInserted`. The setter is intentionally a NO-OP.
+    /// READ-ONLY reflection of the persisted Read-Aloud setting, driving the menu-bar item's `isInserted`. The setter is intentionally a NO-OP.
     ///
-    /// SwiftUI's MenuBarExtra controller echoes this binding back through `set`
-    /// during scene reconciliation — including a `false` echo when the item is
-    /// torn down / fails to insert. With a writing setter, that `false` clobbers
-    /// the user's enabled setting and persists it (readAloudEnabled flips to
-    /// false on disk → icon never sticks). The setting is owned SOLELY by App
-    /// Settings; the menu bar only reads it. Ignoring write-backs also kills the
-    /// scene re-invalidation loop that patch 1 targeted — without persisting a
-    /// stale value.
+    /// SwiftUI's MenuBarExtra controller echoes this binding back through `set` during scene reconciliation — including a `false` echo when the item is torn down / fails to insert. With a writing setter, that `false` clobbers the user's enabled setting and persists it (readAloudEnabled flips to false on disk → icon never sticks). The setting is owned SOLELY by App Settings; the menu bar only reads it. Ignoring write-backs also kills the scene re-invalidation loop that patch 1 targeted — without persisting a stale value.
     private var menuBarVisible: Binding<Bool> {
         Binding(
             get: { appState.chatSettings.readAloudEnabled },
@@ -177,13 +132,7 @@ struct mimika_ai_voice_studioApp: App {
         )
     }
 
-    /// Dispatch one of the `NSTextFinder.Action` cases to whatever
-    /// NSTextView is currently first responder. NSTextView implements
-    /// `performTextFinderAction(_:)` and reads the action enum off the
-    /// sender's tag, so we build a transient NSMenuItem with the tag
-    /// set and walk it through the responder chain. The selector is
-    /// constructed by string because `NSResponder.performTextFinderAction`
-    /// isn't exposed on a Swift-importable protocol we can `#selector` to.
+    /// Dispatch one of the `NSTextFinder.Action` cases to whatever NSTextView is currently first responder. NSTextView implements `performTextFinderAction(_:)` and reads the action enum off the sender's tag, so we build a transient NSMenuItem with the tag set and walk it through the responder chain. The selector is constructed by string because `NSResponder.performTextFinderAction` isn't exposed on a Swift-importable protocol we can `#selector` to.
     private static func performFindAction(_ action: NSTextFinder.Action) {
         let menuItem = NSMenuItem()
         menuItem.tag = action.rawValue

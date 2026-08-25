@@ -2,19 +2,13 @@
 //  MockDiarizationProvider.swift
 //  mimika-ai-voice-studioTests
 //
-//  In-memory stub for `DiarizationProvider`. Lets VM tests use a
-//  pre-canned segment list instead of actually running the
-//  SpeakerKit pipeline (which would require ~50 MB of downloaded
-//  pyannote models + a real audio file).
+//  In-memory stub for `DiarizationProvider`. Lets VM tests use a pre-canned segment list instead of actually running the SpeakerKit pipeline (which would require ~50 MB of downloaded pyannote models + a real audio file).
 //
 //  Behavior knobs:
 //    * `cannedSegments` — what `diarize(_:)` returns on success
 //    * `modelDownloaded` — what `isModelDownloaded()` returns
-//    * `diarizeDelay` — how long `diarize(_:)` waits before
-//      returning (used by the speakers-populate-before-separation
-//      test to ensure diarize finishes first)
-//    * `diarizeShouldThrow` — when true, `diarize(_:)` throws
-//      instead of returning (error-path testing)
+//    * `diarizeDelay` — how long `diarize(_:)` waits before returning (used by the speakers-populate-before-separation test to ensure diarize finishes first)
+//    * `diarizeShouldThrow` — when true, `diarize(_:)` throws instead of returning (error-path testing)
 
 import Foundation
 @testable import mimika_ai_voice_studio
@@ -70,13 +64,7 @@ final class MockDiarizationProvider: DiarizationProvider, @unchecked Sendable {
         progress: (@Sendable (Progress) -> Void)?
     ) async throws {
         ensureModelsReadyCallCount += 1
-        // No-op success: the mock pretends the model is always
-        // ready after this call. Tests that want a "models
-        // missing" scenario flip `modelDownloaded = false` AND
-        // pair with `ensureModelsReadyShouldThrow` semantically —
-        // but the VM gates on `isModelDownloaded()` first, so the
-        // ensureModelsReady call only happens when we WANT
-        // download to succeed.
+        // No-op success: the mock pretends the model is always ready after this call. Tests that want a "models missing" scenario flip `modelDownloaded = false` AND pair with `ensureModelsReadyShouldThrow` semantically — but the VM gates on `isModelDownloaded()` first, so the ensureModelsReady call only happens when we WANT download to succeed.
     }
 
     // MARK: - Errors

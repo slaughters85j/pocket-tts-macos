@@ -2,7 +2,7 @@
 //  ChatMessageActions.swift
 //  mimika-ai-voice-studio
 //
-//  Hover actions and in-place editor for Solo Chat transcript messages.
+//  Hover actions and in-place editor for transcript entries. Shared by Solo Chat messages and Ensemble turns — the bar takes the text and an id rather than a ChatMessage so both transcripts can use one implementation.
 //
 
 import AppKit
@@ -10,9 +10,12 @@ import SwiftUI
 
 // MARK: - Message actions
 
-/// Compact actions displayed beneath a hovered Solo Chat message.
+/// Compact actions displayed beneath a hovered transcript entry.
 struct ChatMessageActionBar: View {
-    let message: ChatMessage
+    /// Raw text to copy — unrendered, so Markdown survives.
+    let content: String
+    /// Stable id for accessibility identifiers.
+    let entryID: UUID
     let canModify: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -22,7 +25,7 @@ struct ChatMessageActionBar: View {
             actionButton(
                 title: "Copy message",
                 systemImage: "doc.on.doc",
-                isDisabled: message.content.isEmpty,
+                isDisabled: content.isEmpty,
                 action: copyMessage
             )
             actionButton(
@@ -58,7 +61,7 @@ struct ChatMessageActionBar: View {
         .help(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier(
-            "chat.message.\(message.id.uuidString).\(systemImage)"
+            "chat.message.\(entryID.uuidString).\(systemImage)"
         )
     }
 
@@ -66,29 +69,70 @@ struct ChatMessageActionBar: View {
     private func copyMessage() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(message.content, forType: .string)
+        pasteboard.setString(content, forType: .string)
+    }
+}
+
+// MARK: - Hover container
+
+/// Reveals `ChatMessageActionBar` beneath a transcript entry on hover.
+///
+/// Owns its own hover state on purpose: with this on the parent, hovering any row would invalidate the entire transcript, which already re-renders on every streamed token.
+struct TranscriptHoverActions<Content: View>: View {
+    let entryID: UUID
+    /// Raw text the copy action puts on the pasteboard.
+    let copyText: String
+    let canModify: Bool
+    var alignment: Alignment = .bottomTrailing
+    var onEdit: () -> Void
+    var onDelete: () -> Void
+    @ViewBuilder var content: () -> Content
+
+    @State private var isHovered = false
+
+    var body: some View {
+        content()
+            .overlay(alignment: alignment) {
+                ChatMessageActionBar(
+                    content: copyText,
+                    entryID: entryID,
+                    canModify: canModify,
+                    onEdit: onEdit,
+                    onDelete: onDelete
+                )
+                // Bare glyphs, no plate — matches Solo's bubble actions.
+                .padding(Theme.space2)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .accessibilityHidden(!isHovered)
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }
 
 // MARK: - Message editor
 
-/// Sheet for changing one transcript message without regenerating later turns.
+/// Sheet for changing one transcript entry without regenerating later turns.
 struct ChatMessageEditorSheet: View {
-    let message: ChatMessage
     let onCancel: () -> Void
     let onSave: (String) -> Void
+    /// Entries that carry images may be saved with empty text.
+    private let allowsEmpty: Bool
 
     @State private var text: String
 
     init(
-        message: ChatMessage,
+        content: String,
+        allowsEmpty: Bool = false,
         onCancel: @escaping () -> Void,
         onSave: @escaping (String) -> Void
     ) {
-        self.message = message
+        self.allowsEmpty = allowsEmpty
         self.onCancel = onCancel
         self.onSave = onSave
-        _text = State(initialValue: message.content)
+        _text = State(initialValue: content)
     }
 
     var body: some View {
@@ -136,9 +180,8 @@ struct ChatMessageEditorSheet: View {
         .frame(width: 500, height: 300)
     }
 
-    /// Text may be empty only when the existing message retains images.
+    /// Text may be empty only when the entry retains images.
     private var canSave: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !message.attachments.isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || allowsEmpty
     }
 }

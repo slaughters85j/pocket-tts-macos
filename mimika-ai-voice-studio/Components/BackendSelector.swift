@@ -2,8 +2,7 @@
 //  BackendSelector.swift
 //  mimika-ai-voice-studio
 //
-//  Model/backend picker + conditional Fish generation parameter sliders.
-//  Mirrors the Electron app's BackendSelector.tsx.
+//  Model/backend picker + conditional Fish generation parameter sliders. Mirrors the Electron app's BackendSelector.tsx.
 
 import SwiftUI
 

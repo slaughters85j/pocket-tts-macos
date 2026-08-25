@@ -8,8 +8,7 @@
 //    * Voice Codable round-trip with the new `seed` field
 //    * VoiceManager.resolveSeedForSynthesis' safe nil paths (stock / unknown)
 //
-//  The seeded engine path itself is exercised by EngineEndToEndTests when the
-//  Core ML models are present; here we validate the deterministic primitives.
+//  The seeded engine path itself is exercised by EngineEndToEndTests when the Core ML models are present; here we validate the deterministic primitives.
 
 import XCTest
 @testable import mimika_ai_voice_studio

@@ -2,14 +2,10 @@
 //  MimiEncoder.swift
 //  mimika-ai-voice-studio
 //
-//  Native MLX port of the Mimi audio encoder for Pocket-TTS voice encoding.
-//  Converts raw audio [1, 1, N] @ 24kHz → conditioning [1, T, 1024].
+//  Native MLX port of the Mimi audio encoder for Pocket-TTS voice encoding. Converts raw audio [1, 1, N] @ 24kHz → conditioning [1, T, 1024].
 //
 //  Architecture (18.14M params):
-//    SEANet encoder (conv stack with residual blocks, 2.93M)
-//    → Encoder transformer (2 layers, 8 heads, dim=512, 6.30M)
-//    → Conv downsample (200Hz → 12.5Hz, 8.39M)
-//    → Speaker projection (Linear 512→1024, 0.52M)
+//    SEANet encoder (conv stack with residual blocks, 2.93M) → Encoder transformer (2 layers, 8 heads, dim=512, 6.30M) → Conv downsample (200Hz → 12.5Hz, 8.39M) → Speaker projection (Linear 512→1024, 0.52M)
 
 import Foundation
 import MLX
@@ -19,9 +15,7 @@ import MLXNN
 
 class MimiEncoder: Module {
 
-    // SEANet encoder layers (12 items)
-    // nonisolated(unsafe) is required so that nonisolated init() can write these properties.
-    // Weight key mapping is handled explicitly in load() by renaming dict keys before update().
+    // SEANet encoder layers (12 items) nonisolated(unsafe) is required so that nonisolated init() can write these properties. Weight key mapping is handled explicitly in load() by renaming dict keys before update().
     nonisolated(unsafe) var conv0: MLXConv1d           // in=1, out=64, k=7
     nonisolated(unsafe) var res1: MLXResBlock           // dim=64
     nonisolated(unsafe) var conv3: MLXConv1d           // in=64, out=128, k=8, s=4
@@ -104,8 +98,7 @@ class MimiEncoder: Module {
 
     // MARK: - Padding
 
-    /// Right-pad to ensure total length is a multiple of frame_size (matches pad_for_conv1d).
-    /// Called once on raw audio before the encoder.
+    /// Right-pad to ensure total length is a multiple of frame_size (matches pad_for_conv1d). Called once on raw audio before the encoder.
     private nonisolated func padForFrameAlignment(_ x: MLXArray, kernelSize: Int, stride: Int) -> MLXArray {
         let length = x.shape[1]
         let nFrames = Double(length - kernelSize) / Double(stride) + 1.0
@@ -149,8 +142,7 @@ class MLXConv1d: Module {
 
         let padded: MLXArray
         if useReplicatePad {
-            // Replicate mode: fill left padding with the first input frame
-            // Matches StreamingConv1d with pad_mode="replicate" and model_state=None
+            // Replicate mode: fill left padding with the first input frame Matches StreamingConv1d with pad_mode="replicate" and model_state=None
             let firstFrame = x[0..., 0..<1, 0...]  // [B, 1, C]
             let repeated = MLX.repeated(firstFrame, count: causalPad, axis: 1)  // [B, causalPad, C]
             padded = concatenated([repeated, x], axis: 1)
@@ -182,8 +174,7 @@ class MLXResBlock: Module {
     }
 
     nonisolated func callAsFunction(_ x: MLXArray) -> MLXArray {
-        // ResBlock: ELU → Conv1 → ELU → Conv2 → residual add
-        // Causal padding is handled inside each MLXConv1d
+        // ResBlock: ELU → Conv1 → ELU → Conv2 → residual add Causal padding is handled inside each MLXConv1d
         var v = elu(x)
         v = conv1(v)
         v = elu(v)
@@ -274,8 +265,7 @@ class MimiTransformerLayer: Module {
         let kH = kBTHD.transposed(0, 2, 1, 3)
         let vH = v.reshaped(B, T, numHeads, headDim).transposed(0, 2, 1, 3)
 
-        // Causal + context mask: position i can attend to positions max(0, i-context+1)..i
-        // Matches Python's delta-based mask with context=250
+        // Causal + context mask: position i can attend to positions max(0, i-context+1)..i Matches Python's delta-based mask with context=250
         let context = 250
         let posQ = MLXArray(Array(0..<T)).reshaped(1, 1, T, 1)  // [1, 1, T, 1]
         let posK = MLXArray(Array(0..<T)).reshaped(1, 1, 1, T)  // [1, 1, 1, T]
@@ -321,8 +311,7 @@ class LayerScale: Module {
 
 // MARK: - Helpers
 
-/// RoPE: interleaved pairs (d0,d1), (d2,d3), ... matching pocket-tts convention.
-/// q, k: [B, T, H, D]
+/// RoPE: interleaved pairs (d0,d1), (d2,d3), ... matching pocket-tts convention. q, k: [B, T, H, D]
 private nonisolated func applyRoPE(q: MLXArray, k: MLXArray, offset: Int, maxPeriod: Float) -> (MLXArray, MLXArray) {
     let D = q.shape[3]
     let T = q.shape[1]
@@ -369,11 +358,7 @@ extension MimiEncoder {
     nonisolated static func load() throws -> MimiEncoder {
         let model = MimiEncoder()
 
-        // Phase 8.5: encoder weights ship via the voice-tools HF
-        // bundle, installed by `BundledMLModelManager` on first
-        // launch. `ModelPaths.mimiEncoderWeights()` resolves the
-        // installed copy, falling back to `Bundle.main` for a future
-        // re-bundled build.
+        // Phase 8.5: encoder weights ship via the voice-tools HF bundle, installed by `BundledMLModelManager` on first launch. `ModelPaths.mimiEncoderWeights()` resolves the installed copy, falling back to `Bundle.main` for a future re-bundled build.
         let url: URL
         do {
             url = try ModelPaths.mimiEncoderWeights()
@@ -398,10 +383,7 @@ extension MimiEncoder {
         // speaker_proj_weight is a standalone weight, not a module
         let spw = weights.removeValue(forKey: "speaker_proj_weight")
 
-        // Remap PyTorch weight keys to match Swift property names.
-        // @ModuleInfo was replaced with nonisolated(unsafe) stored properties, so MLX Module
-        // reflection uses the Swift property name, not an explicit key. We rekey the weight
-        // dict so the names match the property / sub-module structure expected by update().
+        // Remap PyTorch weight keys to match Swift property names. @ModuleInfo was replaced with nonisolated(unsafe) stored properties, so MLX Module reflection uses the Swift property name, not an explicit key. We rekey the weight dict so the names match the property / sub-module structure expected by update().
         let keyMap: [String: String] = [
             "encoder.model.0": "conv0",
             "encoder.model.1": "res1",
@@ -416,9 +398,7 @@ extension MimiEncoder {
             // MLXResBlock children used @ModuleInfo keys "block.1" / "block.3" → now "conv1"/"conv2"
             "block.1": "conv1",
             "block.3": "conv2",
-            // MLXConv1d child "@ModuleInfo(key: "conv")" → now plain "conv"
-            // MimiTransformer "@ModuleInfo(key: "layers")" → now "layers"
-            // MimiTransformerLayer keys:
+            // MLXConv1d child "@ModuleInfo(key: "conv")" → now plain "conv" MimiTransformer "@ModuleInfo(key: "layers")" → now "layers" MimiTransformerLayer keys:
             "self_attn.in_proj": "inProj",
             "self_attn.out_proj": "outProj",
             "layer_scale_1": "layerScale1",
@@ -432,9 +412,7 @@ extension MimiEncoder {
         var remapped: [String: MLXArray] = [:]
         for (key, value) in weights {
             var newKey = key
-            // Apply ALL matching remaps (don't break early — a key like
-            // "encoder.model.7.block.1.conv.weight" needs both
-            // "encoder.model.7"→"res7" AND "block.1"→"conv1")
+            // Apply ALL matching remaps (don't break early — a key like "encoder.model.7.block.1.conv.weight" needs both "encoder.model.7"→"res7" AND "block.1"→"conv1")
             for (old, new) in sortedMap {
                 // Replace as a complete dot-delimited path component
                 let components = newKey.split(separator: ".").map(String.init)

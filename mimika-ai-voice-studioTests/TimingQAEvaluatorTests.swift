@@ -2,8 +2,7 @@
 //  TimingQAEvaluatorTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Coverage for `TimingQAEvaluator` — the in-app re-voice timing measurer
-//  (LCS content-alignment + per-word offset). Pure value-type logic.
+//  Coverage for `TimingQAEvaluator` — the in-app re-voice timing measurer (LCS content-alignment + per-word offset). Pure value-type logic.
 //
 
 import XCTest
@@ -68,11 +67,7 @@ final class TimingQAEvaluatorTests: XCTestCase {
 
     // MARK: - Punctuation-token filtering (phantom-drift regression)
 
-    /// Regression: Parakeet emits standalone punctuation tokens (",",
-    /// ".", "--", …) which normalize to "". Unfiltered, "" == "" pairs as
-    /// a content-free wildcard across unrelated timeline positions —
-    /// fabricating a huge phantom offset that flags the run as dirty and
-    /// burns extra full re-renders.
+    /// Regression: Parakeet emits standalone punctuation tokens (",", ".", "--", …) which normalize to "". Unfiltered, "" == "" pairs as a content-free wildcard across unrelated timeline positions — fabricating a huge phantom offset that flags the run as dirty and burns extra full re-renders.
     func test_punctuationOnlyTokens_neverMatchAcrossPositions() {
         let orig = [w("hello", 0), w(".", 2.0), w("world", 3)]
         let revo = [w("hello", 0), w(".", 40.0), w("world", 3)]  // "." landed elsewhere
@@ -92,10 +87,7 @@ final class TimingQAEvaluatorTests: XCTestCase {
 
     // MARK: - Hirschberg LCS vs naive reference
 
-    /// The linear-memory Hirschberg alignment must produce a valid LCS of
-    /// the same LENGTH as the classic full-matrix DP (pair positions may
-    /// legally differ when ties exist). Checked over deterministic
-    /// pseudo-random word streams with heavy repetition.
+    /// The linear-memory Hirschberg alignment must produce a valid LCS of the same LENGTH as the classic full-matrix DP (pair positions may legally differ when ties exist). Checked over deterministic pseudo-random word streams with heavy repetition.
     func test_lcsPairs_matchesNaiveReferenceLength() {
         var seed: UInt64 = 0x5EED_0001
         func nextRandom(_ bound: Int) -> Int {
@@ -111,8 +103,7 @@ final class TimingQAEvaluatorTests: XCTestCase {
             let pairs = TimingQAEvaluator.lcsPairs(a, b)
 
             XCTAssertEqual(pairs.count, naiveLCSLength(a, b), "LCS length mismatch for a=\(a) b=\(b)")
-            // Pairs must be a valid common subsequence: strictly
-            // increasing in both indices, contents equal.
+            // Pairs must be a valid common subsequence: strictly increasing in both indices, contents equal.
             for (k, p) in pairs.enumerated() {
                 XCTAssertEqual(a[p.0], b[p.1])
                 if k > 0 {
@@ -129,8 +120,7 @@ final class TimingQAEvaluatorTests: XCTestCase {
         XCTAssertTrue(TimingQAEvaluator.lcsPairs([], []).isEmpty)
     }
 
-    /// Classic O(n·m) full-matrix LCS length — the reference the
-    /// linear-memory implementation is validated against. Test-only:
+    /// Classic O(n·m) full-matrix LCS length — the reference the linear-memory implementation is validated against. Test-only:
     /// quadratic memory is exactly what production code must avoid.
     private func naiveLCSLength(_ a: [String], _ b: [String]) -> Int {
         let n = a.count, m = b.count

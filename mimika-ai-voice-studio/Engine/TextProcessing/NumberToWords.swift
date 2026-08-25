@@ -2,9 +2,7 @@
 //  NumberToWords.swift
 //  mimika-ai-voice-studio
 //
-//  Lightweight English number-to-words conversion for TTS text
-//  normalization. Covers cardinals (integers + decimals) and ordinals,
-//  matching the subset of Python's num2words used by text_normalizer.py.
+//  Lightweight English number-to-words conversion for TTS text normalization. Covers cardinals (integers + decimals) and ordinals, matching the subset of Python's num2words used by text_normalizer.py.
 
 import Foundation
 

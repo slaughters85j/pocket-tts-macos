@@ -2,9 +2,7 @@
 //  PersonaWriterTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Persona-writer request path: the happy path, retry-on-error, reasoning-channel
-//  recovery (gpt-oss), tolerant contract decoding, and voice resolution. The LLM
-//  is stubbed via LLMStubURLProtocol (FIFO queue for the retry sequence).
+//  Persona-writer request path: the happy path, retry-on-error, reasoning-channel recovery (gpt-oss), tolerant contract decoding, and voice resolution. The LLM is stubbed via LLMStubURLProtocol (FIFO queue for the retry sequence).
 //
 
 import XCTest
@@ -24,8 +22,7 @@ final class PersonaWriterTests: XCTestCase {
         return LocalLLMClient(baseURL: URL(string: "http://localhost:1234")!, session: URLSession(configuration: config))
     }
 
-    /// Wrap raw JSON the model "said" as a streaming SSE response (the writer
-    /// now uses the streaming endpoint, same shape as Solo Chat).
+    /// Wrap raw JSON the model "said" as a streaming SSE response (the writer now uses the streaming endpoint, same shape as Solo Chat).
     private func completion(_ said: String) -> Data {
         let escaped = said
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -34,9 +31,7 @@ final class PersonaWriterTests: XCTestCase {
         return Data((chunk + "data: [DONE]\n\n").utf8)
     }
 
-    /// A REASONING-channel SSE response: `content` never appears and the model's
-    /// answer streams via `delta.reasoning` (gpt-oss via LM Studio). The writer
-    /// opts into reasoning capture, so the JSON is still recovered.
+    /// A REASONING-channel SSE response: `content` never appears and the model's answer streams via `delta.reasoning` (gpt-oss via LM Studio). The writer opts into reasoning capture, so the JSON is still recovered.
     private func reasoningCompletion(_ said: String) -> Data {
         let escaped = said
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -56,9 +51,7 @@ final class PersonaWriterTests: XCTestCase {
     }
 
     func test_requestJSON_recoversJSONFromReasoningChannel() async throws {
-        // gpt-oss/LM Studio: the whole answer (incl. the JSON) lands in the
-        // reasoning channel with `content` empty. The writer must still recover
-        // it — and without spending a retry.
+        // gpt-oss/LM Studio: the whole answer (incl. the JSON) lands in the reasoning channel with `content` empty. The writer must still recover it — and without spending a retry.
         LLMStubURLProtocol.setResponse(reasoningCompletion(#"{"scene":"s","mood":"m","cast":[]}"#))
         let skeleton = try await PersonaWriter.requestJSON(
             CastSkeleton.self, client: stubClient(),
@@ -69,8 +62,7 @@ final class PersonaWriterTests: XCTestCase {
     }
 
     func test_requestJSON_retriesAsTextWhenFirstAttemptRejected() async throws {
-        // Attempt 1 errors (e.g. 400 / timeout); the writer retries the same
-        // streaming request and the second attempt returns 200 OK.
+        // Attempt 1 errors (e.g. 400 / timeout); the writer retries the same streaming request and the second attempt returns 200 OK.
         LLMStubURLProtocol.enqueue(Data("response_format unsupported".utf8), statusCode: 400)
         LLMStubURLProtocol.enqueue(completion(#"{"name":"Ada","voice":"dry","temperature":0.6,"persona_prompt":"hi","reads_on_others":{}}"#))
 
@@ -120,8 +112,7 @@ final class PersonaWriterTests: XCTestCase {
     // MARK: - Name reconciliation
 
     func test_reconcileNames_userNamesWinOverModelDuplicates() {
-        // The real bug: the user typed distinct names but the model returned two
-        // identical ones ("Data" came back as a second "William Riker").
+        // The real bug: the user typed distinct names but the model returned two identical ones ("Data" came back as a second "William Riker").
         let skel = CastSkeleton(scene: "s", mood: "m", cast: [
             PersonaStub(name: "Commander William Riker"),
             PersonaStub(name: "Commander William Riker"),

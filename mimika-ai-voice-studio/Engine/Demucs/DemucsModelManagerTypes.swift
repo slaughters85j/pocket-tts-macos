@@ -2,35 +2,24 @@
 //  DemucsModelManagerTypes.swift
 //  mimika-ai-voice-studio
 //
-//  State + error enums for `DemucsModelManager`, split into their
-//  own file so the manager stays focused on the singleton +
-//  download flow. Lives in a separate file because:
-//    * `DownloadState` is referenced by the (future) Manage
-//      Separation Models sheet view, and pulling that file
-//      into a UI module shouldn't drag the entire @MainActor
-//      manager with it.
-//    * `ManagerError` is surfaced by the manager's public API;
-//      callers `as?`-cast against these cases and benefit from
-//      having them right next to the state vocabulary.
+//  State + error enums for `DemucsModelManager`, split into their own file so the manager stays focused on the singleton + download flow. Lives in a separate file because:
+//    * `DownloadState` is referenced by the (future) Manage Separation Models sheet view, and pulling that file into a UI module shouldn't drag the entire @MainActor manager with it.
+//    * `ManagerError` is surfaced by the manager's public API; callers `as?`-cast against these cases and benefit from having them right next to the state vocabulary.
 
 import Foundation
 
 // MARK: - DownloadState
 
-/// Phase the download pipeline is in for a given variant. The UI
-/// uses this to swap the per-row label between progress %,
-/// "Verifying…", "Installing…", and the backoff countdown.
+/// Phase the download pipeline is in for a given variant. The UI uses this to swap the per-row label between progress %, "Verifying…", "Installing…", and the backoff countdown.
 nonisolated enum DemucsDownloadState: Sendable, Equatable {
     case idle
-    /// Bytes streaming. Pair with `downloadProgress[variant]` if
-    /// progress reporting is wired up.
+    /// Bytes streaming. Pair with `downloadProgress[variant]` if progress reporting is wired up.
     case downloading
     /// SHA256 hash in progress.
     case verifying
     /// Unzip + atomic move into the install dir.
     case installing
-    /// Last attempt failed; sleeping before retry. `nextRetrySec`
-    /// is what the UI shows in the countdown.
+    /// Last attempt failed; sleeping before retry. `nextRetrySec` is what the UI shows in the countdown.
     case backingOff(attempt: Int, nextRetrySec: Int)
     /// Pipeline gave up after exhausting retries.
     case failed(reason: String)
@@ -38,9 +27,7 @@ nonisolated enum DemucsDownloadState: Sendable, Equatable {
 
 // MARK: - ManagerError
 
-/// Public error vocabulary surfaced by `DemucsModelManager.download`,
-/// `delete`, etc. Each case wraps the underlying failure with
-/// enough context that the UI can render a useful message.
+/// Public error vocabulary surfaced by `DemucsModelManager.download`, `delete`, etc. Each case wraps the underlying failure with enough context that the UI can render a useful message.
 enum DemucsModelManagerError: Error, CustomStringConvertible {
     case downloadFailed(DemucsModelVariant, underlying: Error?)
     case shaMismatch(expected: String, actual: String)

@@ -6,15 +6,9 @@
 //   2. Input block returning destination buffer as input (memory aliasing).
 //   3. Input block reporting .haveData forever with no .endOfStream.
 //
-//  The fixture is a synthetic sine wave written at 2ch / 24 kHz / Int16
-//  (matching the broken ElevenLabs export format that prompted the fix).
+//  The fixture is a synthetic sine wave written at 2ch / 24 kHz / Int16 (matching the broken ElevenLabs export format that prompted the fix).
 //
-//  Sandbox note: AVAudioFile(forWriting:) + write(from:) requires a mach
-//  lookup for com.apple.audioanalyticsd which the test target's
-//  entitlements don't grant — calling it from inside the sandbox aborts
-//  the process with EXC_BREAKPOINT. We side-step that by writing raw WAV
-//  bytes for our fixtures, matching the pattern in
-//  AudioFileLoaderRegressionTests and AudioFileLoaderStereoTests.
+//  Sandbox note: AVAudioFile(forWriting:) + write(from:) requires a mach lookup for com.apple.audioanalyticsd which the test target's entitlements don't grant — calling it from inside the sandbox aborts the process with EXC_BREAKPOINT. We side-step that by writing raw WAV bytes for our fixtures, matching the pattern in AudioFileLoaderRegressionTests and AudioFileLoaderStereoTests.
 
 import AVFoundation
 import Foundation
@@ -26,10 +20,7 @@ final class AudioPreconditionerTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Writes a 440 Hz sine to a 2-channel 16-bit interleaved WAV at
-    /// `sampleRate` for `seconds` and returns the URL. Uses raw bytes
-    /// (NOT AVAudioFile.write) to dodge the audioanalyticsd sandbox
-    /// crash in the test runner.
+    /// Writes a 440 Hz sine to a 2-channel 16-bit interleaved WAV at `sampleRate` for `seconds` and returns the URL. Uses raw bytes (NOT AVAudioFile.write) to dodge the audioanalyticsd sandbox crash in the test runner.
     private func writeStereoSineWAV(
         seconds: Double,
         sampleRate: Int = 24_000,
@@ -52,8 +43,7 @@ final class AudioPreconditionerTests: XCTestCase {
         return url
     }
 
-    /// Writes a 16-bit interleaved stereo WAV. Mirrors WAVEncoder's
-    /// RIFF/WAVE/fmt/data header layout but with channels=2.
+    /// Writes a 16-bit interleaved stereo WAV. Mirrors WAVEncoder's RIFF/WAVE/fmt/data header layout but with channels=2.
     private func writeStereo16BitWAV(
         left: [Float],
         right: [Float],
@@ -158,8 +148,7 @@ final class AudioPreconditionerTests: XCTestCase {
             maxSeconds: nil
         )
 
-        // RMS of a 0.5-amplitude sine should be ~0.354. Allow wide tolerance
-        // for SRC ripple.
+        // RMS of a 0.5-amplitude sine should be ~0.354. Allow wide tolerance for SRC ripple.
         var sumSq: Double = 0
         for s in samples { sumSq += Double(s) * Double(s) }
         let rms = sqrt(sumSq / Double(samples.count))
@@ -220,10 +209,7 @@ final class AudioPreconditionerTests: XCTestCase {
     }
 
     func testNeedsConversion_passesMono44k() throws {
-        // Build a mono 44.1 kHz file directly so we don't depend on the
-        // converter under test. WAVEncoder.write produces a mono 16-bit
-        // PCM WAV via raw bytes — no AVAudioFile.write involved, so this
-        // doesn't trip the audioanalyticsd sandbox precondition.
+        // Build a mono 44.1 kHz file directly so we don't depend on the converter under test. WAVEncoder.write produces a mono 16-bit PCM WAV via raw bytes — no AVAudioFile.write involved, so this doesn't trip the audioanalyticsd sandbox precondition.
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("audioprecond_mono_\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: url) }
