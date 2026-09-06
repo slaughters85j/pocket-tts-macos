@@ -37,7 +37,7 @@ struct ChatView: View {
                     onDeleted: detachIfDeleted,
                     onNew: subMode == .solo
                         ? { viewModel.startNewSoloConversation() }
-                        : nil
+                        : { showsEnsembleSetup = true }
                 )
                 .fixedSize(horizontal: true, vertical: false)
                 Divider().background(Theme.borderColor)
@@ -252,15 +252,18 @@ struct ChatView: View {
 
     @ViewBuilder
     private var soloControls: some View {
-        Button(action: { viewModel.startNewSoloConversation() }) {
-            Label("New Chat", systemImage: "square.and.pencil")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.accent)
+        // Fallback only. The thread list header carries the same control in a more natural place, so this would be pure redundancy while the sidebar is open — but the sidebar unmounts when collapsed, and there is no menu item or keyboard shortcut behind it, so with no fallback a new thread would be unreachable from that state.
+        if threadBrowser.isCollapsed {
+            Button(action: { viewModel.startNewSoloConversation() }) {
+                Label("New Chat", systemImage: "square.and.pencil")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.hasActiveTurn)
+            .help("Start a new Solo thread. The current conversation stays in the list.")
+            .accessibilityIdentifier("chat.newThread")
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.hasActiveTurn)
-        .help("Start a new Solo thread. The current conversation stays in the list.")
-        .accessibilityIdentifier("chat.newThread")
 
         Button(action: { viewModel.saveTranscript() }) {
             Image(systemName: "square.and.arrow.down")

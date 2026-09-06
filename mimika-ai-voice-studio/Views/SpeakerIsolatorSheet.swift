@@ -70,7 +70,7 @@ struct SpeakerIsolatorSheet: View {
 
             footer
         }
-        .frame(width: 620, height: 936)
+        .frame(width: 620, height: sheetHeight)
         .background(Theme.bgPrimary)
         // Phase 7: HTDemucs Manage Separation Models sheet. Driven by the Audio Preservation section's inline CTA + by the soft-fallback banner (when separationFellBackToV1).
         .sheet(isPresented: $showDemucsModelManagerSheet) {
@@ -89,6 +89,12 @@ struct SpeakerIsolatorSheet: View {
                 viewModel.setInputAudio(url)
             }
         }
+    }
+
+    /// The sheet's 936pt design height, clamped to the screen it opens on. A macOS sheet honors a fixed height even when that is taller than the display, so on a MacBook Air the design height ran off both edges and took the footer's export controls with it. Header and footer are already pinned outside the scroll view, so the scroll view absorbs the difference.
+    private var sheetHeight: CGFloat {
+        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 936
+        return min(936, max(420, visibleHeight - 80))
     }
 
     // MARK: - Header

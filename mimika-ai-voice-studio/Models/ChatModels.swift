@@ -294,6 +294,8 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
     var launchAtLogin: Bool
     /// Force-supported model capabilities, keyed by normalized endpoint/model.
     var capabilityOverrides: [String: Int]
+    /// Load the selected model at app launch instead of waiting for the user to ask. Launch rather than first use of the Chat tab, because the Multi-Talk and Single Voice AI Script Writers hit the same endpoint and would otherwise never trigger the warm-up. Off by default: a cold load pulls multiple gigabytes into RAM, which is the wrong thing to do unasked to someone who opened the app to synthesize speech.
+    var autoLoadModelAtLaunch: Bool
 
     static let `default` = ChatSettings(
         baseURL: "http://localhost:1234",
@@ -307,7 +309,8 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
         readAloudEnabled: false,
         readAloudVoiceID: "cosette",
         launchAtLogin: false,
-        capabilityOverrides: [:]
+        capabilityOverrides: [:],
+        autoLoadModelAtLaunch: false
     )
 
     static let defaultSingleVoicePrompt = """
@@ -409,5 +412,6 @@ extension ChatSettings {
         self.readAloudVoiceID = try c.decodeIfPresent(String.self, forKey: .readAloudVoiceID) ?? d.readAloudVoiceID
         self.launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
         self.capabilityOverrides = try c.decodeIfPresent([String: Int].self, forKey: .capabilityOverrides) ?? d.capabilityOverrides
+        self.autoLoadModelAtLaunch = try c.decodeIfPresent(Bool.self, forKey: .autoLoadModelAtLaunch) ?? d.autoLoadModelAtLaunch
     }
 }

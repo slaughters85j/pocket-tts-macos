@@ -129,6 +129,23 @@ final class AppState {
             .baseURL
     }
 
+    /// Honor `autoLoadModelAtLaunch` once, so the first LLM request of the session does not pay for a cold start.
+    ///
+    /// This lives on AppState rather than on ChatViewModel because the endpoint is not Chat's alone — the Single Voice and Multi-Talk AI Script Writers hit it too, and a user who works in Multi-Talk may never open the Chat tab. Hanging the warm-up off Chat's health loop would silently skip exactly those people.
+    ///
+    /// Fire-and-forget: nothing blocks launch on it, and a failure stays silent because an endpoint that is simply not running is the ordinary case for an opt-in warm-up. `switchToModel` returns early when the model is already serving, so the steady-state cost is one catalog request.
+    func autoLoadLLMModelIfEnabled() {
+        guard chatSettings.autoLoadModelAtLaunch else { return }
+        let model = chatSettings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty, let url = URL(string: currentEndpointBaseURL) else { return }
+
+        autoLoadLLMTask?.cancel()
+        autoLoadLLMTask = Task {
+            let client = LocalLLMClient(baseURL: url)
+            _ = try? await client.switchToModel(model)
+        }
+    }
+
     /// Atomically apply the persisted endpoint and model/settings snapshot.
     func applyChatConfiguration(_ newSettings: ChatSettings, endpointBaseURL: String) throws {
         let normalizedEndpoint = ChatModelSelection.normalizeEndpoint(endpointBaseURL)
@@ -171,6 +188,9 @@ final class AppState {
     private(set) var engine: TTSEngine?
     private(set) var player: StreamingPlayer?
     private(set) var fishEngine: FishEngine?
+
+    /// The one-shot `autoLoadModelAtLaunch` warm-up. Held so a second call (settings re-applied) replaces the first rather than racing it.
+    @ObservationIgnored private var autoLoadLLMTask: Task<Void, Never>?
 
     /// Read-Aloud feature (menu bar + macOS Service): the shared speak/stop controller and the Services provider object. Lazily built so they only come into being once the feature is actually used.
     @ObservationIgnored private(set) lazy var readAloud = ReadAloudController(appState: self)

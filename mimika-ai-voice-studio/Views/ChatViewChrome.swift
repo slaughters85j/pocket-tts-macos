@@ -98,14 +98,17 @@ struct EnsembleToolbarControls: View {
             .accessibilityIdentifier("ensemble.reuseLast")
         }
 
-        Button(action: { showsSetup = true }) {
-            Label("New Cast", systemImage: "person.3.sequence.fill")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.accent)
+        // Fallback only, mirroring Solo's New Chat. The thread list header carries this same action in a more natural place, so it would be pure redundancy while the sidebar is open — but the sidebar unmounts when collapsed, and no menu item or keyboard shortcut sits behind it. Reuse Last is not gated: it has no twin in the sidebar, so it is never redundant.
+        if browser.isCollapsed {
+            Button(action: { showsSetup = true }) {
+                Label("New Cast", systemImage: "person.3.sequence.fill")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Generate a new cast with the persona-writer")
+            .accessibilityIdentifier("ensemble.newCast")
         }
-        .buttonStyle(.plain)
-        .help("Generate a new cast with the persona-writer")
-        .accessibilityIdentifier("ensemble.newCast")
     }
 
     private var reuseLastHelp: String {

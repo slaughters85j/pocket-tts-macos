@@ -167,6 +167,15 @@ nonisolated struct LMStudioModelsResponse: Decodable {
         models.flatMap { $0.loadedInstances.map(\.id) }
     }
 
+    /// Loaded instance ids belonging to one model, so a caller holding only a model id can eject it. Matches on the catalog key or on any instance id, because a saved preference may hold either.
+    func loadedInstanceIDs(for model: String) -> [String] {
+        models
+            .filter { entry in
+                idsMatch(entry.key, model) || entry.loadedInstances.contains { idsMatch($0.id, model) }
+            }
+            .flatMap { $0.loadedInstances.map(\.id) }
+    }
+
     /// True if `model` is already loaded (matches key or instance id).
     func isServing(_ model: String) -> Bool {
         servingModelIDs().contains { idsMatch($0, model) }
